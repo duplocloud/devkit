@@ -13,6 +13,7 @@
 #   ./scripts/switch-llm.sh bedrock   [--aws-access-key-id ..] [--aws-secret-access-key ..] \
 #                                     [--aws-session-token ..] [--aws-region ..]
 #   ./scripts/switch-llm.sh bedrock-instance-role [--aws-region ..]
+#   ./scripts/switch-llm.sh subscription [--subscription-token T] [--subscription-model M]
 #   ./scripts/switch-llm.sh gateway   [--gateway-url U] [--gateway-token T] [--gateway-model M] \
 #                                     [--gateway-disable-betas 1] [--gateway-max-context-tokens N] \
 #                                     [--gateway-compact-window N]
@@ -30,6 +31,7 @@ cd "$(dirname "$0")/.."
 ENV=.env
 [ -f "$ENV" ] || { echo "No .env found — run ./run.sh first to set up the stack." >&2; exit 1; }
 . ./scripts/_provider_gateway.sh
+. ./scripts/_provider_subscription.sh
 
 NONINTERACTIVE=0
 F_ANTHROPIC=""; F_AWS_KEY=""; F_AWS_SECRET=""; F_AWS_TOKEN=""; F_AWS_REGION=""
@@ -45,6 +47,8 @@ while [ $# -gt 0 ]; do
     --aws-secret-access-key) F_AWS_SECRET="$2"; shift ;;
     --aws-session-token) F_AWS_TOKEN="$2"; shift ;;
     --aws-region) F_AWS_REGION="$2"; shift ;;
+    --subscription-token) F_SUBSCRIPTION_TOKEN="$2"; shift ;;
+    --subscription-model) F_SUBSCRIPTION_MODEL="$2"; shift ;;
     --gateway-url) F_GATEWAY_URL="$2"; shift ;;
     --gateway-token) F_GATEWAY_TOKEN="$2"; shift ;;
     --gateway-model) F_GATEWAY_MODEL="$2"; shift ;;
@@ -89,6 +93,8 @@ KEYS_bedrock=(AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_REGI
 KEYS_bedrock_instance_role=(AWS_REGION CLAUDE_MODEL)
 # GATEWAY_KEYS comes from _provider_gateway.sh; CLAUDE_MODEL is set by provider_gateway_configure too.
 KEYS_gateway=("${GATEWAY_KEYS[@]}" CLAUDE_MODEL)
+# SUBSCRIPTION_KEYS comes from _provider_subscription.sh; CLAUDE_MODEL is set by its configure too.
+KEYS_subscription=("${SUBSCRIPTION_KEYS[@]}" CLAUDE_MODEL)
 
 keys_for() { # provider -> prints the array name to nameref
   case "$1" in
@@ -96,10 +102,11 @@ keys_for() { # provider -> prints the array name to nameref
     bedrock) printf '%s\n' "${KEYS_bedrock[@]}" ;;
     bedrock-instance-role) printf '%s\n' "${KEYS_bedrock_instance_role[@]}" ;;
     gateway) printf '%s\n' "${KEYS_gateway[@]}" ;;
+    subscription) printf '%s\n' "${KEYS_subscription[@]}" ;;
   esac
 }
 
-known_providers="anthropic bedrock bedrock-instance-role gateway"
+known_providers="anthropic bedrock bedrock-instance-role gateway subscription"
 
 status() {
   local cur; cur="$(getenv DEVKIT_MODEL)"
@@ -118,10 +125,10 @@ status() {
   done
 }
 
-[ -n "$TARGET" ] || { echo "Usage: ./scripts/switch-llm.sh <anthropic|bedrock|bedrock-instance-role|gateway|status> [flags]" >&2; exit 1; }
+[ -n "$TARGET" ] || { echo "Usage: ./scripts/switch-llm.sh <anthropic|bedrock|bedrock-instance-role|gateway|subscription|status> [flags]" >&2; exit 1; }
 TARGET="$(printf '%s' "$TARGET" | tr '[:upper:]' '[:lower:]')"
 [ "$TARGET" = status ] && { status; exit 0; }
-case " $known_providers " in *" $TARGET "*) ;; *) echo "Unknown provider '$TARGET' (use anthropic, bedrock, bedrock-instance-role, gateway, or status)." >&2; exit 1 ;; esac
+case " $known_providers " in *" $TARGET "*) ;; *) echo "Unknown provider '$TARGET' (use anthropic, bedrock, bedrock-instance-role, gateway, subscription, or status)." >&2; exit 1 ;; esac
 
 CURRENT="$(getenv DEVKIT_MODEL)"
 if [ "$CURRENT" = "$TARGET" ]; then
@@ -178,6 +185,10 @@ case "$TARGET" in
     provider_gateway_configure || exit 1
     LLM_DESC="LLM Gateway"
     ;;
+  subscription)
+    provider_subscription_configure || exit 1
+    LLM_DESC="Claude Code subscription"
+    ;;
 esac
 
 setenv DEVKIT_MODEL "$TARGET"
@@ -195,6 +206,7 @@ if LLM_PROVIDER_LABEL="$LLM_DESC" ./scripts/register-llm.sh; then
   case "$TARGET" in
     gateway) echo "✔ agent now on LLM gateway @ $(getenv ANTHROPIC_BASE_URL) (model: $(getenv CLAUDE_MODEL))" ;;
     bedrock-instance-role) echo "✔ agent now on $LLM_DESC @ $(getenv AWS_REGION)" ;;
+    subscription) echo "✔ agent now on your Claude Code subscription (model: $(getenv CLAUDE_MODEL)) — local dev only" ;;
     *) echo "✔ agent now on $LLM_DESC (model: $(getenv CLAUDE_MODEL))" ;;
   esac
 else
