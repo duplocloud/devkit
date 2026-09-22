@@ -177,7 +177,7 @@ You are done when you see:
   API       http://localhost:60031
   Workspace extension-dev  (68d1f0c2a4b95e0c3d7e1a42)  ·  agent registered + attached
   Token     DUPLO_ADMIN_TOKEN set in .env (permanent)
-  LLM       System default → claude-sonnet-4-6 (direct Anthropic)
+  LLM       System default → claude-sonnet-5 (direct Anthropic); also available: claude-opus-5
   Metrics   on (opted in)
             change: set DUPLO_USAGE_METRICS=0|1 in .env, re-run ./run.sh, reload the UI tab  ·  see PRIVACY.md
 

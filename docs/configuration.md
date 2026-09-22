@@ -169,7 +169,8 @@ Managed by `./run.sh` — leave them blank in a fresh `.env` and let it prompt.
 | Variable | Effect |
 | --- | --- |
 | `DEVKIT_MODEL` | `anthropic`, `bedrock`, `gateway`, or `bedrock-instance-role`. Chooses which credential block below is used. |
-| `CLAUDE_MODEL` | The model id the agent calls. `claude-sonnet-4-6` for Anthropic; `us.anthropic.claude-sonnet-4-6` for either Bedrock mode; for `gateway`, whatever the gateway calls it (OpenRouter: `anthropic/claude-sonnet-4.6`). Not interchangeable — the direct Anthropic API rejects the `us.*` prefix and Bedrock requires it. |
+| `CLAUDE_MODEL` | The model id the agent calls, and the System default in the ticket LLM picker. `claude-sonnet-5` for Anthropic; `us.anthropic.claude-sonnet-5` for either Bedrock mode; for `gateway`, whatever the gateway calls it (OpenRouter: `anthropic/claude-sonnet-5`). Not interchangeable — the direct Anthropic API rejects the `us.*` prefix and Bedrock requires it. |
+| `CLAUDE_EXTRA_MODELS` | Comma-separated extra model ids registered alongside `CLAUDE_MODEL` so they show in the picker. `claude-opus-5` for Anthropic, `us.anthropic.claude-opus-5` for Bedrock, blank for `gateway` (gateway ids are provider-specific). Registration-only; the agent runs on `CLAUDE_MODEL`. |
 | `ANTHROPIC_API_KEY` | Direct Anthropic API key. Blanked by `gateway`: key **and** URL together mean "proxy in front of the real Anthropic API", a different agent code path that would send the gateway's token nowhere useful. |
 | `ANTHROPIC_BASE_URL` | `gateway`: base URL of any Anthropic-compatible endpoint — OpenRouter, Bifrost, LiteLLM, Snowflake Cortex. The gateway holds the real provider credentials; Bedrock is never enabled on this path. |
 | `ANTHROPIC_AUTH_TOKEN` | `gateway`: bearer token / API key the gateway expects. Blank for an unauthenticated gateway (a local Bifrost, say). |

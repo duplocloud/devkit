@@ -177,7 +177,7 @@ Switch back to **AI DevOps** with the app switcher at the top left before you st
 
 3. Leave the model selector at the bottom right of that box alone. It is already set, and reads your
    model followed by `(Direct Anthropic)` with a sub-line of `SDK: local-agent` — for example
-   `claude-sonnet-4-6 (Direct Anthropic)`. There is no separate agent to choose.
+   `claude-sonnet-5 (Direct Anthropic)` (with `claude-opus-5` also offered). There is no separate agent to choose.
 
 4. Open **Select Scopes** and pick **`aws-readonly`**. Each entry shows the scope name with a small
    type badge beside it — `aws` for this one.
