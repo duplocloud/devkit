@@ -12,7 +12,7 @@
 # real Anthropic API" — a different code path that would send the gateway's token nowhere useful — so
 # blanking ANTHROPIC_API_KEY here is load-bearing, exactly like bedrock-instance-role blanks AWS keys.
 
-GATEWAY_DEFAULT_MODEL="claude-sonnet-4-6"
+GATEWAY_DEFAULT_MODEL="claude-sonnet-5"
 # Context-window defaults, set on the gateway path ONLY. A gateway usually serves model ids the Claude
 # CLI does not recognise, and an unrecognised id has no known context window: long sessions then hard-400
 # instead of compacting. Declaring both up front makes that work without the user having to know the
@@ -64,8 +64,8 @@ provider_gateway_configure() {
     2. an access token         — the API key or bearer token the gateway gave you. Just press Enter
                                  if your gateway doesn't require one (a local Bifrost, for instance).
     3. a model name            — exactly as your gateway lists it. OpenRouter uses names like
-                                 anthropic/claude-sonnet-4.6; a pass-through gateway usually takes
-                                 the plain Anthropic id, e.g. claude-sonnet-4-6.
+                                 anthropic/claude-sonnet-5; a pass-through gateway usually takes
+                                 the plain Anthropic id, e.g. claude-sonnet-5.
 
 TXT
   fi
@@ -97,6 +97,7 @@ TXT
   setenv ANTHROPIC_BASE_URL "$url"
   setenv ANTHROPIC_AUTH_TOKEN "$token"
   setenv CLAUDE_MODEL "$model"
+  setenv CLAUDE_EXTRA_MODELS ""  # gateways name models their own way — register only the one you gave us
   setenv ANTHROPIC_API_KEY ""   # load-bearing — see header
 
   # Per-gateway tuning. Flag > value already in .env > default. The two window sizes always end up set

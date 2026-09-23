@@ -27,7 +27,7 @@
 #   ./run.sh --email a@b.com --password 'pw' --model anthropic --anthropic-key sk-... --no-metrics   non-interactive.
 #   ./run.sh --model bedrock --aws-access-key-id AKIA... --aws-secret-access-key ... [--aws-session-token ...] [--aws-region us-west-2]
 #   ./run.sh --model bedrock-instance-role [--aws-region us-east-1]   Bedrock via this EC2 instance's IAM role (no keys).
-#   ./run.sh --model gateway --gateway-url https://openrouter.ai/api --gateway-token sk-or-... [--gateway-model anthropic/claude-sonnet-4.6]
+#   ./run.sh --model gateway --gateway-url https://openrouter.ai/api --gateway-token sk-or-... [--gateway-model anthropic/claude-sonnet-5]
 #                                  any Anthropic-compatible LLM gateway (OpenRouter, Bifrost, LiteLLM, …). Optional
 #                                  Sets a 262144-token context window and a 200000 compact threshold (a gateway
 #                                  usually serves model ids the CLI does not know, which otherwise have none);
@@ -579,7 +579,7 @@ if [ "$RESET" = 1 ]; then
   docker compose down -v 2>/dev/null || true
   for k in Authentication__LocalAdminEmail Authentication__LocalAdminPassword Authentication__SuperUsers \
            DEVKIT_MODEL ANTHROPIC_API_KEY AWS_REGION AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
-           "${GATEWAY_KEYS[@]}" \
+           CLAUDE_MODEL CLAUDE_EXTRA_MODELS "${GATEWAY_KEYS[@]}" \
            Encryption__MasterKey Authentication__JwtSharedSecret DUPLO_ADMIN_TOKEN EXTENSION_DEV_WORKSPACE_ID \
            EXTENSION_DEV_PERMSET_ID EXTENSION_DEV_PERMSETGROUP_ID \
            QDRANT_PROVIDER_ID QDRANT_SCOPE_ID QDRANT_COLLECTION_ID \
@@ -637,7 +637,10 @@ resolve() { # flagval envkey prompt [secret]
 
 # The Bedrock model id the dev kit runs on — also what detect-bedrock.sh probes, so a successful
 # probe proves invoke permission on the exact model the agent will call (not just "some" Bedrock access).
-BEDROCK_PROBE_MODEL="us.anthropic.claude-sonnet-4-6"
+# BEDROCK_EXTRA_MODELS are offered alongside it in the ticket LLM picker (not probed — a missing Opus
+# inference profile shows up as a failed ticket, not a failed setup).
+BEDROCK_PROBE_MODEL="us.anthropic.claude-sonnet-5"
+BEDROCK_EXTRA_MODELS="us.anthropic.claude-opus-5"
 
 echo "==> Setup (prompts appear only for values not already set)…"
 # Very basic email sanity check: name@example.com (no spaces).
@@ -905,7 +908,8 @@ setenv AIStudio__IsMasterDisabled true
 if [ "$MODEL" = anthropic ]; then
   KEY="$(resolve "$F_ANTHROPIC" ANTHROPIC_API_KEY 'Anthropic API key' secret)"
   setenv ANTHROPIC_API_KEY "$KEY"
-  setenv CLAUDE_MODEL "claude-sonnet-4-6"
+  setenv CLAUDE_MODEL "claude-sonnet-5"
+  setenv CLAUDE_EXTRA_MODELS "claude-opus-5"
   # A gateway URL left over from a previous provider choice would make the agent send this key to the
   # gateway instead of api.anthropic.com (key + URL = "proxy in front of Anthropic"). Warn, don't clear.
   [ -z "$(getenv ANTHROPIC_BASE_URL)" ] || echo "    note: ANTHROPIC_BASE_URL is still set in .env — the agent will send your Anthropic key THERE, not to api.anthropic.com. Clear it (or ./run.sh --reset) unless that's intended."
@@ -954,6 +958,7 @@ elif [ "$MODEL" = bedrock-instance-role ]; then
   for k in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN ANTHROPIC_API_KEY ANTHROPIC_BASE_URL; do setenv "$k" ""; done
   setenv AWS_REGION "$RG"
   setenv CLAUDE_MODEL "$BEDROCK_PROBE_MODEL"
+  setenv CLAUDE_EXTRA_MODELS "$BEDROCK_EXTRA_MODELS"
   echo "    using EC2 instance role${AWS_ROLE:+ ($AWS_ROLE)} for Bedrock in $RG — no keys stored in .env."
 elif [ "$MODEL" = bedrock ]; then
   AK="$(resolve "$F_AWS_KEY" AWS_ACCESS_KEY_ID 'AWS access key id')"
@@ -961,7 +966,8 @@ elif [ "$MODEL" = bedrock ]; then
   ST="$F_AWS_TOKEN"; [ -z "$ST" ] && ST="$(getenv AWS_SESSION_TOKEN)"
   RG="$F_AWS_REGION"; [ -z "$RG" ] && RG="$(getenv AWS_REGION)"; [ -z "$RG" ] && RG="us-west-2"
   setenv AWS_ACCESS_KEY_ID "$AK"; setenv AWS_SECRET_ACCESS_KEY "$SK"; setenv AWS_SESSION_TOKEN "$ST"; setenv AWS_REGION "$RG"
-  setenv CLAUDE_MODEL "us.anthropic.claude-sonnet-4-6"
+  setenv CLAUDE_MODEL "$BEDROCK_PROBE_MODEL"
+  setenv CLAUDE_EXTRA_MODELS "$BEDROCK_EXTRA_MODELS"
   # The agent picks its provider by precedence ANTHROPIC_API_KEY → gateway → Azure → Bedrock (docker-compose.yml),
   # so a leftover Anthropic key silently wins over Bedrock. We no longer clear it (only --reset does) — warn.
   [ -z "$(getenv ANTHROPIC_API_KEY)" ] || echo "    note: ANTHROPIC_API_KEY is still set in .env — the agent prefers it over Bedrock. Clear it (or ./run.sh --reset) to force Bedrock."
@@ -1130,9 +1136,10 @@ fi
 
 # ── register the model the agent runs on as the System default (every provider) ───
 # The studio registers no LLM model of its own, so without this the ticket LLM picker has nothing to
-# offer whichever provider you picked. register-llm.sh reads CLAUDE_MODEL from .env — already set above
-# to the right id per provider (bare claude-* for direct Anthropic, us.anthropic.* for either Bedrock
-# mode) — so the same call registers the correct variant and makes it the sole System default.
+# offer whichever provider you picked. register-llm.sh reads CLAUDE_MODEL + CLAUDE_EXTRA_MODELS from .env
+# — already set above to the right ids per provider (bare claude-* for direct Anthropic, us.anthropic.*
+# for either Bedrock mode) — so the same call registers the correct variants, makes them the only System
+# models, and CLAUDE_MODEL the default.
 LLM_LINE=""
 case "$MODEL" in
   anthropic)             LLM_DESC="direct Anthropic" ;;
@@ -1144,6 +1151,7 @@ echo "==> Registering $(getenv CLAUDE_MODEL) ($LLM_DESC) as the System default L
 if LLM_PROVIDER_LABEL="$LLM_DESC" ./scripts/register-llm.sh; then
   LLM_LINE="
   LLM       System default → $(getenv CLAUDE_MODEL) ($LLM_DESC)"
+  [ -z "$(getenv CLAUDE_EXTRA_MODELS)" ] || LLM_LINE="$LLM_LINE; also available: $(getenv CLAUDE_EXTRA_MODELS)"
 else
   echo "    (LLM registration failed — run ./scripts/register-llm.sh manually)"
 fi

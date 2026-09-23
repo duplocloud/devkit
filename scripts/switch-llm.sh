@@ -84,11 +84,11 @@ resolve() { # flagval envkey prompt secret?
 
 # Every key each provider owns. Kept in one place so stash/restore and the outgoing-blank step can't
 # drift from what each arm below actually writes.
-KEYS_anthropic=(ANTHROPIC_API_KEY)
-KEYS_bedrock=(AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_REGION CLAUDE_MODEL)
-KEYS_bedrock_instance_role=(AWS_REGION CLAUDE_MODEL)
+KEYS_anthropic=(ANTHROPIC_API_KEY CLAUDE_MODEL CLAUDE_EXTRA_MODELS)
+KEYS_bedrock=(AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_REGION CLAUDE_MODEL CLAUDE_EXTRA_MODELS)
+KEYS_bedrock_instance_role=(AWS_REGION CLAUDE_MODEL CLAUDE_EXTRA_MODELS)
 # GATEWAY_KEYS comes from _provider_gateway.sh; CLAUDE_MODEL is set by provider_gateway_configure too.
-KEYS_gateway=("${GATEWAY_KEYS[@]}" CLAUDE_MODEL)
+KEYS_gateway=("${GATEWAY_KEYS[@]}" CLAUDE_MODEL CLAUDE_EXTRA_MODELS)
 
 keys_for() { # provider -> prints the array name to nameref
   case "$1" in
@@ -146,12 +146,15 @@ fi
 
 # Same model ids and defaults run.sh's own arms use, so a model already registered under one provider
 # is recognized (or replaced) the same way a fresh ./run.sh setup would.
-BEDROCK_MODEL="us.anthropic.claude-sonnet-4-6"
+BEDROCK_MODEL="us.anthropic.claude-sonnet-5"
+BEDROCK_EXTRA_MODELS="us.anthropic.claude-opus-5"
 
 case "$TARGET" in
   anthropic)
     KEY="$(resolve "$F_ANTHROPIC" ANTHROPIC_API_KEY 'Anthropic API key' secret)"
     setenv ANTHROPIC_API_KEY "$KEY"
+    setenv CLAUDE_MODEL "claude-sonnet-5"
+    setenv CLAUDE_EXTRA_MODELS "claude-opus-5"
     [ -z "$(getenv ANTHROPIC_BASE_URL)" ] || echo "    note: ANTHROPIC_BASE_URL is still set in .env — the agent will send your Anthropic key THERE, not to api.anthropic.com. Clear it (./scripts/switch-llm.sh gateway then back, or edit .env) unless that's intended."
     LLM_DESC="direct Anthropic"
     ;;
@@ -162,6 +165,7 @@ case "$TARGET" in
     RG="$F_AWS_REGION"; [ -z "$RG" ] && RG="$(getenv AWS_REGION)"; [ -z "$RG" ] && RG="us-west-2"
     setenv AWS_ACCESS_KEY_ID "$AK"; setenv AWS_SECRET_ACCESS_KEY "$SK"; setenv AWS_SESSION_TOKEN "$ST"; setenv AWS_REGION "$RG"
     setenv CLAUDE_MODEL "$BEDROCK_MODEL"
+    setenv CLAUDE_EXTRA_MODELS "$BEDROCK_EXTRA_MODELS"
     [ -z "$(getenv ANTHROPIC_API_KEY)" ] || echo "    note: ANTHROPIC_API_KEY is still set in .env — the agent prefers it over Bedrock."
     [ -z "$(getenv ANTHROPIC_BASE_URL)" ] || echo "    note: ANTHROPIC_BASE_URL is still set in .env — the agent prefers a gateway over Bedrock."
     LLM_DESC="AWS Bedrock"
@@ -170,6 +174,7 @@ case "$TARGET" in
     RG="$F_AWS_REGION"; [ -z "$RG" ] && RG="$(getenv AWS_REGION)"; [ -z "$RG" ] && RG="us-east-1"
     setenv AWS_REGION "$RG"
     setenv CLAUDE_MODEL "$BEDROCK_MODEL"
+    setenv CLAUDE_EXTRA_MODELS "$BEDROCK_EXTRA_MODELS"
     for k in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do setenv "$k" ""; done
     echo "    using EC2 instance role for Bedrock in $RG — no keys stored in .env."
     LLM_DESC="AWS Bedrock via EC2 instance role"

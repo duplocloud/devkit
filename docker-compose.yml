@@ -106,7 +106,7 @@ services:
       - CLAUDECODE=''
       # ── LLM provider (agent picks by precedence: ANTHROPIC_API_KEY → gateway (ANTHROPIC_BASE_URL
       #    without a key) → Azure Foundry → AWS Bedrock). Set the one you use in .env; the rest stay empty. ──
-      - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-sonnet-4-6}
+      - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-sonnet-5}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       # LLM gateway (OpenRouter, Bifrost, LiteLLM, Snowflake Cortex …). The CLAUDE_CODE_* knobs are
       # optional per-gateway tuning the agent forwards to the Claude CLI only when set.
