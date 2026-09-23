@@ -163,7 +163,8 @@ In `angular.json`, set `outputPath` to `{ "base": "dist", "browser": "" }` — A
 > | `federation.config.js` `name` (== manifest `frontend.remote.remoteName`) | unique `duploExtension<Name>` |
 > Update the routes in `extension.routes.ts`, and each component's own `imports`, to the renamed classes.
 
-Use these library pieces (import from `@duplocloud-internal/ng-common-lib`):
+Use these library pieces (import from `@duplocloud-internal/ng-common-lib`). The full catalog — every export,
+and which ones don't work in a remote — is [20-ui-library](20-ui-library.md):
 - **List** → `SearchableDatatableModule` (`<searchable-datatable [rows]="rows" (add)="…" (filter)="filterUpdate()">`
   with projected `<ngx-datatable-column>` cells, an actions `ngbDropdown`, and a status badge). Two things the list
   component **MUST** do — a plain `[rows]` + `(add)` binding that loads once in `ngOnInit` is the #1 pair of bugs:
