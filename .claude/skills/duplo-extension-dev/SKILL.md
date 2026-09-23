@@ -36,7 +36,8 @@ from a built-in resource (Network, Namespace, …).
 > [16-ask-ai](reference/16-ask-ai.md) — **opt-in** Ask AI chat sessions on a resource (build ONLY when asked) ·
 > [17-custom-result-views](reference/17-custom-result-views.md) — the hand-written Result content: Overview tiles, tabs, panels ·
 > [18-access-control](reference/18-access-control.md) — the `[AccessControl]` declaration and named actions ·
-> [19-detail-page](reference/19-detail-page.md) — the detail-page shell, the lifecycle rail, per-resource phases per mode.
+> [19-detail-page](reference/19-detail-page.md) — the detail-page shell, the lifecycle rail, per-resource phases per mode ·
+> [20-ui-library](reference/20-ui-library.md) — every `ng-common-lib` export, a "need X → use Y" picker, verified recipes, and what works in a remote.
 
 > **Every dev-kit extension is TYPED — there is no archetype choice.** A typed extension ships a compiled
 > .NET DLL (`manifest.archetype = "typed"`) with the resource's own controller/route/collection, an Angular

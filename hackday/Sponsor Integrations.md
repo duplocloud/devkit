@@ -139,77 +139,128 @@ The agent can now read and write Neo4j data.
 
 ## Crusoe / Nebius (via OpenRouter)
 
-Run the agent's model on Crusoe or Nebius GPUs. 
-
+Run the agent's model on Crusoe or Nebius GPUs. OpenRouter fronts both providers; a **preset**
+pins your requests to the one you picked. No code changes — the dev kit already speaks to any
+Anthropic-compatible gateway.
 
 ### 1. OpenRouter account
 
 1. Sign up at [openrouter.ai](https://openrouter.ai)
-2. **Settings → Credits**
-3. **Settings → Keys** → create one. **Copy it now** (`sk-or-v1-…`) — shown once
+2. Left sidebar → **Credits** → add credits ($10 is plenty for Hack Day)
+3. Left sidebar → **API Keys** → create one. **Copy it now** (`sk-or-v1-…`) — shown once
 
 ### 2. Create a preset per provider
 
-**Settings → Presets → New Preset**
+Without a preset, OpenRouter routes each request to *any* provider serving that model — your
+"Nebius" traffic can silently land on Alibaba. The preset is the pin.
 
-1. **Name** it for the pairing, e.g. `duplo-nebius-qwen`. The auto-filled **slug** is what you reference as `@preset/duplo-nebius-qwen`
-2. **Add model** — e.g. `qwen3-235b-a22b-2507`
-   - **Must support tool calling**, or the agent can never call a tool. Filter for it on [openrouter.ai/models](https://openrouter.ai/models)
+Left sidebar → **Presets** → **New Preset**. The form is long; you touch exactly **three
+sections** and leave everything else blank:
+
+1. **Basic Info → Name** — name it for the pairing, e.g. `duplo-nebius-glm`. The **Slug**
+   auto-fills; that slug is your model string later: `@preset/duplo-nebius-glm`
+
+   ![Name and slug](images/openrouter-01-preset-name.png)
+
+2. **Models → Add model** — search your model (e.g. `glm-5.1`) and click the match. The panel on
+   the right shows the canonical id (`z-ai/glm-5.1`) and its **Context** size — note that number,
+   step 4 needs it.
+   - The model **must support tool calling**, or the agent can never call a tool — filter on
+     [openrouter.ai/models](https://openrouter.ai/models?supported_parameters=tools)
    - Skip `:free` variants
-   - Watch for near-duplicates — plain `qwen/qwen3-235b-a22b-2507` is the Instruct one, not Thinking
-3. Check **Include Provider Preferences**:
-   - Type the provider name (`nebius`) and check it — this is what actually pins the request
-   - **Allow fallbacks → No.** Left on, a busy provider gets silently swapped and the pin is meaningless
-4. **Leave everything else blank.** Values here *override* every request — a max-tokens here becomes a hard ceiling on agent output
-5. Save, and repeat for the next pairing
+   - Watch near-duplicates (Instruct vs Thinking editions) — the right panel's id is the truth
 
-**Validated pairings:**
+   ![Model picker — id and context in the right panel](images/openrouter-02-model-picker.png)
 
-| Preset | Model | Provider | Context |
+3. **Provider Routing** — check **Include Provider Preferences**, then two settings inside it:
+   - Scroll to the checklist titled **`only`**. There are three look-alike provider checklists
+     (`order`, `only`, `ignore`) — **`only`** ("provider slugs to allow") is the one that pins.
+     Search your provider (`nebius` / `crusoe`) and tick it.
+
+     ![The only list with Nebius ticked](images/openrouter-03-only-provider.png)
+
+   - Keep scrolling to **Allow fallbacks** → **No**. Left on Yes, a busy provider is silently
+     swapped out and your pin is meaningless.
+
+     ![Allow fallbacks set to No](images/openrouter-04-allow-fallbacks-no.png)
+
+4. **Save Preset** (top right). The preset page must show, under **Provider Preferences**:
+
+   ```json
+   { "only": ["nebius"], "allow_fallbacks": false }
+   ```
+
+   ![Saved preset with the pinning JSON](images/openrouter-05-saved.png)
+
+**Touch nothing else.** Every value set in a preset (system prompt, temperature, max tokens)
+silently overrides *every* request the agent makes — a max-tokens here becomes a hard ceiling
+on agent output.
+
+**Validated pairings** (each verified end-to-end through the dev kit):
+
+| Preset | Model | Provider (`only`) | Context |
 | --- | --- | --- | --- |
+| `duplo-nebius-glm` | `z-ai/glm-5.1` | nebius | 204800 |
 | `duplo-nebius-qwen` | `qwen/qwen3-235b-a22b-2507` | nebius | 262144 |
+| `duplo-crusoe-glm` | `z-ai/glm-5.3` | crusoe | 1310720 |
 | `duplo-crusoe-kimi` | `moonshotai/kimi-k2.6` | crusoe | 262144 |
-| — | `z-ai/glm-5.3` | crusoe | 1310720 |
-| — | `openai/gpt-oss-120b` | nebius | 131072 |
 
 ### 3. Confirm the pin
 
-Check the preset works before pointing the agent at it — otherwise a bad preset looks like a dev-kit problem.
+Ten seconds now saves an hour later — a mis-pinned preset looks exactly like a dev-kit bug.
 
 ```bash
 curl -s https://openrouter.ai/api/v1/messages \
   -H "content-type: application/json" \
   -H "authorization: Bearer sk-or-v1-..." \
   -H "anthropic-version: 2023-06-01" \
-  -d '{"model":"@preset/duplo-nebius-qwen","max_tokens":50,
+  -d '{"model":"@preset/duplo-nebius-glm","max_tokens":50,
        "messages":[{"role":"user","content":"Say only OK"}]}'
 ```
 
-Look for `"provider"` matching what you pinned, and `"usage": {"is_byok": false}` while on credits.
+Look for `"provider"` matching what you pinned.
 
 | Result | Cause |
 | --- | --- |
-| Wrong provider | Model string isn't `@preset/<slug>`, or fallbacks left on |
-| `rate_limit_exceeded` / `upstream_provider_shared_pool` | That provider is saturated — retry, switch model, or go BYOK |
+| Wrong provider | Model string isn't `@preset/<slug>`, or Allow fallbacks is still Yes |
+| Error mentioning no allowed providers | The provider ticked under `only` doesn't serve that model |
+| `rate_limit_exceeded` / `upstream_provider_shared_pool` | Provider saturated — retry, switch model, or go BYOK |
 
 ### 4. Point the agent at it
 
-> **Already ran `./run.sh` and picked `anthropic` or `bedrock`?** That's the normal case — you don't need to start over. Run the script below to re-point the same platform at OpenRouter. Your existing Anthropic key / AWS keys are stashed in `.env`, not thrown away, so `./scripts/switch-llm.sh anthropic` (or `bedrock`) switches you back later without re-entering anything.
+Use the model's **Context** number from step 2 (or the pairings table) — the CLI assumes 200K
+for model ids it doesn't recognize, and if the real window is smaller the session hard-fails
+mid-run instead of compacting. Keep the compact window a bit under it.
+
+**Haven't run `./run.sh` yet?** Start on OpenRouter directly — pick option `3` (LLM gateway)
+at the provider prompt, or skip every prompt with flags:
+
+```bash
+./run.sh --model gateway \
+  --gateway-url https://openrouter.ai/api \
+  --gateway-token sk-or-v1-... \
+  --gateway-model @preset/duplo-nebius-glm \
+  --gateway-max-context-tokens 204800 \
+  --gateway-compact-window 160000
+```
+
+**Already running on `anthropic` or `bedrock`?** That's the normal case — don't start over.
+This re-points the same platform at OpenRouter; your existing keys are stashed in `.env`, so
+`./scripts/switch-llm.sh anthropic` (or `bedrock`) switches back later without re-entering
+anything:
 
 ```bash
 ./scripts/switch-llm.sh gateway \
   --gateway-url https://openrouter.ai/api \
   --gateway-token sk-or-v1-... \
-  --gateway-model @preset/duplo-nebius-qwen \
-  --gateway-max-context-tokens 262144 \
-  --gateway-compact-window 200000
+  --gateway-model @preset/duplo-nebius-glm \
+  --gateway-max-context-tokens 204800 \
+  --gateway-compact-window 160000
 ```
 
-Haven't run `./run.sh` yet? Start on OpenRouter instead of switching later.  During the execution of `./run.sh` you will be given the choise to use an LLM gateway. 
-
-> **Set the context window correctly.** The CLI assumes 200K for unrecognized model ids; if the real window is smaller the session hard-fails mid-run instead of compacting — that's what `--gateway-max-context-tokens`/`--gateway-compact-window` are for, and the table above has each model's real window.
-
-Verify in the UI: create a ticket and check the LLM picker now offers your preset (e.g. `@preset/duplo-nebius-qwen (LLM Gateway)`).
+**Verify:** `./scripts/switch-llm.sh status` prints `Active provider: gateway`. In the UI,
+create a ticket — the LLM picker offers your preset (e.g. `@preset/duplo-nebius-glm
+(LLM Gateway)`) — and the agent's reply on that ticket is served by your pinned provider.
 
 ---
 

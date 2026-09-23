@@ -55,8 +55,10 @@ See `samples/network-stack`'s add wizard (feeds `<duplo-wizard-stepper [error]>`
 
 ## Constraints / notes
 
-- **No cross-boundary toast.** The host exposes no `REMOTE_` alerts/toast token, so an extension remote can't raise
-  the host toast service. Report **inline** (form banner / wizard slot) — that works fully inside the remote.
+- **Toasts reach the host, but report form errors inline.** `ngx-toastr` is a shared singleton, so the lib's
+  `SharedAlertsService` shows the host's toast from a remote — the confirm dialogs and `app-code-block-with-copy`
+  do this on their own ([20-ui-library](20-ui-library.md#confirm-dialogs)). A failed create/update still goes
+  **inline** (form banner / wizard slot), beside the form the user has to fix. Never report one failure both ways.
 - **No field-level error map.** On create, `errors` is a single string, not a per-field dict — surface it as one
   message; don't expect to map it onto individual fields.
 - **Where the real message comes from:** e.g. the name-uniqueness check throws

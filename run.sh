@@ -48,6 +48,7 @@ cd "$(dirname "$0")"
 ENV=.env
 . ./scripts/_metrics.sh
 . ./scripts/_provider_gateway.sh
+. ./scripts/_studio_api.sh
 
 # ── flags ────────────────────────────────────────────────────────────────────
 RESET=0; RESET_LICENSE=0; NONINTERACTIVE=0
@@ -1048,9 +1049,10 @@ d=json.load(sys.stdin); items=d.get("data",{}); items=items.get("items",items) i
 print(next((w["id"] for w in (items or []) if w.get("name")=="extension-dev"), ""))' 2>/dev/null || true)"
   if [ -z "$WS" ]; then
     echo "==> Creating 'extension-dev' workspace…"
-    WS="$(curl -fsS --max-time 10 -X POST "$API/v1/aiservicedesk/admin/data/workspaces" \
-        -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" --data '{"name":"extension-dev"}' \
-        | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["id"])')"
+    # Everything after this needs the workspace, so a refused create (most often an expired license —
+    # the studio answers 400 license_limit_exceeded) stops here with the server's reason, not a traceback.
+    WS="$(studio_create_id "$API/v1/aiservicedesk/admin/data/workspaces" '{"name":"extension-dev"}')" \
+      || { echo "Could not create the extension-dev workspace — fix the cause above and re-run ./run.sh." >&2; exit 1; }
   fi
   setenv EXTENSION_DEV_WORKSPACE_ID "$WS"
 fi
@@ -1074,10 +1076,9 @@ if ! data_exists "$PS" permissionset; then
   PS="$(data_id_by_name permissionset extension-dev-access)"
   if [ -z "$PS" ]; then
     echo "==> Creating 'extension-dev-access' permission set…"
-    PS="$(curl -fsS --max-time 10 -X POST "$API/v1/aiservicedesk/admin/data/permissionset" \
-        -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" \
-        --data "$(W="$WS" python3 -c 'import json,os;print(json.dumps({"name":"extension-dev-access","allowedWorkspaces":[{"workspaceId":os.environ["W"]}]}))')" \
-        | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["id"])')"
+    PS="$(studio_create_id "$API/v1/aiservicedesk/admin/data/permissionset" \
+        "$(W="$WS" python3 -c 'import json,os;print(json.dumps({"name":"extension-dev-access","allowedWorkspaces":[{"workspaceId":os.environ["W"]}]}))')")" \
+      || echo "    (permission set not created — UI access to the workspace must be granted by hand)" >&2
   fi
   [ -n "$PS" ] && setenv EXTENSION_DEV_PERMSET_ID "$PS"
 fi
@@ -1086,10 +1087,9 @@ if ! data_exists "$PSG" permissionsetgroup; then
   PSG="$(data_id_by_name permissionsetgroup extension-dev-group)"
   if [ -z "$PSG" ]; then
     echo "==> Assigning $EMAIL to the permission set…"
-    PSG="$(curl -fsS --max-time 10 -X POST "$API/v1/aiservicedesk/admin/data/permissionsetgroup" \
-        -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" \
-        --data "$(P="$PS" E="$EMAIL" python3 -c 'import json,os;print(json.dumps({"name":"extension-dev-group","permissionSets":[os.environ["P"]],"userStringHandle":[os.environ["E"]]}))')" \
-        | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["id"])')"
+    PSG="$(studio_create_id "$API/v1/aiservicedesk/admin/data/permissionsetgroup" \
+        "$(P="$PS" E="$EMAIL" python3 -c 'import json,os;print(json.dumps({"name":"extension-dev-group","permissionSets":[os.environ["P"]],"userStringHandle":[os.environ["E"]]}))')")" \
+      || echo "    (permission set group not created — assign $EMAIL to the permission set by hand)" >&2
   fi
   [ -n "$PSG" ] && setenv EXTENSION_DEV_PERMSETGROUP_ID "$PSG"
 fi
