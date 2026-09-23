@@ -19,7 +19,7 @@ cd "$(dirname "$0")/.."   # repo root
 #                    are overwritten/added but NO --delete, so user files in them are preserved.
 #   FRAMEWORK_FILES  — individual files, overwritten in place (never deleted).
 # Keep these lists in sync when adding framework paths.
-FRAMEWORK_DIRS=( .claude .github nginx packages samples scripts )
+FRAMEWORK_DIRS=( .agents .claude .github nginx packages samples scripts )
 # build/ holds only the extension build toolchain's Dockerfile, but `build` is a near-universal name for
 # a project's own output/scripts — so it is merged, NOT mirrored. An adopted repo that already has a
 # build/ keeps everything in it; a --delete here would reap a user directory on an upgrade they asked
