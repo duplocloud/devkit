@@ -20,7 +20,7 @@
 #   ./scripts/switch-llm.sh status
 #
 # Each provider owns a fixed set of .env keys. Switching AWAY from a provider stashes its current,
-# non-empty keys into _STASH_<KEY>= lines (so switching back later needs no re-entry) and blanks the
+# non-empty keys into _STASH_<PROVIDER>_<KEY>= lines (so switching back later needs no re-entry) and blanks the
 # live keys — blanking is load-bearing, exactly like run.sh's own arms: the agent picks its provider by
 # precedence ANTHROPIC_API_KEY → gateway (ANTHROPIC_BASE_URL) → Bedrock (docker-compose.yml), so a
 # leftover key from the old provider would silently keep winning. Switching TO a provider restores its
@@ -37,6 +37,7 @@ NONINTERACTIVE=0
 F_ANTHROPIC=""; F_AWS_KEY=""; F_AWS_SECRET=""; F_AWS_TOKEN=""; F_AWS_REGION=""
 F_GATEWAY_URL=""; F_GATEWAY_TOKEN=""; F_GATEWAY_MODEL=""
 F_GATEWAY_DISABLE_BETAS=""; F_GATEWAY_MAX_CONTEXT=""; F_GATEWAY_COMPACT_WINDOW=""
+F_SUBSCRIPTION_TOKEN=""; F_SUBSCRIPTION_MODEL=""
 
 TARGET="${1-}"; [ $# -gt 0 ] && shift || true
 while [ $# -gt 0 ]; do
@@ -108,6 +109,28 @@ keys_for() { # provider -> prints the array name to nameref
 
 known_providers="anthropic bedrock bedrock-instance-role gateway subscription"
 
+# Stash keys are namespaced by provider because some keys are owned by more than one provider —
+# CLAUDE_MODEL above all, whose id format differs per provider (us.anthropic.… on Bedrock,
+# anthropic/… on a gateway, bare on first-party). A flat _STASH_CLAUDE_MODEL would hand the
+# outgoing provider's model straight to the incoming one.
+stash_key() { # provider key -> _STASH_<PROVIDER>_<KEY>
+  printf '_STASH_%s_%s' "$(printf '%s' "$1" | tr '[:lower:]-' '[:upper:]_')" "$2"
+}
+# Read a provider's stashed value. Falls back to the pre-namespacing flat _STASH_<KEY> only for keys
+# owned by a single provider, where the flat stash is unambiguous; a shared key's flat stash could
+# belong to anyone, so it is ignored.
+stash_get() { # provider key
+  local v owners=0 p
+  v="$(getenv "$(stash_key "$1" "$2")")"
+  if [ -z "$v" ]; then
+    for p in $known_providers; do
+      case " $(keys_for "$p" | tr '\n' ' ') " in *" $2 "*) owners=$((owners+1)) ;; esac
+    done
+    [ "$owners" = 1 ] && v="$(getenv "_STASH_$2")"
+  fi
+  printf '%s' "$v"
+}
+
 status() {
   local cur; cur="$(getenv DEVKIT_MODEL)"
   echo "Active provider: ${cur:-<none configured — run ./run.sh first>}"
@@ -115,7 +138,7 @@ status() {
     [ "$p" = "$cur" ] && continue
     local stashed=0
     while IFS= read -r k; do
-      [ -n "$(getenv "_STASH_$k")" ] && stashed=1
+      [ -n "$(stash_get "$p" "$k")" ] && stashed=1
     done < <(keys_for "$p")
     if [ "$stashed" = 1 ]; then
       echo "  $p: stashed credentials available — switching back needs no re-entry"
@@ -139,14 +162,14 @@ else
     while IFS= read -r k; do
       [ -z "$k" ] && continue
       v="$(getenv "$k")"
-      if [ -n "$v" ]; then setenv "_STASH_$k" "$v"; fi
+      if [ -n "$v" ]; then setenv "$(stash_key "$CURRENT" "$k")" "$v"; fi
       setenv "$k" ""
     done < <(keys_for "$CURRENT")
   fi
   echo "==> Restoring any stashed $TARGET credentials…"
   while IFS= read -r k; do
     [ -z "$k" ] && continue
-    sv="$(getenv "_STASH_$k")"
+    sv="$(stash_get "$TARGET" "$k")"
     [ -n "$sv" ] && setenv "$k" "$sv"
   done < <(keys_for "$TARGET")
 fi

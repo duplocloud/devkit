@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for scripts/_provider_subscription.sh — the `subscription` LLM provider arm of run.sh.
 # Runs against a throwaway .env; never touches the real one. Usage: ./tests/test-provider-subscription.sh
-set -uo pipefail
+set -euo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
 PASS=0; FAIL=0
@@ -69,6 +69,11 @@ if provider_subscription_configure >/dev/null 2>&1; then bad "returned 0 with no
 # over from a Bedrock run must not be carried onto this path.
 t "replaces a leftover us.anthropic.* model id with the bare default"
 reset_env; setenv CLAUDE_MODEL "us.anthropic.claude-sonnet-4-6"; F_SUBSCRIPTION_TOKEN="sk-ant-oat01-abc"
+provider_subscription_configure >/dev/null 2>&1
+if [ "$(getenv CLAUDE_MODEL)" = "claude-sonnet-4-6" ]; then ok; else bad "$(getenv CLAUDE_MODEL)"; fi
+
+t "replaces a leftover gateway-namespaced model id with the bare default"
+reset_env; setenv CLAUDE_MODEL "anthropic/claude-sonnet-4.6"; F_SUBSCRIPTION_TOKEN="sk-ant-oat01-abc"
 provider_subscription_configure >/dev/null 2>&1
 if [ "$(getenv CLAUDE_MODEL)" = "claude-sonnet-4-6" ]; then ok; else bad "$(getenv CLAUDE_MODEL)"; fi
 

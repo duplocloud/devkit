@@ -2,7 +2,7 @@
 # Wiring tests for the `subscription` LLM provider: the grep-level checks that run.sh,
 # switch-llm.sh, docker-compose.yml and .env.example all actually know about it. Static only —
 # nothing is executed and no .env is touched. Usage: ./tests/test-run-subscription-wiring.sh
-set -uo pipefail
+set -euo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
 PASS=0; FAIL=0

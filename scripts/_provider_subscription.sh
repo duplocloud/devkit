@@ -66,11 +66,15 @@ TXT
 
   model="$F_SUBSCRIPTION_MODEL"; [ -z "$model" ] && model="$(getenv CLAUDE_MODEL)"
   [ -n "$model" ] || model="$SUBSCRIPTION_DEFAULT_MODEL"
-  # A model id carried over from a Bedrock run would be an inference-profile id, which the
-  # first-party API rejects outright. Fall back rather than fail on someone else's leftovers.
+  # A model id carried over from another provider — a Bedrock inference-profile id or a gateway's
+  # namespaced id — is rejected outright by the first-party API. Fall back rather than fail on
+  # someone else's leftovers.
   case "$model" in
     us.*|global.*|*.anthropic.*)
       echo "    note: CLAUDE_MODEL was '$model' (a Bedrock inference-profile id, which the first-party API rejects) — using $SUBSCRIPTION_DEFAULT_MODEL instead." >&2
+      model="$SUBSCRIPTION_DEFAULT_MODEL" ;;
+    */*)
+      echo "    note: CLAUDE_MODEL was '$model' (a gateway-namespaced id, which the first-party API rejects) — using $SUBSCRIPTION_DEFAULT_MODEL instead." >&2
       model="$SUBSCRIPTION_DEFAULT_MODEL" ;;
   esac
 
