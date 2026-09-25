@@ -214,8 +214,19 @@ echo "    host provides $(wc -l < "$PROVIDED" | tr -d ' ') assemblies (excluded 
 echo "==> Assembling bundle"
 PKG="$DIR/dist/pkg"
 rm -rf "$PKG"; mkdir -p "$PKG/backend" "$PKG/fe" "$PKG/skills"
-# Bundle manifest with the real host SDK version pinned in.
-jq --arg v "$SDK_VER" '.sdkVersion = $v' "$DIR/manifest.json" > "$PKG/manifest.json"
+# Bundle manifest with the real host SDK version pinned in, and backend.assemblyDir derived from id+version.
+# The host stages the bundle to <ExtensionStudioPath>/<id>/<version>/ but loads the entry assembly from
+# assemblyDir, so the two have to agree. Maintained by hand they drift as soon as you bump version alone, and
+# what that breaks depends on the target. A host that still has the old version on disk keeps running the OLD
+# backend DLL and says nothing. A host that's never seen it refuses the install with "Extension entry assembly
+# not found: .../<old version>/backend/<dll>". It's always <id>/<version>/backend, so compute it here instead
+# of trusting the checked-in value.
+jq --arg v "$SDK_VER" \
+   '.sdkVersion = $v | .backend.assemblyDir = (.id + "/" + .version + "/backend")' \
+   "$DIR/manifest.json" > "$PKG/manifest.json"
+_ad_src=$(jq -r '.backend.assemblyDir // ""' "$MANIFEST")
+_ad_out=$(jq -r '.backend.assemblyDir' "$PKG/manifest.json")
+[ "$_ad_src" = "$_ad_out" ] || echo "    NOTE: stale backend.assemblyDir '$_ad_src' in $MANIFEST — bundled as '$_ad_out'"
 # Ship only backend assemblies the host does NOT already provide, plus each kept DLL's sidecars. Native
 # runtimes/ are host-provided too (Mongo/AWS natives load via the host's Default-ALC copies), so skip them.
 kept=0; dropped=0
