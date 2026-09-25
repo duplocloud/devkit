@@ -164,13 +164,19 @@ Managed by `./run.sh` — leave them blank in a fresh `.env` and let it prompt.
 ## LLM provider
 
 `run.sh` sets these from your `--model` choice. Precedence in the agent is `ANTHROPIC_API_KEY` → gateway
-(`ANTHROPIC_BASE_URL` with the key **empty**) → Azure → Bedrock.
+(`ANTHROPIC_BASE_URL` with the key **empty**) → Azure → `CLAUDE_CODE_OAUTH_TOKEN` → Bedrock.
+
+Subscription auth sits next-to-last on purpose: a token exported in someone's shell must never displace a
+provider that was configured deliberately. The cost of that ordering is that the `subscription` arm has to
+blank `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL`, or either would win the chain and the token would never
+be read.
 
 | Variable | Effect |
 | --- | --- |
-| `DEVKIT_MODEL` | `anthropic`, `bedrock`, `gateway`, or `bedrock-instance-role`. Chooses which credential block below is used. |
+| `DEVKIT_MODEL` | `anthropic`, `bedrock`, `gateway`, `bedrock-instance-role`, or `subscription`. Chooses which credential block below is used. |
 | `CLAUDE_MODEL` | The model id the agent calls. `claude-sonnet-4-6` for Anthropic; `us.anthropic.claude-sonnet-4-6` for either Bedrock mode; for `gateway`, whatever the gateway calls it (OpenRouter: `anthropic/claude-sonnet-4.6`). Not interchangeable — the direct Anthropic API rejects the `us.*` prefix and Bedrock requires it. |
 | `ANTHROPIC_API_KEY` | Direct Anthropic API key. Blanked by `gateway`: key **and** URL together mean "proxy in front of the real Anthropic API", a different agent code path that would send the gateway's token nowhere useful. |
+| `CLAUDE_CODE_OAUTH_TOKEN` | `subscription`: a long-lived Claude Code token from `claude setup-token`, run on your own machine (it needs a browser). Not the short-lived credential in your OS keychain, and not an `sk-ant-api…` API key — those are three different auth schemes to the Claude CLI. Runs the agent on your personal Claude Code subscription, so usage counts against your own limits and every ticket authenticates as you: local development only, never a shared stack. Ticket titles are not generated on this path, since the title LLM is Bedrock-only. |
 | `ANTHROPIC_BASE_URL` | `gateway`: base URL of any Anthropic-compatible endpoint — OpenRouter, Bifrost, LiteLLM, Snowflake Cortex. The gateway holds the real provider credentials; Bedrock is never enabled on this path. |
 | `ANTHROPIC_AUTH_TOKEN` | `gateway`: bearer token / API key the gateway expects. Blank for an unauthenticated gateway (a local Bifrost, say). |
 | `CLAUDE_CODE_MAX_CONTEXT_TOKENS` | `gateway` only — `run.sh` sets **262144** when you pick it. Declares the model's real context window. A gateway usually serves model ids the Claude CLI doesn't recognise, and an unrecognised id has no known window, so long sessions fail with a 400 instead of compacting. Override with `--gateway-max-context-tokens`, or edit `.env` (re-runs keep whatever is there). Not set by any other provider — those name models the CLI already knows. |

@@ -27,6 +27,11 @@
 #   ./run.sh --email a@b.com --password 'pw' --model anthropic --anthropic-key sk-... --no-metrics   non-interactive.
 #   ./run.sh --model bedrock --aws-access-key-id AKIA... --aws-secret-access-key ... [--aws-session-token ...] [--aws-region us-west-2]
 #   ./run.sh --model bedrock-instance-role [--aws-region us-east-1]   Bedrock via this EC2 instance's IAM role (no keys).
+#   ./run.sh --model subscription --subscription-token sk-ant-oat01-...   run on your own Claude Code
+#                                  subscription instead of a billed API key (mint the token with
+#                                  `claude setup-token` on this machine). Local development only: it
+#                                  authenticates as you and counts against your Claude Code limits.
+#                                  Ticket titles are not generated on this path (title LLM is Bedrock-only).
 #   ./run.sh --model gateway --gateway-url https://openrouter.ai/api --gateway-token sk-or-... [--gateway-model anthropic/claude-sonnet-4.6]
 #                                  any Anthropic-compatible LLM gateway (OpenRouter, Bifrost, LiteLLM, …). Optional
 #                                  Sets a 262144-token context window and a 200000 compact threshold (a gateway
@@ -48,6 +53,7 @@ cd "$(dirname "$0")"
 ENV=.env
 . ./scripts/_metrics.sh
 . ./scripts/_provider_gateway.sh
+. ./scripts/_provider_subscription.sh
 . ./scripts/_studio_api.sh
 
 # ── flags ────────────────────────────────────────────────────────────────────
@@ -56,6 +62,7 @@ F_EMAIL=""; F_PASSWORD=""; F_MODEL=""; F_ANTHROPIC=""; F_LICENSE=""
 F_AWS_KEY=""; F_AWS_SECRET=""; F_AWS_TOKEN=""; F_AWS_REGION=""
 F_GATEWAY_URL=""; F_GATEWAY_TOKEN=""; F_GATEWAY_MODEL=""
 F_GATEWAY_DISABLE_BETAS=""; F_GATEWAY_MAX_CONTEXT=""; F_GATEWAY_COMPACT_WINDOW=""
+F_SUBSCRIPTION_TOKEN=""; F_SUBSCRIPTION_MODEL=""
 F_STUDIO_TAG=""; F_UI_TAG=""; F_AGENT_TAG=""; F_METRICS=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -79,6 +86,8 @@ while [ $# -gt 0 ]; do
     --aws-secret-access-key) F_AWS_SECRET="$2"; shift ;;
     --aws-session-token) F_AWS_TOKEN="$2"; shift ;;
     --aws-region) F_AWS_REGION="$2"; shift ;;
+    --subscription-token) F_SUBSCRIPTION_TOKEN="$2"; shift ;;
+    --subscription-model) F_SUBSCRIPTION_MODEL="$2"; shift ;;
     --gateway-url) F_GATEWAY_URL="$2"; shift ;;
     --gateway-token) F_GATEWAY_TOKEN="$2"; shift ;;
     --gateway-model) F_GATEWAY_MODEL="$2"; shift ;;
@@ -580,7 +589,7 @@ if [ "$RESET" = 1 ]; then
   docker compose down -v 2>/dev/null || true
   for k in Authentication__LocalAdminEmail Authentication__LocalAdminPassword Authentication__SuperUsers \
            DEVKIT_MODEL ANTHROPIC_API_KEY AWS_REGION AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
-           "${GATEWAY_KEYS[@]}" \
+           "${GATEWAY_KEYS[@]}" "${SUBSCRIPTION_KEYS[@]}" \
            Encryption__MasterKey Authentication__JwtSharedSecret DUPLO_ADMIN_TOKEN EXTENSION_DEV_WORKSPACE_ID \
            EXTENSION_DEV_PERMSET_ID EXTENSION_DEV_PERMSETGROUP_ID \
            QDRANT_PROVIDER_ID QDRANT_SCOPE_ID QDRANT_COLLECTION_ID \
@@ -840,7 +849,7 @@ fi
 PASSWORD="$(resolve "$F_PASSWORD" Authentication__LocalAdminPassword 'Admin password' secret)"
 MODEL="$F_MODEL"; [ -z "$MODEL" ] && MODEL="$(getenv DEVKIT_MODEL)"
 if [ -z "$MODEL" ]; then
-  [ "$NONINTERACTIVE" = 1 ] && { echo "Missing DEVKIT_MODEL — pass --model 1|2|3|4|anthropic|bedrock|gateway|bedrock-instance-role." >&2; exit 1; }
+  [ "$NONINTERACTIVE" = 1 ] && { echo "Missing DEVKIT_MODEL — pass --model 1|2|3|4|5|anthropic|bedrock|gateway|bedrock-instance-role|subscription." >&2; exit 1; }
   # On an EC2 dev box the instance profile is usually already allowed to invoke Bedrock, in which
   # case no keys are needed at all — offer that as option 4 but never preselect it. Options 1–3 are
   # fixed regardless of the probe so `--model 3` always means the same thing on every machine.
@@ -873,9 +882,9 @@ if [ -z "$MODEL" ]; then
           printf '      could not confirm containers can reach IMDS (%s); if the agent later fails to\n' "${CONTAINER_IMDS#unknown:}" >&2
           printf '      authenticate, raise the IMDSv2 hop limit to 2 (see README).\n' >&2 ;;
     esac
-    printf 'Select LLM provider:\n  1) anthropic (API key)\n  2) bedrock (AWS keys)\n  3) LLM gateway (OpenRouter, Bifrost, LiteLLM, … — any Anthropic-compatible endpoint)\n  4) bedrock via this EC2 instance role — %s @ %s, no keys%s\n' \
+    printf 'Select LLM provider:\n  1) anthropic (API key)\n  2) bedrock (AWS keys)\n  3) LLM gateway (OpenRouter, Bifrost, LiteLLM, … — any Anthropic-compatible endpoint)\n  4) bedrock via this EC2 instance role — %s @ %s, no keys%s\n  5) Claude Code subscription (your own, via `claude setup-token`)\n' \
       "$AWS_ROLE" "$BEDROCK_REGION" "$IMDS_CAVEAT" >&2
-    read -r -p 'Enter 1, 2, 3 or 4: ' MODEL
+    read -r -p 'Enter 1, 2, 3, 4 or 5: ' MODEL
   else
     if [ "$BEDROCK_AVAILABLE" = 1 ]; then
       # Host reached IMDS but a container couldn't — almost always the IMDSv2 PUT-response hop limit
@@ -885,13 +894,13 @@ if [ -z "$MODEL" ]; then
     else
       echo "    ✗ no usable instance-role Bedrock access${BEDROCK_REASON:+ ($BEDROCK_REASON)}." >&2
     fi
-    printf 'Select LLM provider:\n  1) anthropic (API key)\n  2) bedrock (AWS keys)\n  3) LLM gateway (OpenRouter, Bifrost, LiteLLM, … — any Anthropic-compatible endpoint)\n' >&2
-    read -r -p 'Enter 1, 2 or 3: ' MODEL
+    printf 'Select LLM provider:\n  1) anthropic (API key)\n  2) bedrock (AWS keys)\n  3) LLM gateway (OpenRouter, Bifrost, LiteLLM, … — any Anthropic-compatible endpoint)\n  5) Claude Code subscription (your own, via `claude setup-token`)\n' >&2
+    read -r -p 'Enter 1, 2, 3 or 5: ' MODEL
   fi
 fi
 MODEL="$(printf '%s' "$MODEL" | tr '[:upper:]' '[:lower:]')"
 # accept numeric from menu/--model/.env
-case "$MODEL" in 1) MODEL=anthropic;; 2) MODEL=bedrock;; 3) MODEL=gateway;; 4) MODEL=bedrock-instance-role;; esac
+case "$MODEL" in 1) MODEL=anthropic;; 2) MODEL=bedrock;; 3) MODEL=gateway;; 4) MODEL=bedrock-instance-role;; 5) MODEL=subscription;; esac
 
 setenv Authentication__LocalAdminEmail "$EMAIL"
 setenv Authentication__LocalAdminPassword "$PASSWORD"
@@ -970,8 +979,12 @@ elif [ "$MODEL" = bedrock ]; then
 elif [ "$MODEL" = gateway ]; then
   # Prompts, validation and the load-bearing ANTHROPIC_API_KEY blank all live in scripts/_provider_gateway.sh.
   provider_gateway_configure || exit 1
+elif [ "$MODEL" = subscription ]; then
+  # Prompt, validation and the load-bearing ANTHROPIC_API_KEY/ANTHROPIC_BASE_URL blanks live in
+  # scripts/_provider_subscription.sh.
+  provider_subscription_configure || exit 1
 else
-  echo "Unknown model '$MODEL' (use anthropic, bedrock, gateway, or bedrock-instance-role)." >&2; exit 1
+  echo "Unknown model '$MODEL' (use anthropic, bedrock, gateway, bedrock-instance-role, or subscription)." >&2; exit 1
 fi
 
 # ── usage metrics ────────────────────────────────────────────────────────────
@@ -1138,6 +1151,7 @@ case "$MODEL" in
   anthropic)             LLM_DESC="direct Anthropic" ;;
   bedrock)               LLM_DESC="AWS Bedrock" ;;
   gateway)               LLM_DESC="LLM Gateway" ;;
+  subscription)          LLM_DESC="Claude Code subscription" ;;
   bedrock-instance-role) LLM_DESC="AWS Bedrock via EC2 instance role" ;;
 esac
 echo "==> Registering $(getenv CLAUDE_MODEL) ($LLM_DESC) as the System default LLM…"
@@ -1174,6 +1188,7 @@ fi
 PROVIDER_DESC="$MODEL"
 [ "$MODEL" = bedrock-instance-role ] && PROVIDER_DESC="bedrock via EC2 instance role${AWS_ROLE:+ ($AWS_ROLE)} @ $(getenv AWS_REGION) — no keys in .env"
 [ "$MODEL" = gateway ] && PROVIDER_DESC="LLM gateway @ $(getenv ANTHROPIC_BASE_URL)"
+[ "$MODEL" = subscription ] && PROVIDER_DESC="Claude Code subscription (model $(getenv CLAUDE_MODEL)) — your own token, local dev only"
 
 cat <<EOF
 
