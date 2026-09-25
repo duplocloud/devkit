@@ -88,6 +88,24 @@ TXT
   # ticket titles are simply not generated on this path.
   [ -n "$(getenv AWS_REGION)" ] || setenv AWS_REGION "us-east-1"
 
+  # The blanks above only reach .env. docker compose resolves ${VAR:-} from the calling shell
+  # BEFORE .env, so a key exported there still lands in the agent and wins the precedence chain —
+  # silently, since the agent then just runs on it. Neither script sources .env, so anything
+  # visible here came from the user's shell. Unset them in this process (this file is sourced, so
+  # that is the calling script, never the user's shell) so the compose calls that follow are
+  # correct; the warning covers a later manual `docker compose up`, which would still see them.
+  local shadow="" k
+  for k in ANTHROPIC_API_KEY ANTHROPIC_BASE_URL; do
+    [ -n "${!k-}" ] && shadow="$shadow $k"
+  done
+  if [ -n "$shadow" ]; then
+    # shellcheck disable=SC2086  # word-split on purpose: one name per word
+    unset $shadow
+    echo "    WARNING: exported in your shell:$shadow — ignored for this run. docker compose prefers the" >&2
+    echo "             shell over .env, so a manual 'docker compose up' would hand it to the agent instead" >&2
+    echo "             of your subscription token. Remove it from your shell (unset$shadow) or profile." >&2
+  fi
+
   echo "    using your Claude Code subscription (model: $model)."
   echo "    note: ticket titles are not generated on this path — the title LLM is Bedrock-only."
   [ -z "$(getenv AWS_ACCESS_KEY_ID)" ] || echo "    note: AWS keys are still set in .env — harmless (this path never uses them), but ./run.sh --reset clears them if you'd rather they were gone."

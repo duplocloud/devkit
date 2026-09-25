@@ -94,6 +94,25 @@ reset_env; F_SUBSCRIPTION_TOKEN="sk-ant-oat01-abc"
 provider_subscription_configure >/dev/null 2>&1
 if [ -n "$(getenv AWS_REGION)" ]; then ok; else bad "AWS_REGION empty"; fi
 
+# compose resolves ${VAR:-} from the shell before .env, so the .env blanks can't defeat an exported key.
+t "warns when ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL are exported in the shell"
+reset_env; F_SUBSCRIPTION_TOKEN="sk-ant-oat01-abc"
+warn_out="$(ANTHROPIC_API_KEY=sk-ant-api03-shell ANTHROPIC_BASE_URL=https://x.example provider_subscription_configure 2>&1)"
+case "$warn_out" in *"WARNING: exported in your shell: ANTHROPIC_API_KEY ANTHROPIC_BASE_URL — ignored for this run."*) ok ;; *) bad "$warn_out" ;; esac
+
+# Warning alone came too late: run.sh / switch-llm.sh start the agent right after, so the exported
+# key has to be dropped from the calling script's env for their own compose calls to be right.
+t "unsets the exported vars in-process so the script's compose calls don't see them"
+reset_env; F_SUBSCRIPTION_TOKEN="sk-ant-oat01-abc"
+left="$(export ANTHROPIC_API_KEY=sk-ant-api03-shell ANTHROPIC_BASE_URL=https://x.example
+        provider_subscription_configure >/dev/null 2>&1; env | grep -cE '^ANTHROPIC_(API_KEY|BASE_URL)=' || true)"
+if [ "$left" = 0 ]; then ok; else bad "$left still in env"; fi
+
+t "no shell-export warning when neither is set"
+reset_env; F_SUBSCRIPTION_TOKEN="sk-ant-oat01-abc"
+warn_out="$(unset ANTHROPIC_API_KEY ANTHROPIC_BASE_URL; provider_subscription_configure 2>&1)"
+case "$warn_out" in *WARNING*) bad "$warn_out" ;; *) ok ;; esac
+
 t "SUBSCRIPTION_KEYS lists every key the arm writes (for --reset)"
 if printf '%s\n' "${SUBSCRIPTION_KEYS[@]}" | grep -qx CLAUDE_CODE_OAUTH_TOKEN; then ok; else bad "${SUBSCRIPTION_KEYS[*]:-unset}"; fi
 
