@@ -51,5 +51,28 @@ d=$(mkext agent-msg '{"skillMappings":[{"originType":"X","skillNames":["s"]}]}')
 msg=$(ai_disclosure_gate "$d" 2>&1 >/dev/null || true)
 case "$msg" in *app-ai-disclosure*14-forms-and-wizards*) ok ;; *) bad "$msg" ;; esac
 
+AG='{"skillMappings":[{"originType":"X","skillNames":["s"]}]}'
+lock() {  # lock <dir> <version>
+  printf '{"packages":{"node_modules/@duplocloud-internal/ng-common-lib":{"version":"%s"}}}' "$2" > "$1/frontend/package-lock.json"
+}
+
+t "warns (returns 0) below ng-common-lib 0.4.0"
+d=$(mkext old-lib "$AG"); lock "$d" 0.3.0
+msg=$(ai_disclosure_gate "$d" 2>&1 >/dev/null) && rc=0 || rc=$?
+case "$rc:$msg" in 0:*"not enforced below 0.4.0"*) ok ;; *) bad "rc=$rc $msg" ;; esac
+
+t "enforces at ng-common-lib 0.4.0"
+d=$(mkext new-lib "$AG"); lock "$d" 0.4.0
+if ai_disclosure_gate "$d" 2>/dev/null; then bad "returned 0"; else ok; fi
+
+t "does not count the copied wizard-stepper tag"
+d=$(mkext wiz-only "$AG" wizard-stepper.component.ts)
+if ai_disclosure_gate "$d" 2>/dev/null; then bad "returned 0"; else ok; fi
+
+t "passes when a wizard sets [aiDisclosure]=\"true\""
+d=$(mkext wiz-flag "$AG" wizard-stepper.component.ts)
+echo '<wizard-stepper [aiDisclosure]="true"></wizard-stepper>' > "$d/frontend/src/app/wiz.component.html"
+if ai_disclosure_gate "$d" 2>/dev/null; then ok; else bad "returned 1"; fi
+
 echo; echo "$PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

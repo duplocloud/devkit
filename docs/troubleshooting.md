@@ -306,6 +306,17 @@ QEMU starts normally under Docker: `uname -m` reports `x86_64` and the log carri
 > echo 'RUNTIME=podman' >> .env                                           # force podman
 > ```
 
+### `✗ Agent-mode extension … renders no <app-ai-disclosure />`
+
+`build-extension.sh` fails an Agent-mode extension (non-empty `skillMappings`) on ng-common-lib >= 0.4.0 when
+no form renders the AI-use disclosure (ISO 42001). The copied `wizard-stepper.component.ts` does not count.
+
+Fix: add `<app-ai-disclosure />` to every Add/Edit form, or set `[aiDisclosure]="true"` on the wizard
+(`reference/14-forms-and-wizards.md`, "AI-use disclosure").
+
+On ng-common-lib below 0.4.0 the build prints `! Agent-mode extension on ng-common-lib <ver> renders no <app-ai-disclosure />`
+and continues. Upgrade with `scripts/refresh-common-lib.sh` (see `docs/UPGRADING-ng-common-lib.md`) and add the component.
+
 ### More entries belong here
 
 Image pull failures and `<runtime> login quay.io`, and insufficient memory or disk. Add them as they are

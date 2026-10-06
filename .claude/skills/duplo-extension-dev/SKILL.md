@@ -237,7 +237,7 @@ status", the "Needs your input" phase) exists **only in Agent mode** ([19](refer
      (copy `samples/worker-compute`'s `phases()`), remove `track()`/`ticketName()` and the list-row "Track Provisioning"
      item, label the add button **"Create"** (not "Provision").
 - **Agent**: keep `skills/provision-*/SKILL.md` (+ `provision.sh`, write to the OWN route) and the manifest
-  `skills` + `skillMappings`; keep the ticket UI and the `<app-ai-disclosure />` on every Add/Edit form (the build fails without it). **Deprovision seam (if it creates real infra):** the platform reuses the
+  `skills` + `skillMappings`; keep the ticket UI and the `<app-ai-disclosure />` on every Add/Edit form (`scripts/build-extension.sh` fails without it on ng-common-lib >= 0.4.0). **Deprovision seam (if it creates real infra):** the platform reuses the
   SAME ticket and sends the generic teardown message — there is **no separate deprovision skill mapping**, so the
   provision `SKILL.md` needs a **Deprovision** section + an idempotent `deprovision.sh`, or a second skill in the same
   `skillNames` ([11](reference/11-deprovisioning.md)). Once your skill POSTs `DeProvisioned`, the platform hard-deletes
@@ -249,7 +249,7 @@ status", the "Needs your input" phase) exists **only in Agent mode** ([19](refer
 ## Phases 3–5 shortcut (clone-and-own repo)
 
 If you're in a cloned dev-kit repo, **`./scripts/build-extension.sh extensions/<name>`** (or `./scripts/build-all.sh`
-for every extension) does Phases 3–5 in one step (naming gate, fetch + pin the SDK, `dotnet publish`,
+for every extension) does Phases 3–5 in one step (naming gate, AI-use disclosure check, fetch + pin the SDK, `dotnet publish`,
 `npm ci && npm run build`, trim the bundle to your extension's own assemblies, assemble
 `extensions/<name>/dist/extension.zip`). The manual steps below are the equivalent — use them in-platform or when
 there's no script. After it succeeds, skip to Phase 6.
