@@ -157,6 +157,8 @@ backend + Angular remote + provisioning skill) — never ask the user to choose 
   sit under a parent / an extension category? Should any endpoint require an **explicitly granted named action**
   rather than plain CRUD (restart, console/exec, credential-minting shapes — see reference/18-access-control.md)?
 - **menu** placement (a top-level `collapsible-section` with `item` children renders nested correctly);
+- **agent** — which agent (DevOps / Compliance / Observability / Release Management / custom) this
+  extension files under; omit the field if the author doesn't pick one;
 - **Ask AI** is opt-in: scaffold it ONLY if the user's requirement explicitly asks for AI chat sessions on the
   resource — never offer it or add it unprompted (see skill reference 16-ask-ai);
 - for an external system: **auth** style (basic/bearer) and which API calls provisioning makes (a custom
