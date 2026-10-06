@@ -259,12 +259,12 @@ a plain `npm install` just works from a fresh clone. Two schemes coexist:
 
 - **The samples** share one copy at repo-root `packages/`, since they never leave this repo:
   ```json
-  "@duplocloud-internal/ng-common-lib": "file:../../../packages/duplocloud-internal-ng-common-lib-0.2.0.tgz",
+  "@duplocloud-internal/ng-common-lib": "file:../../../packages/duplocloud-internal-ng-common-lib-0.4.0.tgz",
   ```
 - **The skill template** (`templates/helloworld/frontend/`) keeps its **own** copy under `vendor/`, because it
   gets copied out to `extensions/<name>/` or a provisioning workdir and must stay self-contained:
   ```json
-  "@duplocloud-internal/ng-common-lib": "file:vendor/duplocloud-internal-ng-common-lib-0.2.0.tgz",
+  "@duplocloud-internal/ng-common-lib": "file:vendor/duplocloud-internal-ng-common-lib-0.4.0.tgz",
   ```
 
 Scaffolding from the template carries the tarball and the specifier with it — keep both when you copy.

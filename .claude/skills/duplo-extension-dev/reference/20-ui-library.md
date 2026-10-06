@@ -4,7 +4,7 @@ Everything the platform UI library exports, what each piece is for, how to impor
 inside an extension remote. Check here before hand-rolling a table, form control, viewer or modal — the
 platform almost certainly ships it already, and using it is what makes your pages match the suite.
 
-Written against **0.3.0**. The source of truth is `portal/common-lib/public-api.ts` in duplo-ui; exact
+Written against **0.4.0**. The source of truth is `portal/common-lib/public-api.ts` in duplo-ui; exact
 signatures are in the installed package — see [Checking an exact API](#checking-an-exact-api).
 
 ## Rules
