@@ -655,12 +655,13 @@ host's version — but your list stays a **subset** of the host's, never a copy 
 packages your extension doesn't depend on, e.g. `yaml`, and `lookupVersion()` throws if you copy those in).
 
 There is no standalone dev server. Extension frontends are remotes loaded into the portal, so use the
-build → deploy → hot-load loop:
+build and hot-load loop. The installer service loads each build in `extensions/<name>/dist/` by itself:
 
 ```bash
 ./scripts/build-extension.sh  extensions/<name>
-./scripts/deploy-extension.sh extensions/<name>/dist/extension.zip
 ```
+
+On a remote target or a stack without the installer, load it with `./scripts/deploy-extension.sh extensions/<name>/dist/extension.zip`.
 
 See [Build your first extension](getting-started/build-your-first-extension.md).
 

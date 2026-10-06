@@ -626,7 +626,7 @@ fi
 # kept. The last-applied defaults are remembered in .env.defaults (git-ignored) so we can tell "you changed
 # it" from "the default changed". To re-track a pinned key, delete its line from .env (or .env.defaults).
 DEFAULTS_LOCK=.env.defaults
-DEFAULT_KEYS="STUDIO_TAG AGENT_TAG UI_TAG XTERM_TAG STUDIO_PLATFORM"   # add ports/DUPLO_TARGET here to track them too
+DEFAULT_KEYS="STUDIO_TAG AGENT_TAG UI_TAG XTERM_TAG INSTALLER_TAG STUDIO_PLATFORM"   # add ports/DUPLO_TARGET here to track them too
 if [ -f .env.example ]; then
   adopted=""
   for k in $DEFAULT_KEYS; do
@@ -1069,6 +1069,9 @@ done
 # so on a box with both installed the choice is otherwise invisible until it goes wrong.
 echo "==> Using $(runtime_label)"
 echo "==> Pulling images…"; "$RUNTIME" compose pull
+# The installer mounts extensions/. A bind source the runtime has to create comes out root-owned under rootful docker
+# on Linux, which neither fetch-terraform-extension.sh below nor a build could then write.
+mkdir -p extensions
 echo "==> Starting…"; "$RUNTIME" compose up -d
 
 STUDIO_PORT="$(getenv STUDIO_PORT)"; [ -z "$STUDIO_PORT" ] && STUDIO_PORT=60021
@@ -1256,9 +1259,12 @@ cat <<EOF
 
 Build & deploy your extension (scripts read the target from .env — no DUPLO_BASE= prefix needed):
   ./scripts/build-extension.sh  extensions/<name>               # your extensions live in extensions/<name>/
-  ./scripts/deploy-extension.sh extensions/<name>/dist/extension.zip
+  # the installer service loads each build in extensions/<name>/dist/ by itself, within about 20 seconds
+  # without the installer, or on a remote target: ./scripts/deploy-extension.sh extensions/<name>/dist/extension.zip
   # or build every extension:    ./scripts/build-all.sh
   # or build a bundled sample:   ./scripts/build-extension.sh samples/helloworld
+  #   then load it, since the installer reads only extensions/:
+  #   ./scripts/deploy-extension.sh samples/helloworld/dist/extension.zip
   # re-attach the agent to another workspace: ./scripts/register-agent.sh <workspace-id>
   # attach the devops persona elsewhere:       ./scripts/register-persona.sh <workspace-id>
 EOF

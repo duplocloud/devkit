@@ -15,7 +15,8 @@ Nothing here builds from source. Every service pulls a published image pinned by
 | `mongo` | `mongo:7.0.14` | 27018 | All platform state, including the `loaded_extensions` records. Matches the version pinned in the helpdesk-helm chart. |
 | `qdrant` | `qdrant/qdrant:v1.18.2` | 6333 | The vector database behind the Knowledge Base. The studio reaches it in-network at `http://qdrant:6333`; the host port is published so its dashboard is available for debugging. Runs with RBAC on, so the studio can mint read-only per-collection tokens instead of sharing the master key. |
 | `xterm` | `quay.io/duplocloud/duplo-xterm` | 6061 | In-browser terminal. The browser reaches it on the published host port, so `AIStudio__XtermHost` must be host-reachable. |
-| `init-perms` | `busybox:1.36` | — | One-shot. Chowns the shared named volumes to uid 1001 so the non-root studio and agent can write them. Named volumes are created root-owned, so this runs on every startup. |
+| `installer` | `quay.io/duplocloud/helpdesk-installer` | none | Installs and upgrades extensions through the studio's API, from your builds in the read-only `extensions/` mount and, when configured, the license server's catalog. The studio calls it at `Extensions__InstallerUrl`, so it publishes no host port. See [Installing an extension](../README.md#installing-an-extension). |
+| `init-perms` | `busybox:1.36` | none | One-shot. Chowns the shared named volumes to uid 1001 so the non-root studio and agent can write them, and the installer's state volume to 65532, its distroless nonroot user. Named volumes are created root-owned, so this runs on every startup. |
 
 Ports shown are the dev kit's `.env.example` defaults, mostly offset from the platform's standard ports so
 this stack can run alongside a full local platform. See [configuration.md](configuration.md#host-ports).
@@ -44,6 +45,7 @@ the UI, but each upload fails. See [configuration.md](configuration.md#knowledge
 | `extension_studio_data` | studio | Unpacked hot-loaded extension bundles. |
 | `claude_sessions` | agent | Agent sessions, under its real home (`/home/appuser/.claude`). |
 | `qdrant_data` | qdrant | Knowledge Base vectors and their payloads. |
+| `installer_state` | installer | The installer's status record, `installer-status.json`. |
 
 Because extensions live in a named volume **and** are recorded in Mongo, they survive a container
 recreate: `ExtensionReplayHostedService` re-registers the active records on boot. That is why

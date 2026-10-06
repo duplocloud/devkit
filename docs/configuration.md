@@ -110,6 +110,7 @@ Pin the published images the stack runs.
 | `AGENT_TAG` | `main-d27e511` | The `claude-code-agent` image that executes provisioning tickets. A `main` build — it carries no extension-specific changes. |
 | `UI_TAG` | `2a949c536be71efd4501dd60ca6fdda4f7b4676a` | The Angular portal image. A `duplo-ui` git SHA, pinned to a build that renders the license state. |
 | `XTERM_TAG` | `main-d323e0b` | The in-browser terminal image. |
+| `INSTALLER_TAG` | `main-8d05eb4e` | The extension installer image. Its own keys are under [Installing an extension](../README.md#installing-an-extension). |
 | `STUDIO_PLATFORM` | `linux/amd64` | Docker platform for the studio image. On Apple Silicon the studio image is amd64-only and runs emulated. Leave as-is unless you have an arm64 image. |
 
 `STUDIO_TAG` and `UI_TAG` are required — `run.sh` exits if either is empty:
