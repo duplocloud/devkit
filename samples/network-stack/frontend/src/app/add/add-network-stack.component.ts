@@ -30,6 +30,7 @@ import { WizardStep, WizardStepperComponent } from '../wizard/wizard-stepper.com
     <form #f="ngForm" class="form form-vertical" (ngSubmit)="f.valid && finish()">
       <duplo-wizard-stepper
         [title]="isEdit ? 'Edit Network Stack' : 'Create Network Stack'"
+        [aiDisclosure]="true"
         subtitle="A VPC with subnets and a security group, provisioned by terraform in the background — the view page tracks the modules live and offers on-demand Plan/Apply."
         [steps]="steps"
         [activeIndex]="activeIndex()"

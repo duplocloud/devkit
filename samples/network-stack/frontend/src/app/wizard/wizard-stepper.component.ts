@@ -1,4 +1,5 @@
 import { Component, computed, input, output } from '@angular/core';
+import { AiDisclosureComponent } from '@duplocloud-internal/ng-common-lib';
 
 export interface WizardStep {
   key: string;
@@ -23,6 +24,7 @@ export interface WizardStep {
  */
 @Component({
   selector: 'duplo-wizard-stepper',
+  imports: [AiDisclosureComponent],
   styles: [`
     :host { display: block; }
     /* One centered card: title, stepper, body and footer share a single width so nothing drifts apart.
@@ -105,6 +107,9 @@ export interface WizardStep {
           }
         </div>
       </div>
+      @if (aiDisclosure()) {
+        <app-ai-disclosure class="pb-1" />
+      }
     </div>
   `,
 })
@@ -115,6 +120,8 @@ export class WizardStepperComponent {
   readonly nextDisabled = input(false);
   readonly saving = input(false);
   readonly finishLabel = input('Create');
+  /** Agent-mode forms only (ISO 42001); the stepper is shared with Worker-mode extensions. */
+  readonly aiDisclosure = input(false);
   readonly error = input('');
   /** Page heading rendered inside the card (never wrap the stepper in another card to fake one). */
   readonly title = input('');
