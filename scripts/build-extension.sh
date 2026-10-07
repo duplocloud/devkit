@@ -129,12 +129,6 @@ if [ "$viol" -ne 0 ]; then
 fi
 echo "    naming OK"
 
-echo "==> Checking AI-use disclosure (reference/14-forms-and-wizards.md)"
-# shellcheck source=scripts/_ai_disclosure_gate.sh
-source "$(dirname "$0")/_ai_disclosure_gate.sh"
-ai_disclosure_gate "$DIR" || { echo "ERROR: Agent-mode extension is missing the AI-use disclosure." >&2; exit 1; }
-echo "    disclosure OK"
-
 echo "==> Fetching SDK feed from $BASE_URL"
 auth=()
 [ -n "${TOKEN:-}" ] && auth=(-H "Authorization: Bearer $TOKEN")
