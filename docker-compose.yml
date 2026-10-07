@@ -175,6 +175,10 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
+      # Docker-in-Docker: the dind service shares this container's network namespace, so its daemon
+      # is reachable on loopback here and nowhere else.
+      - DOCKER_HOST=tcp://127.0.0.1:2375
+      - CCA_ENABLE_DOCKER=true
     volumes:
       # Shared /data so the agent reads the skills the studio seeded (CCA reads /data/skills).
       - platform_data:/data
@@ -184,6 +188,46 @@ services:
     depends_on:
       init-perms:
         condition: service_completed_successfully
+
+  # Docker-in-Docker daemon for the agent, mirroring the dind sidecar in the helpdesk-helm chart.
+  #
+  # network_mode joins claude-code-agent's network namespace — the compose equivalent of a pod's
+  # shared netns — so dockerd bound to 127.0.0.1 is reachable by the agent and by nothing else: not
+  # the compose network, not the host. The agent keeps owning its network identity, so
+  # http://claude-code-agent:8000 still resolves for the studio. The agent cannot depends_on this
+  # service (network_mode already makes this one depend on the agent); docker calls simply fail for
+  # the few seconds until the daemon is up.
+  #
+  # The image entrypoint is bypassed: with TLS off it force-binds tcp://0.0.0.0:2375 and ignores any
+  # --host passed. modprobe replicates the entrypoint's kernel-module loading; --tls=false suppresses
+  # the insecure-bind startup delay.
+  dind:
+    image: docker:27-dind
+    restart: unless-stopped
+    privileged: true
+    network_mode: "service:claude-code-agent"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        modprobe ip_tables || true
+        modprobe ip6_tables || true
+        modprobe nf_tables || true
+        modprobe overlay || true
+        exec dockerd --host=tcp://127.0.0.1:2375 --tls=false
+    environment:
+      - DOCKER_HOST=tcp://127.0.0.1:2375
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 10s
+      start_period: 5s
+    volumes:
+      # Same /data as the agent, so `docker run -v /data/...` bind-mount paths resolve daemon-side.
+      - platform_data:/data
+      # Image/container storage. Wiped with the rest by run.sh's `down -v`, like the chart's emptyDir.
+      - dind_storage:/var/lib/docker
+    depends_on:
+      claude-code-agent:
+        condition: service_started
 
   # Renders nginx/default.conf into a volume with the DNS resolver this runtime actually uses.
   #
@@ -309,6 +353,7 @@ volumes:
   claude_sessions:
   qdrant_data:
   installer_state:
+  dind_storage:
   # Keyed by uid on purpose: these are written as the calling user (see the service's `user:`), and one
   # uid's runtime-created cache subdirectories are not writable by another, so sharing a single pair
   # would break the second uid to build. build/Dockerfile.builder has the full reasoning, including why

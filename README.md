@@ -49,7 +49,7 @@ region against six security rules, charts the violations over time, and fixes th
 
 | | |
 | --- | --- |
-| `docker-compose.yml` | The platform from published images: mongo, qdrant, studio, agent, ui, xterm, installer |
+| `docker-compose.yml` | The platform from published images: mongo, qdrant, studio, agent, dind, ui, xterm, installer |
 | `.env` / `.env.example` | Image tags, auth, LLM credentials, and the build target |
 | `run.sh` `stop.sh` `logs.sh` | Lifecycle |
 | `scripts/` | Build, deploy, register, and upgrade |
