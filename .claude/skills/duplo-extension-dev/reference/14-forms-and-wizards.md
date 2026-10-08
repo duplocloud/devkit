@@ -19,6 +19,20 @@ Import `SharedFormsModule` and use:
 The single-page create form is the `panel-form-accordion` 3-column layout — see
 [02-authoring-guide](02-authoring-guide.md) and `samples/helloworld`.
 
+## AI-use disclosure (Agent mode)
+
+DuploCloud is ISO 42001 certified: a form whose submit hands work to an AI agent (Agent mode — the resource maps a
+skill in `manifest.skillMappings`) must say so at the point of use. Every Agent-mode Add/Edit form renders the
+library's `<app-ai-disclosure />` (import `AiDisclosureComponent` from `@duplocloud-internal/ng-common-lib`):
+
+- **Single-page form** — last element inside `.form-container`, under the Cancel/Provision row (see `samples/helloworld`).
+- **Wizard** — pass `[aiDisclosure]="true"` to the copied `wizard-stepper`; it renders under the footer on every step.
+- **Modal form** — inside `.modal-footer`, above the buttons.
+
+It renders "This platform uses AI. See documentation for more details."; a deployment can change the text and link in
+its config (`text.aiDisclosure`, `links.aiDisclosure`). Don't hardcode the wording or set `defaultText`. Worker,
+Passthrough and No-provision forms do **not** carry it.
+
 ## Multi-step wizards — there is NO library stepper
 
 The library ships **no stepper/wizard component**, and the host's own multi-step forms (AppService, etc.) hand-roll
@@ -121,6 +135,8 @@ prototype:
   omits a step defeats confirm-before-provision.
 - **Contextual error fallback**: `extractErrorMessage(err) || 'Could not create the <resource>.'` — name
   the action that failed.
+- **AI-use disclosure** — Agent-mode wizards pass `[aiDisclosure]="true"` to the stepper
+  ([above](#ai-use-disclosure-agent-mode)).
 
 ## Dynamic fields from a remote schema
 
