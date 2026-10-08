@@ -68,12 +68,22 @@ The `installer` service installs extensions into the running studio and keeps th
 ./scripts/build-extension.sh extensions/[name]
 ```
 
-The installer installs each build in `extensions/[name]/dist/` within about 20 seconds of it changing, including a
-rebuild at the same version. The studio may keep running the previous backend DLL after a same-version reload, as
-`deploy-extension.sh` warns, so bump the version for backend changes.
+The installer installs each build in `extensions/[name]/dist/` that changes while it runs, within about 20 seconds,
+including a rebuild at the same version. The studio may keep running the previous backend DLL after a same-version
+reload, as `deploy-extension.sh` warns, so bump the version for backend changes.
 
-The installer reinstalls a same-version rebuild only over a build it installed itself. After a `deploy-extension.sh`
-load, bump the version or run `./scripts/remove-extension.sh [id]` before relying on the installer for a rebuild.
+A build already in `dist/` when the installer starts, as after `./run.sh --reset`, waits for its next rebuild, and so
+does an extension you remove. The installer also leaves alone a build older than the installed version, unless that
+version failed to load.
+
+`./scripts/deploy-extension.sh extensions/[name]/dist/extension.zip` hands that build to the installer while it runs,
+waits for the installer to report it, and exits non-zero with the installer's reason when it does not install it. For
+a build the installer leaves alone, with the installer stopped or `EXTENSIONS_ENABLED=false`, for an id in
+`EXTENSIONS_EXCLUDE`, or for a zip outside `extensions/`, it loads the zip itself.
+
+The installer reinstalls a same-version rebuild only over a build it installed itself. After a load it did not make,
+such as `deploy-extension.sh` with the installer stopped or Extension Studio's in-platform flow, bump the version or
+run `./scripts/remove-extension.sh [id]` before relying on the installer for a rebuild.
 
 **From the catalog.** The Available tab lists the extensions your license entitles you to. Install there hands
 the click to this installer only once the UI tag and the studio tag in `.env.example` are images that do that.

@@ -94,11 +94,12 @@ services:
       init-perms:
         condition: service_completed_successfully
 
-  # Installs and upgrades extensions in the studio: each build in extensions/[name]/dist/ by itself, and a catalog
-  # extension when the Available tab asks. Only the studio calls it, signing each call with the shared JWT secret, so
-  # no host port is published.
+  # Installs and upgrades extensions in the studio: each build that changes in extensions/[name]/dist/ while it runs,
+  # and a catalog extension when the Available tab asks. Only the studio calls it, signing each call with the shared JWT
+  # secret, so no host port is published.
   installer:
-    image: quay.io/duplocloud/helpdesk-installer:${INSTALLER_TAG}
+    # Defaults to .env.example's pin, so `docker compose up` before run.sh copies INSTALLER_TAG into .env still starts.
+    image: quay.io/duplocloud/helpdesk-installer:${INSTALLER_TAG:-main-8d05eb4e}
     restart: unless-stopped
     environment:
       - INSTALLER_PLATFORM=compose

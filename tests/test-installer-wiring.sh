@@ -15,15 +15,18 @@ COMPOSE=docker-compose.yml
 
 echo "installer wiring, static:"
 
-t "compose defines an installer service on the published installer image"
-if awk '/^  installer:$/{f=1;next} f&&/^  [a-z]/{exit} f' "$COMPOSE" \
-    | grep -qE '^    image: quay\.io/duplocloud/helpdesk-installer:\$\{INSTALLER_TAG\}$'; then ok
-else bad "no installer service with image quay.io/duplocloud/helpdesk-installer:\${INSTALLER_TAG}"; fi
+TAG="$(grep -E '^INSTALLER_TAG=' .env.example | head -1 | cut -d= -f2-)"
+
+# The compose default is what a `docker compose up` runs until run.sh adopts INSTALLER_TAG into .env, so it has to stay
+# .env.example's pin.
+t "compose defines an installer service on the published installer image, defaulting to .env.example's pin"
+IMAGE="quay.io/duplocloud/helpdesk-installer:\${INSTALLER_TAG:-$TAG}"
+if awk '/^  installer:$/{f=1;next} f&&/^  [a-z]/{exit} f' "$COMPOSE" | grep -qxF "    image: $IMAGE"; then ok
+else bad "no installer service with image $IMAGE"; fi
 
 # A floating tag would move under a developer with every compose pull, and run.sh's adoption could never tell a new
 # default from an old one.
 t ".env.example pins INSTALLER_TAG to an immutable build"
-TAG="$(grep -E '^INSTALLER_TAG=' .env.example | head -1 | cut -d= -f2-)"
 case "$TAG" in
   ""|latest|main) bad "INSTALLER_TAG is '${TAG:-unset}'" ;;
   *) ok ;;
@@ -51,8 +54,8 @@ else bad "README lacks the extensions/[name]/dist/ build, the Available tab or t
 # in_readme TEXT -> whether README.md holds TEXT, with its prose line breaks read as spaces.
 in_readme() { tr '\n' ' ' < README.md | grep -qF -- "$1"; }
 
-# A build deploy-extension.sh loaded leaves the installer no digest to compare, so a same-version rebuild of it reads as
-# already installed. The hints name the installer as the load step, and the README says how to get past that.
+# A zip deploy-extension.sh posts itself leaves the installer no digest to compare, so a same-version rebuild of it
+# reads as already installed. The hints name the installer as the load step, and the README says how to get past that.
 t "build hints load through the installer, and deploy-extension.sh only without it"
 STALE=""
 for f in run.sh docs/troubleshooting.md; do
@@ -71,9 +74,20 @@ for f in run.sh docs/getting-started/install.md; do
 done
 if [ -z "$SAMPLE_STALE" ]; then ok; else bad "sample load step missing in:$SAMPLE_STALE"; fi
 
-t "README says how a rebuild installs after a deploy-extension.sh load"
-if in_readme "After a \`deploy-extension.sh\` load, bump the version or run \`./scripts/remove-extension.sh [id]\`"
-then ok; else bad "README lacks the bump-or-remove step after a deploy-extension.sh load"; fi
+t "README says deploy-extension.sh hands a local build to the installer"
+if in_readme "\`./scripts/deploy-extension.sh extensions/[name]/dist/extension.zip\` hands that build to the installer"
+then ok; else bad "README lacks the deploy-extension.sh hand-off"; fi
+
+t "README says how a rebuild installs after a load the installer did not make"
+if in_readme "After a load it did not make," \
+    && in_readme "bump the version or run \`./scripts/remove-extension.sh [id]\` before relying on the installer"
+then ok; else bad "README lacks the bump-or-remove step after a load the installer did not make"; fi
+
+t "README says which builds the installer leaves alone and that deploy-extension.sh loads them"
+if in_readme "A build already in \`dist/\` when the installer starts, as after \`./run.sh --reset\`, waits for its next rebuild" \
+    && in_readme "The installer also leaves alone a build older than the installed version" \
+    && in_readme "For a build the installer leaves alone, with the installer stopped"
+then ok; else bad "README lacks the builds the installer leaves alone or the deploy-extension.sh fallback for them"; fi
 
 t "README gives the manual recovery for a load that hangs the studio"
 if in_readme "docker compose stop duplo-ai-studio" \
