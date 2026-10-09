@@ -13,15 +13,20 @@ build checks, how to verify, and the retrofit you run on every existing extensio
 > 2. **Never add `frontend.analytics.properties` to `manifest.json`** unless the user, **in this conversation**,
 >    explicitly names **both** the event **and** the property they want (e.g. "add the `region` property to
 >    `create-cluster`"). A request that names only one of them, or only describes a goal ("it'd be useful to know
->    the region"), is **not** a request — build the event with no properties, and do not ask a follow-up.
+>    the region"), is **not** a request — build the event with no properties, and do not ask a follow-up. Even an
+>    explicit request is subject to rule 4.
 > 3. **Never suggest, infer or add properties because they seem useful.** Do not ask the user whether they would
 >    like to add any, do not list candidates, do not mention that properties are possible. The user must raise
 >    it themselves.
-> 4. **Even when explicitly requested, never send** names (of people, or anything a user typed as a name), emails,
->    person IDs or usernames, free text, hostnames, IPs, ARNs, cloud account / subscription / project IDs, or
->    secrets, tokens, keys or passwords. If the user asks for one, **warn them** (it can identify a person or a
->    customer, and it leaves the platform), and add it **only** after a **second, separate, explicit
->    confirmation** from the user that names the property again.
+> 4. **Two kinds of property get special handling even when the user explicitly asks:**
+>    - **Secrets — REFUSE, always.** Secrets, credentials, tokens, API keys, passwords, connection strings, or any
+>      value that grants access. There is no confirmation path: refuse even if the user insists, and explain why —
+>      analytics data leaves the platform, is visible to everyone with analytics access, and cannot be recalled.
+>    - **Identifying data — only after a second confirmation.** Names (of people, or anything a user typed as a
+>      name), emails, person IDs or usernames, free text, hostnames, IPs, ARNs, cloud account / subscription /
+>      project IDs. **Warn the user** that the value can identify a person or a customer and leaves the platform.
+>      Add it **only** if the user then confirms a **second time, in a separate message, naming the property
+>      again** — and then add only that one allowlist entry.
 > 5. **The portal strips every property that is not allowlisted** for that exact event. Un-opted-in properties do
 >    nothing at all, so there is never a reason to "pass them just in case".
 >
@@ -142,8 +147,13 @@ The scaffold's events, as a model:
 | `view-hello.component.ts` | `pageView('hello-detail')` | first line of `ngOnInit` |
 | `add-hello.component.ts` | `pageView('hello-form')` | first line of `ngOnInit` |
 | `add-hello.component.ts` | `action(this.isEdit ? 'update-hello' : 'create-hello')` | `next:` of the save call |
+| `list-hello.component.ts` | `action('track-provisioning')` | the row's "Track Provisioning" click (`track()`) |
+| `view-hello.component.ts` | `action('ask-agent')` / `action('track-provisioning')` | `track(event)`, after the `!item` guard: the header's "Ask agent" passes `ask-agent`; the rail's "Track status" and the "Review" phase action pass `track-provisioning` |
 
-Rename every `hello` event when you rename the resource — the build fails on leftover `hello-list` /
+`ask-agent` and `track-provisioning` exist only in **Agent** mode. Worker, Passthrough and No-provision remove the
+ticket UI, and those two events go with it.
+
+Rename every `hello` event when you rename the resource (`ask-agent` and `track-provisioning` keep their names) — the build fails on leftover `hello-list` /
 `hello-detail` / `hello-form` / `create-hello` / `update-hello` / `delete-hello`.
 
 ## Naming
@@ -195,6 +205,7 @@ names the dropped event:
 | `page "<x>" must not include the .viewed suffix, event dropped` | `pageView('widget-list.viewed')` | pass `widget-list` |
 | `action "<x>" must not use the reserved .viewed suffix, event dropped` | an action ending in `.viewed` | use `pageView` for pages |
 | `page must be a string, event dropped` | `pageView` got a non-string | pass a literal |
+| `invalid namespace "<id>", event dropped` | the registered manifest `id` breaks the id regex (the build gate normally stops this) | fix the id per [Build-time checks](#build-time-checks) |
 
 The warnings appear whether or not consent was given. The events themselves are only sent for a user who has
 given analytics consent, so a user who declined will never generate any. No warnings and no events can also mean
@@ -205,10 +216,12 @@ dropped, which is one more reason never to pass them.
 
 ## Analytics retrofit (existing extensions)
 
-> ⚠️ **This runs every time this skill is used on an extension that already exists — for ANY reason.** A bug
-> fix, a new field, a menu change, a migration, a rebuild: if the target `extensions/<name>/` (or the ticket
-> workdir) already has a `manifest.json`, you run the retrofit as part of the same change. It is not optional
-> and it does not wait for the user to mention analytics.
+> ⚠️ **This runs on every change you make to an extension that already exists — whatever the change is for.** A
+> bug fix, a new field, a menu change, a migration, a rebuild: if the target `extensions/<name>/` (or the ticket
+> workdir) already has a `manifest.json` and you are about to change it, you run the retrofit as part of the same
+> change. It is not optional and it does not wait for the user to mention analytics. (A read-only or diagnostic
+> question — "how does this extension provision?", "why is the list empty?" — changes nothing, so it does not
+> trigger the retrofit; the fix that follows it does.)
 
 1. **Check the wiring.** Look for the wrapper and the id:
    ```bash
@@ -217,14 +230,20 @@ dropped, which is one more reason never to pass them.
    ```
    Missing → create `analytics.ts` from the scaffold's file above (rename the class, set `EXTENSION_ID` to the
    manifest `id`).
-2. **Check the library version.** `grep ng-common-lib extensions/<name>/frontend/package.json` must point at
-   0.4.1 or later. Older → copy the dev-kit's
-   `.claude/skills/duplo-extension-dev/templates/helloworld/frontend/vendor/duplocloud-internal-ng-common-lib-*.tgz`
-   into the extension's `frontend/vendor/`, remove the old tarball, update the `file:` dependency, and regenerate
-   the lockfile per [`docs/UPGRADING-ng-common-lib.md`](../../../../docs/UPGRADING-ng-common-lib.md). If the
-   frontend is still Angular 15 / Webpack (`frontend/webpack.config.js` exists), it must be migrated first with
-   the [`duplo-extension-ng22-migration`](../../duplo-extension-ng22-migration/SKILL.md) skill — the retrofit is
-   that migration's last step. Tell the user rather than silently skipping.
+2. **Check the frontend can take it.** Two cases stop the retrofit from being a small add-on:
+   - **Angular 15 / Webpack frontend** (`frontend/webpack.config.js` exists, `@angular/core` 15). **Do NOT start an
+     Angular 15 → 22 migration as a side effect.** Tell the user that analytics needs the
+     [`duplo-extension-ng22-migration`](../../duplo-extension-ng22-migration/SKILL.md) migration (the retrofit is
+     that migration's last step), skip the remaining retrofit steps, and continue with the change they actually
+     asked for. Migrate only if they asked for the migration, or their change cannot work without it.
+   - **Library older than 0.4.1.** `grep ng-common-lib extensions/<name>/frontend/package.json` must point at
+     0.4.1 or later. If it is on the 0.4.x line (0.4.0), refresh it: copy the dev-kit's
+     `.claude/skills/duplo-extension-dev/templates/helloworld/frontend/vendor/duplocloud-internal-ng-common-lib-*.tgz`
+     into the extension's `frontend/vendor/`, remove the old tarball, update the `file:` dependency, and regenerate
+     the lockfile per [`docs/UPGRADING-ng-common-lib.md`](../../../../docs/UPGRADING-ng-common-lib.md). If the
+     refresh crosses a minor version (0.2.x or 0.3.x → 0.4.1) and the user's change is unrelated to the library,
+     **tell the user and get their go-ahead before doing it** — a minor bump can change component APIs. Without
+     it, skip the remaining retrofit steps and say why.
 3. **Check the page views.** For every component in `extension.routes.ts`, confirm `ngOnInit` calls
    `this.analytics.pageView('<page>')`. Add the missing ones.
 4. **Check the actions.** For every create / update / delete / deprovision / custom-action API call, confirm its
@@ -237,13 +256,14 @@ dropped, which is one more reason never to pass them.
 7. **Tell the user what was added**, in the same summary as the rest of the change (in-platform: the status /
    ticket message): which files, which page views, which actions — e.g. *"Also added analytics: `analytics.ts`;
    page views `widget-list`, `widget-detail`, `widget-form`; actions `create-widget`, `update-widget`,
-   `delete-widget`. No properties are sent."* If nothing was missing, say that the analytics were already complete.
+   `delete-widget`, `ask-agent`, `track-provisioning` (event names only)."* If nothing was missing, say that the analytics were already complete.
 
 ## Adding a property — only on an explicit user request
 
 Do this **only** when the hard rule's conditions are met: the user named the event and the property, the
-property is not on the forbidden list (or the user confirmed it twice after your warning), and the value is a flat
-string, number or boolean — an enum-like value such as a cloud, a region or a count.
+property is not a secret (secrets are always refused), an identifying property was confirmed a second time after
+your warning, and the value is a flat string, number or boolean — ideally an enum-like value such as a cloud, a
+region or a count.
 
 1. **Allowlist it in the manifest**, under `frontend` (keys are event names without the id; a page view's key is
    `<page>.viewed`):

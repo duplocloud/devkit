@@ -120,7 +120,7 @@ both the event and the property — never because a property seems useful, and n
 }
 ```
 
-Keys are event names without the id (a page view is `<page>.viewed`). The ⛔ hard rule, the forbidden property
+Keys are event names without the id (a page view is `<page>.viewed`). The ⛔ hard rule, the refused and confirm-twice property
 kinds and the matching wrapper change: [21-analytics](21-analytics.md).
 
 ## Build, package, load
@@ -189,7 +189,7 @@ In `angular.json`, set `outputPath` to `{ "base": "dist", "browser": "" }` — A
 > | selectors `hw-add`/`hw-list`/`hw-view`/`hw-root` | `<slug>-add`/`<slug>-list`/`<slug>-view`/`<slug>-root` |
 > | `federation.config.js` `name` (== manifest `frontend.remote.remoteName`) | unique `duploExtension<Name>` |
 > | `analytics.ts` class `HelloAnalytics` + its `EXTENSION_ID` | `<Name>Analytics` + the manifest `id` ([21](21-analytics.md)) |
-> | events `hello-list`/`hello-detail`/`hello-form`, `create-hello`/`update-hello` | `<resource>-list`/`-detail`/`-form`, `create-<resource>`/`update-<resource>` |
+> | events `hello-list`/`hello-detail`/`hello-form`, `create-hello`/`update-hello` | `<resource>-list`/`-detail`/`-form`, `create-<resource>`/`update-<resource>` (`ask-agent`/`track-provisioning` keep their names; Agent mode only) |
 > Update the routes in `extension.routes.ts`, and each component's own `imports`, to the renamed classes.
 
 Use these library pieces (import from `@duplocloud-internal/ng-common-lib`). The full catalog — every export,

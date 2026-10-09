@@ -55,7 +55,7 @@ import { LifecyclePhase, LifecycleRailComponent, RailFact } from '../shared/life
               <button type="button" [class.active]="view() === 'spec'" (click)="view.set('spec')">Spec</button>
               <button type="button" [class.active]="view() === 'result'" (click)="view.set('result')">Result</button>
             </div>
-            <button type="button" class="btn btn-sm btn-primary" [disabled]="tracking()" (click)="track()">
+            <button type="button" class="btn btn-sm btn-primary" [disabled]="tracking()" (click)="track('ask-agent')">
               <i data-feather="terminal" class="mr-50"></i>Ask agent
             </button>
             <div ngbDropdown container="body" placement="bottom-right">
@@ -123,7 +123,7 @@ import { LifecyclePhase, LifecycleRailComponent, RailFact } from '../shared/life
             [attached]="attached()"
             [trackable]="true"
             [trackBusy]="tracking()"
-            (track)="track()" />
+            (track)="track('track-provisioning')" />
         </div>
       </div>
     } @else {
@@ -191,7 +191,7 @@ export class ViewHelloComponent implements OnInit {
           : 'The agent asked a question or needs an approval',
         state: waiting ? 'now' : (ready ? 'done' : 'todo'),
         // Answer right from the timeline: the ticket is where the question lives.
-        action: waiting ? { label: 'Review', run: () => this.track() } : undefined,
+        action: waiting ? { label: 'Review', run: () => this.track('track-provisioning') } : undefined,
       },
       {
         label: 'Ready',
@@ -255,12 +255,16 @@ export class ViewHelloComponent implements OnInit {
     }
   }
 
-  /** Open the provisioning ticket's chat — "Ask agent" in the header and "Track status" in the rail both land here. */
-  protected track(): void {
+  /**
+   * Open the provisioning ticket's chat — "Ask agent" in the header and "Track status" in the rail both land here.
+   * `event` is the analytics action for the button that was clicked (a navigation-only action, so fired on click).
+   */
+  protected track(event: 'ask-agent' | 'track-provisioning'): void {
     const it = this.item();
     if (!it) {
       return;
     }
+    this.analytics.action(event);
     this.tracking.set(true);
     this.svc.ticketName(it.id).subscribe({
       next: name => {

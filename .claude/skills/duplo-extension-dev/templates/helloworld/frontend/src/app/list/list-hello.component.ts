@@ -148,6 +148,7 @@ export class ListHelloComponent implements OnInit {
   }
 
   protected track(r: HelloWorld): void {
+    this.analytics.action('track-provisioning');
     this.svc.ticketName(r.id).subscribe(name => {
       if (!name) {
         return;

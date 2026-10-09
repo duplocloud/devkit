@@ -13,7 +13,8 @@ never mounts.
 
 This skill converts one extension in place. The reference shape is **`samples/helloworld/frontend/`**
 in this dev-kit; diff against it whenever a step is ambiguous. It is the only copy that has been built
-and gate-verified end to end.
+and gate-verified end to end. It has **no** `analytics.ts`: for the analytics retrofit ([step 9](#9-analytics-retrofit))
+copy from the skill template instead, `.claude/skills/duplo-extension-dev/templates/helloworld/frontend/src/app/`.
 
 Throughout, `<devkit>` is a checkout of `duplo-ai-extension-devkit` and `<portal>` is a checkout of
 `duplo-ui/portal`. You need the dev-kit for the reference files and the gate script; you need the
@@ -474,8 +475,10 @@ in short:
    (`.claude/skills/duplo-extension-dev/templates/helloworld/frontend/src/app/analytics.ts`), class renamed to
    `<Name>Analytics`, `EXTENSION_ID` set to the manifest `id`. It is an `@Injectable({ providedIn: 'root' })`
    service, so it works unchanged in a migrated `standalone: false` NgModule extension.
-2. Add `pageView('<page>')` to `ngOnInit` of every routed page and `action('<verb>-<object>')` to the success
-   callback of every create / update / delete / deprovision / custom action.
+2. Add `pageView('<page>')` to `ngOnInit` of every routed page, `action('<verb>-<object>')` to the success
+   callback of every create / update / delete / deprovision / custom action, and — on Agent-mode extensions —
+   `action('ask-agent')` / `action('track-provisioning')` in the click handlers of the buttons that open the
+   provisioning ticket (as the scaffold's `list-hello` and `view-hello` do).
 3. **No properties** — not in the calls, not in the manifest (⛔ hard rule in 21-analytics).
 4. Rebuild with `scripts/build-extension.sh`: it also checks the manifest `id` format (lowercase reverse-DNS,
    ≥ 3 segments) and that `EXTENSION_ID` equals it. If an old extension's `id` fails the format check, tell the

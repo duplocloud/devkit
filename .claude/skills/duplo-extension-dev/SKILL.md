@@ -174,7 +174,8 @@ minimum; name each further tab; [17-custom-result-views](reference/17-custom-res
 does end-to-end. Do this per resource for multi-resource extensions. Also list the **analytics events** the
 extension will emit — the defaults from [21-analytics](reference/21-analytics.md#default-coverage--what-every-extension-tracks):
 a page view per routed page (`<resource>-list`, `<resource>-detail`, `<resource>-form`) and an action per successful
-create/update/delete/deprovision/custom action (`create-<resource>`, …). Event names only: **never ask about, offer
+create/update/delete/deprovision/custom action (`create-<resource>`, …), plus `ask-agent` / `track-provisioning`
+on the ticket buttons in Agent mode. Event names only: **never ask about, offer
 or list properties** — they come only from the user raising them (⛔ hard rule in [21](reference/21-analytics.md)).
 
 **Where the answers come from / how to ask:**
@@ -228,7 +229,8 @@ Adapt inside `extensions/<name>/` — rename `HelloWorld`→`<Name>` consistentl
   **subset** of the host's list, matching your `package.json` ([02](reference/02-authoring-guide.md#native-federation-sharing--share-the-libs-di-peer-packages-avoids-nullinjectorerror)).
 - `frontend/src/app/analytics.ts` — keep the scaffold's file: rename `HelloAnalytics` → `<Name>Analytics` and set
   `EXTENSION_ID` to the manifest `id` (the build fails if they differ). Wire the default events into every routed
-  page and every successful mutation/custom action, and rename the template's `hello-*` events — **no properties,
+  page and every successful mutation/custom action, keep the scaffold's `ask-agent` / `track-provisioning` click
+  events on the ticket buttons (Agent mode only), and rename the template's `hello-*` events — **no properties,
   no `frontend.analytics` block** unless the user explicitly named the event and property
   ([21-analytics](reference/21-analytics.md)).
 - `manifest.json` — `id` (lowercase reverse-DNS, ≥ 3 segments — it is the analytics namespace;
@@ -252,8 +254,8 @@ status", the "Needs your input" phase) exists **only in Agent mode** ([19](refer
      starts the worker directly; `Configure` is what the boot-time replay uses ([10](reference/10-sdk-api.md) Gotchas).
   4. **delete** the `skills/` dir and ship **no** `skills`/`skillMappings` in the manifest.
   5. **FE:** remove the ticket UI and the `<app-ai-disclosure />` (Agent-only), drop the "Needs your input" phase, compute the Worker ladder from `workerState`
-     (copy `samples/worker-compute`'s `phases()`), remove `track()`/`ticketName()` and the list-row "Track Provisioning"
-     item, label the add button **"Create"** (not "Provision").
+     (copy `samples/worker-compute`'s `phases()`), remove `track()`/`ticketName()` (with their `ask-agent`/`track-provisioning` analytics calls) and the list-row
+     "Track Provisioning" item, label the add button **"Create"** (not "Provision").
 - **Agent**: keep `skills/provision-*/SKILL.md` (+ `provision.sh`, write to the OWN route) and the manifest
   `skills` + `skillMappings`; keep the ticket UI and the `<app-ai-disclosure />` on every Add/Edit form. **Deprovision seam (if it creates real infra):** the platform reuses the
   SAME ticket and sends the generic teardown message — there is **no separate deprovision skill mapping**, so the
