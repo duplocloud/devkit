@@ -21,6 +21,7 @@ extension_id_fe_mismatches() {
   [ -d "$dir" ] || return 0
   while IFS= read -r v; do
     [ -n "$v" ] && [ "$v" != "$mid" ] && printf '%s\n' "$v"
-  done < <(grep -rhoE "EXTENSION_ID[[:space:]]*=[[:space:]]*'[^']*'" "$dir" 2>/dev/null | sed -E "s/.*'([^']*)'.*/\1/" | sort -u)
+  done < <(grep -rhoE "EXTENSION_ID[[:space:]]*(:[^=]*)?=[[:space:]]*['\"\`][^'\"\`]*['\"\`]" "$dir" 2>/dev/null \
+      | sed -E "s/^[^=]*=[[:space:]]*['\"\`]//; s/['\"\`]\$//" | sort -u)
   return 0
 }

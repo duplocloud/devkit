@@ -40,6 +40,19 @@ mkdir -p "$tmp/match" "$tmp/stale" "$tmp/none"
 echo "export const EXTENSION_ID = 'com.acme.my-ext';" > "$tmp/match/analytics.ts"
 echo "export const EXTENSION_ID = 'duplo.examples.helloworld';" > "$tmp/stale/analytics.ts"
 echo "export const X = 1;" > "$tmp/none/a.ts"
+mkdir -p "$tmp/dq" "$tmp/ty" "$tmp/bt" "$tmp/dqm" "$tmp/tym" "$tmp/btm"
+echo 'export const EXTENSION_ID = "duplo.examples.helloworld";' > "$tmp/dq/a.ts"
+echo "export const EXTENSION_ID: string = 'duplo.examples.helloworld';" > "$tmp/ty/a.ts"
+echo 'export const EXTENSION_ID = `duplo.examples.helloworld`;' > "$tmp/bt/a.ts"
+echo 'export const EXTENSION_ID = "com.acme.my-ext";' > "$tmp/dqm/a.ts"
+echo "export const EXTENSION_ID: string = 'com.acme.my-ext';" > "$tmp/tym/a.ts"
+echo 'export const EXTENSION_ID = `com.acme.my-ext`;' > "$tmp/btm/a.ts"
+for f in dq ty bt; do
+  t "$f form mismatch fails"; [ "$(extension_id_fe_mismatches "$tmp/$f" com.acme.my-ext)" = "duplo.examples.helloworld" ] && ok || bad "not flagged"
+done
+for f in dqm tym btm; do
+  t "$f form match passes"; [ -z "$(extension_id_fe_mismatches "$tmp/$f" com.acme.my-ext)" ] && ok || bad "flagged"
+done
 t "matching EXTENSION_ID passes"; [ -z "$(extension_id_fe_mismatches "$tmp/match" com.acme.my-ext)" ] && ok || bad "flagged"
 t "stale EXTENSION_ID fails"; [ "$(extension_id_fe_mismatches "$tmp/stale" com.acme.my-ext)" = "duplo.examples.helloworld" ] && ok || bad "not flagged"
 t "no EXTENSION_ID declaration passes"; [ -z "$(extension_id_fe_mismatches "$tmp/none" com.acme.my-ext)" ] && ok || bad "flagged"
