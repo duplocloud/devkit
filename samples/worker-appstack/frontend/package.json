@@ -25,7 +25,7 @@
     "@angular/material": "^22.1.0",
     "@angular/platform-browser": "^22.1.0",
     "@angular/router": "^22.1.0",
-    "@duplocloud-internal/ng-common-lib": "file:../../../packages/duplocloud-internal-ng-common-lib-0.4.0.tgz",
+    "@duplocloud-internal/ng-common-lib": "file:../../../packages/duplocloud-internal-ng-common-lib-0.4.1.tgz",
     "@ng-bootstrap/ng-bootstrap": "^21.0.0",
     "@ng-select/ng-select": "^23.5.1",
     "@ngbracket/ngx-layout": "^22.0.1",
