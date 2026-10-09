@@ -26,6 +26,8 @@ source "$(dirname "$0")/_target.sh"   # → BASE_URL (+ TOKEN) from .env / env p
 source "$(dirname "$0")/_builder.sh"  # → native, or re-launch this build in the builder container
 # shellcheck source=scripts/_sdk_digest.sh
 source "$(dirname "$0")/_sdk_digest.sh"  # → sdk_digest, stamped into the bundle manifest beside sdkVersion
+# shellcheck source=scripts/_extension_id.sh
+source "$(dirname "$0")/_extension_id.sh"  # → extension_id_valid / extension_id_error (manifest id format)
 BASE_URL="${BASE_URL%/}"               # tolerate a trailing slash in DUPLO_HOST (avoids // in URLs)
 [ -f "$DIR/manifest.json" ] || { echo "No manifest.json in $DIR" >&2; exit 1; }
 
@@ -43,6 +45,9 @@ builder_dispatch scripts/build-extension.sh "$DIR"
 echo "==> Validating extension naming (reference/00-naming.md)"
 MANIFEST="$DIR/manifest.json"
 viol=0
+# The manifest id is the analytics event namespace: lowercase reverse-DNS, ≥3 segments.
+mid=$(jq -r '.id // empty' "$MANIFEST")
+extension_id_valid "$mid" || { extension_id_error "$mid" >&2; echo >&2; viol=1; }
 # Top-level resources must namespace their own restSegment. A nested child (has a `parent` block) is exempt: its
 # restSegment is a leaf and the namespacing comes from parent.routeSegment (checked below) — its route is
 # …/extensions/<parent>/{parentId}/<leaf>.
