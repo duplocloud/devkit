@@ -103,6 +103,26 @@ no nav entry. The author supplies titles; you fill each node's `id`, `relativeUr
 `frontend.routes[]`. Full rules, shapes and the legacy `frontend.menu` deprecation:
 [08-parent-child-and-menus](08-parent-child-and-menus.md#frontend-how-the-child-shows-up).
 
+### `frontend.analytics` (optional — absent by default)
+
+The manifest `id` is the namespace of every analytics event the extension emits, so it must be lowercase
+reverse-DNS with at least 3 segments (`^[a-z0-9]+(\.[a-z0-9-]+){2,}$` — the build gate enforces it). Default
+tracking (page views and actions, no properties) needs **no** manifest entry.
+
+`frontend.analytics.properties` is a per-event **allowlist** of custom property keys; the host strips every key not
+listed for that exact event. **Leave it out.** Add it **only** when the user, in this conversation, explicitly names
+both the event and the property — never because a property seems useful, and never by asking whether they want one:
+
+```json
+"frontend": {
+  "remote": { … }, "menus": [ … ], "routes": [ … ],
+  "analytics": { "properties": { "create-cluster": ["region"] } }
+}
+```
+
+Keys are event names without the id (a page view is `<page>.viewed`). The ⛔ hard rule, the forbidden property
+kinds and the matching wrapper change: [21-analytics](21-analytics.md).
+
 ## Build, package, load
 
 The `duplo-extension-dev` skill (`../SKILL.md`) does this — both inside an Extension provisioning ticket and on
@@ -125,6 +145,10 @@ Ship an Angular **Native Federation** remote (list/add/view) and **use the platf
 forms. Reach host services via the string DI tokens `REMOTE_DuploHttpClient` and `REMOTE_UserSession`
 (`workspaceId = session.tenant.TenantId`), call your own route `…/environment/<restSegment>`, and expose a
 `Routes` array as `./Extension` (the host's registrar hands it straight to `loadChildren`).
+
+**Analytics** — every routed page fires a page view and every successful mutation fires an action, through the
+extension's one `analytics.ts` (kept from the scaffold), with **no properties**. Wiring, naming, the ⛔
+no-properties rule and the retrofit for existing extensions: [21-analytics](21-analytics.md).
 
 **Component shape** — the full ruling, with the per-API catalogue, is the [`use-ng22`](../../use-ng22/SKILL.md)
 skill; load it before writing frontend code. In short: standalone components that declare their own
@@ -164,6 +188,8 @@ In `angular.json`, set `outputPath` to `{ "base": "dist", "browser": "" }` — A
 > | `add-/list-/view-hello.component.ts` + classes `Add/List/ViewHelloComponent` | `…<resource>.component.ts` + `Add/List/View<Name>Component` |
 > | selectors `hw-add`/`hw-list`/`hw-view`/`hw-root` | `<slug>-add`/`<slug>-list`/`<slug>-view`/`<slug>-root` |
 > | `federation.config.js` `name` (== manifest `frontend.remote.remoteName`) | unique `duploExtension<Name>` |
+> | `analytics.ts` class `HelloAnalytics` + its `EXTENSION_ID` | `<Name>Analytics` + the manifest `id` ([21](21-analytics.md)) |
+> | events `hello-list`/`hello-detail`/`hello-form`, `create-hello`/`update-hello` | `<resource>-list`/`-detail`/`-form`, `create-<resource>`/`update-<resource>` |
 > Update the routes in `extension.routes.ts`, and each component's own `imports`, to the renamed classes.
 
 Use these library pieces (import from `@duplocloud-internal/ng-common-lib`). The full catalog — every export,

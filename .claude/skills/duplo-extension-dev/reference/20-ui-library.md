@@ -4,7 +4,7 @@ Everything the platform UI library exports, what each piece is for, how to impor
 inside an extension remote. Check here before hand-rolling a table, form control, viewer or modal — the
 platform almost certainly ships it already, and using it is what makes your pages match the suite.
 
-Written against **0.4.0**. The source of truth is `portal/common-lib/public-api.ts` in duplo-ui; exact
+Written against **0.4.1**. The source of truth is `portal/common-lib/public-api.ts` in duplo-ui; exact
 signatures are in the installed package — see [Checking an exact API](#checking-an-exact-api).
 
 ## Rules
@@ -42,6 +42,7 @@ signatures are in the installed package — see [Checking an exact API](#checkin
 | An inline loading indicator | `app-spinner` | [small pieces](#small-pieces) |
 | "3 minutes ago", pretty-printed JSON | `timeAgo`, `prettyJson` pipes | [small pieces](#small-pieces) |
 | A breadcrumb for an add / edit page | `REMOTE_CoreConfigService` | [breadcrumbs](#breadcrumbs) |
+| Page-view and action analytics | `REMOTE_ExtensionAnalytics`, through the extension's one `analytics.ts` — no properties | [21-analytics](21-analytics.md) |
 
 ## Read first — how the lib reaches your remote
 
@@ -383,7 +384,7 @@ ngOnInit(): void {
 
 ## Host services — use the `REMOTE_*` tokens
 
-Inject by token, never by class. All seven are provided by the host (`src/app/app.module.ts`).
+Inject by token, never by class. All eight are provided by the host (`src/app/app.module.ts`).
 
 ```ts
 private readonly session = inject<any>(REMOTE_UserSession as any);
@@ -398,6 +399,7 @@ private readonly session = inject<any>(REMOTE_UserSession as any);
 | `REMOTE_AuthNZService` | Auth state | — |
 | `REMOTE_AIAutomationService` | AI UI-automation hooks | — |
 | `REMOTE_CanvasRendererRegistry` | Register a canvas renderer | [02](02-authoring-guide.md#frontend) |
+| `REMOTE_ExtensionAnalytics` | `.for(<manifest id>)` → `{ pageView(page), action(name) }` — page-view and action events under your extension's namespace. Inject with `{ optional: true }`, and only inside the extension's one `analytics.ts`; **never pass properties**. New in 0.4.1. | [21-analytics](21-analytics.md) |
 
 ## Not for remotes
 
@@ -409,7 +411,7 @@ private readonly session = inject<any>(REMOTE_UserSession as any);
 | `AuthNZGuard`, `SubscriptionsGuard`, `SystemSettingGuard` | Host routing; your routes are already behind them |
 | `BearerTokenInterceptor`, `DuploApiInterceptor`, `ErrorInterceptor`, the `DuploCi*` interceptors | Host HTTP pipeline; `REMOTE_DuploHttpClient` already goes through it |
 | `UserSession`, `DuploHttpClient`, `SystemFeatures`, `CoreConfigService` (the classes) | Use the `REMOTE_*` token instead |
-| `CoreMenuService`, `MixpanelService`, `AnalyticsConsentService`, `CoreTranslationService` | Host-level state |
+| `CoreMenuService`, `MixpanelService`, `AnalyticsConsentService`, `CoreTranslationService` | Host-level state. For analytics, use `REMOTE_ExtensionAnalytics` through your `analytics.ts` — [21-analytics](21-analytics.md); never call `MixpanelService` or read/alter consent |
 | `AISystemSettings*`, `WorkspaceSystemSettings*`, `HdUserProfileDataSource` | Platform-internal API wrappers — call your own route instead ([02](02-authoring-guide.md#frontend)) |
 | `[disableForReadonlyUser]`, `[hideForReadonlyUser]` | No effect in a remote (see [Read first](#read-first--how-the-lib-reaches-your-remote)) |
 
