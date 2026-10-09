@@ -80,7 +80,7 @@ IP address.
   a *count* of its custom fields, never the values.
 - **Your files, or the contents of files you attach.** Only `has_files`.
 - **Anything from your extensions' code beyond what the author allowlisted.** Extensions send page
-  views and actions named `<extension-id>.<event>` with `extension_id` and `extension_version`, plus
+  views and actions named `<extension-id>.<event>` with `extension_id` and `extension_version` (when the manifest declares a version), plus
   only the properties the author explicitly allowlisted in the manifest
   (`frontend.analytics.properties`); the portal strips everything else. Nothing from the agent's
   output is sent.

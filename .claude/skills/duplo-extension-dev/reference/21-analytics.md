@@ -305,3 +305,4 @@ region or a count.
 - **Allowlisted values pass through as-is.** The host checks the key, not the value: it does not validate,
   truncate or redact. Pass only flat strings, numbers and booleans — never objects or arrays, and never anything
   the user typed unless it was confirmed per rule 4 of the hard rule.
+- **The allowlist is a guardrail, not a security sandbox.** It protects against accidentally adding properties; a deliberately malicious extension can still reach other host tokens by name, or call `for()` with another extension's id.
