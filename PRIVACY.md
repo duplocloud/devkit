@@ -38,25 +38,29 @@ the AI DevOps > DevOps pages, and `<extension-id>.<event>` for extensions (see b
   `extension-register-form.viewed`
 - AI DevOps > DevOps — `com.duplocloud.devops.` followed by page views (`network-list.viewed`,
   `cluster-detail.viewed`, `environment-list.viewed`, `tf-deployment-detail.viewed`,
-  `resource-detail.viewed`, and similar), `create-` / `update-` / `delete-` / `deprovision-` actions
+  `resource-detail.viewed`, among others), `create-` / `update-` / `delete-` / `deprovision-` actions
   on networks, plans, clusters, environments, resource groups and Terraform deployments and
   environments, Terraform runs (`tf-plan`, `tf-apply`, `tf-destroy`, `tf-resync`,
   `tf-commit-push`), and `ask-agent`, `track-provisioning`, `download-kubeconfig`, `show-kubectl`,
-  `open-workstation`
+  `open-workstation`, `import-network`, `import-cluster`,
+  `configure-cluster-attributes`, `edit-resource`, `deprovision-resource`, among others
 - Extensions — page views and actions named `<extension-id>.<event>` (see the properties below)
 
-**The properties attached to them.** Names of the objects you create or edit — workspace, agent,
-provider, scope, credential, MCP server, permission set and group, command policy, quota, and their
+**The properties attached to them.** Names of the objects you create, edit or use — workspace, agent,
+provider, scope (including the list of scope names on a ticket or prompt template), prompt template,
+extension, credential, MCP server, permission set and group, command policy, quota, and their
 mappings. Object ids (workspace, provider, persona, ticket, instance); tickets are identified by
 `ticket_id` only — the ticket key (e.g. `DEVKIT-42`) is not sent. Counts and booleans
 (`scope_count`, `custom_field_count`, `message_length`, `has_files`, `has_commands`, `has_prompt`,
-and similar). Persona and skill *names* are not sent — those events carry only counts and type
+and similar), plus non-sensitive metadata on extension registry events (version, `file_size_bytes`,
+`has_manifest`, category, status, `licensed`). Persona and skill *names* are not sent — those events carry only counts and type
 flags. AI DevOps events carry only `resource_type`, `cloud` and `mode` — no resource names or ids.
 
-**No free-text properties are sent.** Nothing a person typed, and nothing an admin configured as
-text (such as prompt suggestion or template text), is attached to any event.
+**No free text a person typed is sent.** Prompt suggestion text and prompt template descriptions
+and bodies are not sent either. Admin-configured object *names* (a template's name, for example)
+are sent, as listed above.
 
-**From extensions.** Each extension event carries `extension_id` and `extension_version`, plus only
+**From extensions.** Each extension event carries `extension_id` and, when the manifest declares a version, `extension_version`, plus only
 the properties the extension's author explicitly allowlisted in the manifest
 (`frontend.analytics.properties`). The portal strips everything else before sending.
 
