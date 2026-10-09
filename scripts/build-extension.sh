@@ -84,6 +84,56 @@ if [ -d "$DIR/skills" ]; then
         | grep -vE 'environment/(extensions/|extension-studio)' | grep -vE 'environment/\{' || true)
   [ -n "$bad" ] && { echo "  ! skill callback URL(s) not under 'environment/extensions/' — confirm they target this extension's restSegment:" >&2; printf '%s\n' "$bad" | sed 's/^/      /' >&2; }
 fi
+# Admin scope (reference/21-admin-resources.md). An AdminResourcesController serves an admin-only route with no
+# {workspaceId} and owns its rows in the system Admin Workspace; a workspace controller must never sit under the
+# admin prefix. The manifest marks admin surfaces with "scope": "admin" on the top-level menu node + its routes.
+has_admin=0; has_ws=0
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  route=$(grep -oE 'Route\("[^"]*"\)' "$f" | head -1 | sed -E 's/Route\("([^"]*)"\)/\1/')
+  if grep -qE ':[[:space:]]*AdminResourcesController<' "$f"; then
+    has_admin=1
+    case "$route" in v1/aiservicedesk/admin/data/environment/extensions/*) ;; *)
+      echo "  ✗ $(basename "$f"): an AdminResourcesController must be routed at 'v1/aiservicedesk/admin/data/environment/extensions/<…>' (got '$route')" >&2; viol=1 ;;
+    esac
+  elif grep -qE ':[[:space:]]*ChildResourceController<' "$f" && grep -qE 'override string GetWorkspaceIdFromRoute' "$f"; then
+    # Admin child: the SDK has no admin ChildResourceController, so the extension's child controller
+    # overrides GetWorkspaceIdFromRoute (+ the workspaceId actions) itself — see reference/21-admin-resources.md.
+    has_admin=1
+    case "$route" in v1/aiservicedesk/admin/data/environment/extensions/*) ;; *)
+      echo "  ✗ $(basename "$f"): an admin child controller (overrides GetWorkspaceIdFromRoute) must be routed under 'v1/aiservicedesk/admin/data/environment/extensions/<…>' (got '$route')" >&2; viol=1 ;;
+    esac
+    for a in CanDeprovision Deprovision ForceReconcile CreateTicket GetTicketStatus; do
+      grep -qE "override Task<IActionResult> $a\(" "$f" || {
+        echo "  ✗ $(basename "$f"): admin child controller must override $a with a [BindNever] string? workspaceId (the admin route has no {workspaceId}; otherwise it returns 400)" >&2; viol=1; }
+    done
+  elif grep -qE ':[[:space:]]*(ResourcesController|ChildResourceController)<' "$f"; then
+    has_ws=1
+    case "$route" in *aiservicedesk/admin/*)
+      echo "  ✗ $(basename "$f"): '$route' is an admin route — derive from AdminResourcesController (or, for a child, override GetWorkspaceIdFromRoute; see reference/21-admin-resources.md)" >&2; viol=1 ;;
+    esac
+  fi
+done < <(grep -rlE 'Controller<' "$DIR/backend" --include='*.cs' 2>/dev/null | grep -vE '/(bin|obj)/' || true)
+while IFS= read -r sc; do
+  echo "  ✗ frontend scope '$sc' must be 'workspace' or 'admin'" >&2; viol=1
+done < <(jq -r '[.frontend.routes[]?.scope, .frontend.menus[]?.scope] | map(select(. != null and . != "workspace" and . != "admin")) | .[]' "$MANIFEST")
+while IFS= read -r n; do
+  echo "  ✗ frontend.menus node '$n' sets 'scope' — only the TOP-LEVEL node of a menu tree may (the whole tree follows it)" >&2; viol=1
+done < <(jq -r '.frontend.menus // [] | .[] | (.children // []) | .. | objects | select(has("scope")) | (.id // .title)' "$MANIFEST")
+while IFS=$'\t' read -r u sc; do
+  [ -n "$u" ] || continue
+  echo "  ✗ menu link '$u' is in a '$sc' menu tree but no frontend.routes[] entry has path '$u' with that scope (omitted scope = workspace)" >&2; viol=1
+done < <(jq -r '(.frontend.routes // []) as $r | .frontend.menus // [] | .[] | (.scope // "workspace") as $s
+  | [.. | objects | .relativeUrl? // empty] | .[] as $u
+  | select(([$r[] | select(.path == $u) | (.scope // "workspace")] | index($s)) == null) | "\($u)\t\($s)"' "$MANIFEST")
+if [ "$has_admin" = 1 ] && [ "$has_ws" = 0 ]; then
+  if [ -d "$DIR/frontend/src" ] && ! grep -rqF 'admin/data/environment' "$DIR/frontend/src" 2>/dev/null; then
+    echo "  ✗ the backend is admin-scoped but no frontend file calls '/v1/aiservicedesk/admin/data/environment/…' — point the FE service base() at the admin route" >&2; viol=1
+  fi
+  if [ -d "$DIR/skills" ] && grep -rqE 'user/data/workspaces/[^ ]*/environment/extensions/' "$DIR/skills" 2>/dev/null; then
+    echo "  ! skill callback URL(s) use '…/user/data/workspaces/…' but the resource is admin-scoped — post to '…/admin/data/environment/extensions/<…>/{id}/status|results'" >&2
+  fi
+fi
 # Frontend ↔ backend route parity: the FE service builds its data URL from REST_SEGMENT, which MUST be the full
 # 'extensions/<…>' path AND (for a single top-level resource) equal the manifest restSegment. A bare leaf 404s
 # every list/get/create/view-template call — the #1 scaffolding pitfall. See reference/00-naming.md.

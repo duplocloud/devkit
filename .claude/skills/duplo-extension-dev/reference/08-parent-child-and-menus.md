@@ -150,6 +150,12 @@ title** and recurses (`mergeExtensionMenuItems`/`upsertMenuNodeByTitle` in `src/
 ]
 ```
 
+**AI Admin menus.** Put `"scope": "admin"` on a tree's **top-level** node to merge it into the AI Admin nav
+instead of AI DevOps (title matching works the same there); nested nodes never carry `scope`. Every link in an admin
+tree needs a `routes[]` entry with the same `path` and `"scope": "admin"` (mounted at `/ai/suite/admin/<path>`). An
+extension that surfaces on both sides declares one tree per side. An admin-scoped parent's child controller applies
+the admin overrides itself — see [21-admin-resources](21-admin-resources.md#backend).
+
 > Legacy: a single `frontend.menu = { parentGroupId, node }` still loads (merged into a group by id) but is
 > **deprecated** — new extensions MUST use `menus[]`.
 

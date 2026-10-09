@@ -15,8 +15,9 @@ creation) and writes many files — approving each one is tedious. To avoid a st
    **`ExitPlanMode`**. The plan must **always** lead with the resource shape — before any file list or commands:
    - **Spec** — a table of spec fields (name · type · required/optional) per resource.
    - **Result** — a table of result fields (name · type) per resource.
-   - **User experience** — a short walkthrough: where it appears in the left-nav, the create/add form, the list
-     view, the detail page (Spec | Result, the Result tabs, and the **lifecycle phases** this resource goes through —
+   - **Scope** — workspace or admin per resource, with a one-line reason.
+   - **User experience** — a short walkthrough: where it appears in the left-nav (AI DevOps, or AI Admin for an
+     admin resource), the create/add form, the list view, the detail page (Spec | Result, the Result tabs, and the **lifecycle phases** this resource goes through —
      a small table of phase · driving status/result field; see `reference/19-detail-page.md`), and what
      provisioning does end-to-end.
    - **Access control** — where each resource sits in the permission tree (default: under the Workspace) and a
@@ -100,9 +101,21 @@ Lead with the requirement and **listen** — do not interrogate with a checklist
   to confirm or change it; do not ask for a name cold before hearing the requirement. In a shared repo the name —
   and the frontend's federation remote `name` — must collide with no sibling extension.
 
-## Step 3 — List the target's scopes, ask which to test with
-A scope carries the credentials the agent will use during provisioning. First settle the **workspace** to author
-against, then list its scopes and ask which one(s) this extension needs **for testing**:
+## Step 3 — Workspace or admin scope, then the scopes to test with
+First settle **where each resource lives** (derive from the requirement; ask if unclear; never default to admin):
+- **Workspace** (default) — a tenant's resource, used by workspace members, shown in AI DevOps.
+- **Admin** — platform-wide configuration only administrators manage (a VPN server, an SSO integration, a global
+  setting): `AdminResourcesController`, an admin-only route with no workspace, rows owned by the system Admin
+  Workspace, menu in AI Admin. It needs SDK ≥ 1.0.7 — check `GET <base>/v1/aiservicedesk/extensions/sdk-version`
+  and warn if older. See `.claude/skills/duplo-extension-dev/reference/21-admin-resources.md`.
+
+**Admin-only extension:** skip the workspace + scope listing below. The Admin Workspace has no scopes, so if
+provisioning needs credentials, ask which scope(s) the resource's **spec** should carry (list them with
+`GET <base>/v1/aiservicedesk/admin/data/scopes`) — an administrator picks them on the add form, and they become
+`spec.scopeIds`. Then go to Step 4.
+
+A scope carries the credentials the agent will use during provisioning. For a **workspace** resource, settle the
+**workspace** to author against, then list its scopes and ask which one(s) this extension needs **for testing**:
 - **Local** → workspace is `EXTENSION_DEV_WORKSPACE_ID` (from `.env`).
 - **Remote** → use `DUPLO_WORKSPACE_ID` if set in `.env`; otherwise `GET <base>/v1/aiservicedesk/admin/data/workspaces`,
   show the list, ask the user to pick one, and offer to save it to `.env` as `DUPLO_WORKSPACE_ID`.
@@ -156,7 +169,9 @@ backend + Angular remote + provisioning skill) — never ask the user to choose 
 - **access control**: is "anyone granted the workspace may manage it" right (the default), or does the resource
   sit under a parent / an extension category? Should any endpoint require an **explicitly granted named action**
   rather than plain CRUD (restart, console/exec, credential-minting shapes — see reference/18-access-control.md)?
-- **menu** placement (a top-level `collapsible-section` with `item` children renders nested correctly);
+- **menu** placement (a top-level `collapsible-section` with `item` children renders nested correctly) — for an
+  **admin** resource the tree goes in the AI Admin nav (`"scope": "admin"` on the top-level node and its routes);
+- **admin resources with children:** the child controller applies the admin overrides itself (reference/21);
 - **Ask AI** is opt-in: scaffold it ONLY if the user's requirement explicitly asks for AI chat sessions on the
   resource — never offer it or add it unprompted (see skill reference 16-ask-ai);
 - for an external system: **auth** style (basic/bearer) and which API calls provisioning makes (a custom
@@ -191,6 +206,8 @@ proceed with their choice:
 - **B) The agent creates it via API and self-watches.** You create the resource yourself — `POST
   …/user/data/workspaces/<ws>/environment/<restSegment>` with the spec (including the chosen `ScopeIds`) — then
   poll its status/result (and, if useful, `./logs.sh claude-code-agent`) until `Complete`/`Failed` and report.
+  For an **admin** resource use `POST …/admin/data/environment/<restSegment>` (admin token), confirm the row's
+  `ownerWorkspaceId` is `000000000000000000000ad1`, and in option A the user creates it from the **AI Admin** menu.
 
 Either way, the chosen `scopeId`(s) become the resource spec's `ScopeIds`, and the provisioning skill reads that
 scope's credentials from `other_scopes/<name>.json`. See the skill's

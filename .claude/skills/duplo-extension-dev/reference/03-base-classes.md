@@ -9,6 +9,7 @@ are taken from the SDK source (paths cited per section). Namespaces:
 - `Duplo.Ai.DataManagement.Interfaces` — `IRepository<>`
 - `Duplo.Ai.DataManagement.Services` — `GenericService<>`, `ResourceServiceBase<,,>`
 - `Duplo.Ai.DataManagement.Controllers.User.Resource` — `ResourcesController<,,>`, `ChildResourceController<,,,>`
+- `Duplo.Ai.DataManagement.Controllers.Admin.Resource` — `AdminResourcesController<,,>` (SDK ≥ 1.0.7)
 
 > A typed extension compiles against these from the SDK NuGet feed (`ExcludeAssets=runtime`); at load the
 > host's Default ALC supplies the real assemblies, so your subclasses share type identity with the host.
@@ -202,6 +203,17 @@ Ctor: `(IEntityService<T> service, ILogger<MyController> logger)`. Endpoints:
 > intact. `ResourcesController` also overrides the verb where the HTTP method misleads —
 > `POST {id}/deprovision` enforces as DELETE, `status`/`results`/`reconcile` as PUT. You only add the
 > class-level node declaration; the rest is inherited ([18-access-control](18-access-control.md)).
+
+### `AdminResourcesController<T,TSpec,TResult>` (`Admin/Resource/AdminResourcesController.cs`, SDK ≥ 1.0.7)
+`: ResourcesController<T,TSpec,TResult>` for **admin-scoped** resources. Same ctor, same endpoints. Declare
+`[Route("v1/aiservicedesk/admin/data/environment/extensions/<…>")]` — no `{workspaceId}`. It overrides
+`GetWorkspaceIdFromRoute()` to return `Workspace.AdminWorkspaceId` (`000000000000000000000ad1`), so create stamps
+that as `OwnerWorkspaceId` and every read/write checks ownership against it, and re-declares `can-deprovision`,
+`deprovision`, `reconcile`, `ticket` and `ticket-status` so they bind without a route workspace. Access is
+administrators only (the platform's tenant policy guards `/aiservicedesk/admin`), plus the resource's provisioning
+token on its own `status`/`results`. No admin child-controller variant exists; an admin child overrides
+`GetWorkspaceIdFromRoute()` and the five actions itself (see 21-admin-resources). See
+[21-admin-resources.md](21-admin-resources.md).
 
 ### `ChildResourceController<TChild,TParent,TSpec,TResult>` (`User/Resource/ChildResourceController.cs`)
 For resources nested under a parent. Ctor adds `IEntityService<TParent> parentService`. Declare your own

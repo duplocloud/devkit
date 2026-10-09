@@ -1,6 +1,6 @@
 ---
 name: duplo-extension-dev
-description: Build and load a DuploCloud platform extension (a typed extension — C# ResourcesController + service + entity, plus an Angular remote and a provisioning skill) and hot-load it into the platform. Works both inside an Extension resource's provisioning ticket and locally (you supply the platform URL + an admin token). Scaffolds from the hello-world example, compiles the backend with dotnet against the host SDK feed, packages, and registers — no host restart.
+description: Build and load a DuploCloud platform extension (a typed extension — C# ResourcesController or AdminResourcesController + service + entity, plus an Angular remote and a provisioning skill) and hot-load it into the platform. Works both inside an Extension resource's provisioning ticket and locally (you supply the platform URL + an admin token). Scaffolds from the hello-world example, compiles the backend with dotnet against the host SDK feed, packages, and registers — no host restart.
 ---
 
 # duplo-extension-dev — write a DuploCloud platform extension
@@ -37,7 +37,9 @@ from a built-in resource (Network, Namespace, …).
 > [17-custom-result-views](reference/17-custom-result-views.md) — the hand-written Result content: Overview tiles, tabs, panels ·
 > [18-access-control](reference/18-access-control.md) — the `[AccessControl]` declaration and named actions ·
 > [19-detail-page](reference/19-detail-page.md) — the detail-page shell, the lifecycle rail, per-resource phases per mode ·
-> [20-ui-library](reference/20-ui-library.md) — every `ng-common-lib` export, a "need X → use Y" picker, verified recipes, and what works in a remote.
+> [20-ui-library](reference/20-ui-library.md) — every `ng-common-lib` export, a "need X → use Y" picker, verified recipes, and what works in a remote ·
+> [21-admin-resources](reference/21-admin-resources.md) — **admin-scoped** resources: `AdminResourcesController`, the admin
+>   route, the Admin Workspace, AI Admin menus/routes, and the skill write-back URL.
 
 > **Every dev-kit extension is TYPED — there is no archetype choice.** A typed extension ships a compiled
 > .NET DLL (`manifest.archetype = "typed"`) with the resource's own controller/route/collection, an Angular
@@ -97,6 +99,17 @@ Settle before building (derive, else ask — **after** listening):
   the **same** value. Never a bare or `clouds/…` segment — [00-naming](reference/00-naming.md) is canonical and the
   build gate enforces it. In a repo that already holds extensions, the name must collide with **no sibling** —
   including the frontend's federation remote `name` and the Mongo `extension_<entity>` collection name.
+- **Scope — workspace or admin** (per resource). **Workspace** (the default) = a tenant's resource, used by
+  workspace members, rendered in AI DevOps. **Admin** = platform-wide configuration only administrators manage
+  (a VPN server, an SSO integration, a notification setting): its controller derives from
+  `AdminResourcesController`, its route is `v1/aiservicedesk/admin/data/environment/extensions/<…>` (no
+  `{workspaceId}`), every row belongs to the system Admin Workspace, and its menu renders in AI Admin. Derive it
+  from the requirement ("only admins", "platform-wide", "global setting" → admin); if unsure, ask; never default to
+  admin. For an admin resource also settle: **which scopes the spec carries** (the Admin Workspace has none, so
+  credentials come only from `spec.scopeIds`), and, for **parent → child**, that the child controller applies the
+  admin overrides itself (there is no admin child controller in the SDK — see reference/21).
+  Admin needs SDK ≥ 1.0.7 — warn if the target's `sdk-version` is older. Full rules:
+  [21-admin-resources](reference/21-admin-resources.md).
 - **Spec fields** — each with name, type, and required/optional. **Result fields** — same.
 - **Provisioning MODE** — decide HOW this resource is provisioned. **Do not default to an agent skill.** Pick by
   what the work actually is (derive from the requirement; confirm if unsure):
@@ -135,6 +148,7 @@ Settle before building (derive, else ask — **after** listening):
   | **reconcile/apply multiple** objects with retry (Worker, real infra) | `samples/worker-appstack` | worker-compute (compute-only) |
   | pure **compute**, no cloud/scope (Worker) | `samples/worker-compute` | worker-appstack (real infra) |
   | **observe-only** (No-provision) | `IsProvisioningNeeded => false` ([04-hooks](reference/04-hooks.md)); on-demand actions: `samples/network-stack` | — |
+  | **admin-only, platform-wide** configuration (AI Admin menu, `AdminResourcesController`) | `samples/admin-settings` | `samples/helloworld` (workspace-scoped) |
 
   **Forms tiebreaker:** linear steps, or lots of fields/toggles/repeatable rows → copy from **network-stack**'s wizard;
   a handful of flat fields → **helloworld**. The form axis and the mode axis are independent — pick one row from each.
@@ -150,7 +164,8 @@ Settle before building (derive, else ask — **after** listening):
   credential-minting / apply-infrastructure)? — [18-access-control](reference/18-access-control.md).
 - **Menu placement** — ask where it appears in the AI Suite left-nav (by **title**, never silently default to
   DevOps): a **new top-level group** (e.g. `Jenkins`, `GCP`), **nested under an existing section** (e.g. `DevOps`), or
-  **no menu**. The user gives titles; **you** generate ids, `relativeUrl`s and the matching `frontend.routes[]` —
+  **no menu**. An **admin** resource's tree goes in the **AI Admin** nav: its top-level node carries
+  `"scope": "admin"`, and so does each `routes[]` entry it links to ([21](reference/21-admin-resources.md#frontend)). The user gives titles; **you** generate ids, `relativeUrl`s and the matching `frontend.routes[]` —
   [08-parent-child-and-menus](reference/08-parent-child-and-menus.md). Also settle **title** + **`matIcon`** per
   item — derive the icon from the extension's purpose, per the Left-nav icon bullet above.
 - **One or many resources?** — **flat** (independent — e.g. `GCP` → network/cluster/database) or **parent → child**
@@ -158,11 +173,11 @@ Settle before building (derive, else ask — **after** listening):
 
 **Present the settled shape for approval** (local: the plan you `ExitPlanMode` with; in-platform: the `Processing`
 summary you post) **as a structured shape, not a prose blurb:** a **Spec** field table (name · type ·
-required/optional), a **Result** field table (name · type), the **provisioning mode** with a one-line reason, the
+required/optional), a **Result** field table (name · type), the **scope** (workspace / admin) and the **provisioning mode**, each with a one-line reason, the
 **detail view's shape** — the **lifecycle phases** this resource goes through (label + the status/result field that
 drives each; [19-detail-page](reference/19-detail-page.md) → "Deriving phases") and the **Result tabs** (Overview at
 minimum; name each further tab; [17-custom-result-views](reference/17-custom-result-views.md)) — and a short
-**user-experience** walkthrough: left-nav placement, the add form (with the AI-use disclosure in Agent mode), the list, the detail page, and what provisioning
+**user-experience** walkthrough: left-nav placement (AI DevOps or AI Admin), the add form (with the AI-use disclosure in Agent mode), the list, the detail page, and what provisioning
 does end-to-end. Do this per resource for multi-resource extensions.
 
 **Where the answers come from / how to ask:**
@@ -203,6 +218,11 @@ Adapt inside `extensions/<name>/` — rename `HelloWorld`→`<Name>` consistentl
   (the FULL namespaced `extensions/<feature>-<resource>`) **plus the access-node declaration decided in Phase 1**
   ([18](reference/18-access-control.md)). Class name `<Name>sController` in file `<Name>Controller.cs` (platform
   convention; the manifest never references the controller type). Custom endpoints per [05](reference/05-custom-actions.md).
+  **Admin scope:** derive from `AdminResourcesController<…>`
+  (`using Duplo.Ai.DataManagement.Controllers.Admin.Resource;`) and route it at
+  `v1/aiservicedesk/admin/data/environment/<restSegment>` — no `{workspaceId}`, and **no** workspace access-node
+  declaration (AI Admin routes are admin-only and administrators bypass hierarchical access)
+  ([21](reference/21-admin-resources.md#backend), worked example `samples/admin-settings`).
 - `backend/Duplo.Extension.HelloWorld.csproj` — rename to `Duplo.Extension.<Name>.csproj` (keep the SDK
   PackageReference `ExcludeAssets="runtime"` + `nuget.config`).
 - `frontend/src/app/*` — list/add/view for your fields. **Set the service's `REST_SEGMENT` to the FULL namespaced
@@ -214,9 +234,15 @@ Adapt inside `extensions/<name>/` — rename `HelloWorld`→`<Name>` consistentl
   computed (your lifecycle ladder, per mode) and the Result strip's Overview tiles + any further tabs
   ([19](reference/19-detail-page.md), [17](reference/17-custom-result-views.md)). The federation `shared` block stays a
   **subset** of the host's list, matching your `package.json` ([02](reference/02-authoring-guide.md#native-federation-sharing--share-the-libs-di-peer-packages-avoids-nullinjectorerror)).
+  **Admin scope:** the service's `base()` is `/v1/aiservicedesk/admin/data/environment/${REST_SEGMENT}`, it
+  drops `REMOTE_UserSession`, its `workspaceId()` returns the Admin Workspace id `000000000000000000000ad1`
+  (ticket lookups), and ticket links navigate to `/ai/suite/admin/tickets/chat/<name>` — never the
+  service-desk route, which rejects the hidden Admin Workspace.
 - `manifest.json` — `id`, `version`, `backend.{assemblyDir=<id>/<version>/backend, entryAssembly}`,
   the `resources[]` entry (`archetype:"typed"`, `registrar:"DevOpsResource"`, + the five FQ type names),
-  `skills`/`skillMappings` (**Agent mode only** — omit for Worker/Passthrough/No-provision), `frontend`.
+  `skills`/`skillMappings` (**Agent mode only** — omit for Worker/Passthrough/No-provision), `frontend`. **Admin scope:** add `"scope": "admin"` to the top-level `menus[]` node and to each
+  `routes[]` entry that tree links to (`path`/`relativeUrl` stay `extensions/<…>`). The build gate checks the
+  controller route, the `scope` values, menu↔route scope parity, and that the FE calls the admin route.
 
 ### Wire the chosen provisioning mode (the helloworld template is AGENT-shaped — convert it)
 After picking the mode in Phase 1, make the backend match it — **a missing piece silently falls back to
@@ -237,7 +263,9 @@ status", the "Needs your input" phase) exists **only in Agent mode** ([19](refer
      (copy `samples/worker-compute`'s `phases()`), remove `track()`/`ticketName()` and the list-row "Track Provisioning"
      item, label the add button **"Create"** (not "Provision").
 - **Agent**: keep `skills/provision-*/SKILL.md` (+ `provision.sh`, write to the OWN route) and the manifest
-  `skills` + `skillMappings`; keep the ticket UI and the `<app-ai-disclosure />` on every Add/Edit form. **Deprovision seam (if it creates real infra):** the platform reuses the
+  `skills` + `skillMappings`; keep the ticket UI and the `<app-ai-disclosure />` on every Add/Edit form. **Admin scope:** the skill writes back to the admin route —
+  `RES=${DUPLO_BASE:-$DUPLO_HOST}/v1/aiservicedesk/admin/data/environment/<restSegment>/<id>` (no workspace id);
+  the provisioning token covers only that resource's admin `status`/`results`. **Deprovision seam (if it creates real infra):** the platform reuses the
   SAME ticket and sends the generic teardown message — there is **no separate deprovision skill mapping**, so the
   provision `SKILL.md` needs a **Deprovision** section + an idempotent `deprovision.sh`, or a second skill in the same
   `skillNames` ([11](reference/11-deprovisioning.md)). Once your skill POSTs `DeProvisioned`, the platform hard-deletes
@@ -330,7 +358,9 @@ backend code** ([06](reference/06-registration.md#reloading-changed-code--bump-m
   as the verification, then POST status `Complete`. **Do NOT** try to `GET …/environment/<restSegment>`
   with the resource-scoped `$DUPLO_TOKEN` — that token is not authorized for arbitrary routes and will
   return 403/404 even though the extension loaded fine.
-- **Local (admin token):** you may confirm the live route directly: `GET …/environment/<restSegment>` → 200,
+- **Local (admin token):** you may confirm the live route directly: `GET …/environment/<restSegment>` → 200
+  (admin scope: `GET …/admin/data/environment/<restSegment>` → 200 for an admin, 403 for a non-admin, created
+  rows have `ownerWorkspaceId` `000000000000000000000ad1`, and the menu shows only in AI Admin),
   and `GET …/admin/extensions` lists it. Create one → it persists to its `extension_<entity>` collection, fires a
   provisioning ticket (Agent mode), your skill runs and fills the Result. (Teardown: `DELETE …/admin/extensions/{id}`
   → route withdraws live.)
