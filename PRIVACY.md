@@ -15,34 +15,50 @@ bundle: the nginx config in `nginx/default.conf` is a plain same-origin proxy to
 kit's license is issued to. Your username, your assigned roles, and your email's domain (as a
 company grouping) are sent with it. This is not anonymous, and we do not describe it as such.
 
-**What you do.** Product events naming the feature used and the objects involved:
+**What you do.** Product events naming the feature used and the objects involved. Every event name
+is namespaced: `com.duplocloud.armor.<event>` for the studio UI, `com.duplocloud.devops.<event>` for
+the AI DevOps > DevOps pages, and `<extension-id>.<event>` for extensions (see below).
 
-- Chat and tickets — `ticket_created`, `ticket_form_opened`, `ticket_status_changed`,
-  `chat_message_sent`, `chat_action_sent`, `ticket_feedback_submitted`,
-  `message_feedback_submitted`, `ticket_scopes_updated`, `ticket_command_permissions_updated`,
-  `prompt_suggestion_clicked`, `prompt_template_clicked`
-- Admin pages viewed — `admin_workspaces_viewed`, `admin_agents_viewed`, `admin_personas_viewed`,
-  `admin_providers_viewed`, `admin_scopes_viewed`, `admin_skills_viewed`, `admin_users_viewed`,
-  `admin_api_tokens_viewed`, `admin_permission_sets_viewed`, `admin_permission_set_groups_viewed`,
-  `admin_command_policy_definitions_viewed`, `admin_command_policy_mappings_viewed`,
-  `admin_quota_definitions_viewed`, `admin_quota_mappings_viewed`, `persona_viewed`
-- Admin objects created or updated — workspaces, personas, providers, credentials, scopes, skills,
-  MCP servers, users, permission sets and groups, command policies, quotas
+- Chat and tickets — `com.duplocloud.armor.` followed by `create-ticket`, `ticket-form.viewed`,
+  `change-ticket-status`, `send-chat-message`, `send-chat-action`, `submit-ticket-feedback`,
+  `submit-message-feedback`, `update-ticket-scopes`, `update-ticket-mcp-permissions`,
+  `update-ticket-command-permissions`, `apply-prompt-suggestion`, `apply-prompt-template`
+- Admin pages viewed — `com.duplocloud.armor.` followed by `workspace-list.viewed`,
+  `workspace-agent-list.viewed`, `persona-list.viewed`, `persona-detail.viewed`,
+  `provider-list.viewed`, `scope-list.viewed`, `skill-list.viewed`, `user-list.viewed`,
+  `api-token-list.viewed`, `permission-set-list.viewed`, `permission-set-group-list.viewed`,
+  `command-policy-list.viewed`, `command-policy-mapping-list.viewed`, `quota-list.viewed`,
+  `quota-mapping-list.viewed`
+- Admin objects created or updated — `create-<object>` / `update-<object>` for workspaces,
+  personas, providers, credentials, scopes, skills, MCP servers, users, permission sets and groups,
+  command policies and their mappings, quotas and their mappings
+- Knowledge bases and extensions — `create-kb`, `delete-kb`, `delete-kb-document`, `share-kb`,
+  `unshare-kb`, `remove-kb-from-workspace`, `kb-add-documents-form.viewed`,
+  `register-extension-bundle`, `reject-extension-bundle`, `extension-detail.viewed`,
+  `extension-register-form.viewed`
+- AI DevOps > DevOps — `com.duplocloud.devops.` followed by page views (`network-list.viewed`,
+  `cluster-detail.viewed`, `environment-list.viewed`, `tf-deployment-detail.viewed`,
+  `resource-detail.viewed`, and similar), `create-` / `update-` / `delete-` / `deprovision-` actions
+  on networks, plans, clusters, environments, resource groups and Terraform deployments and
+  environments, Terraform runs (`tf-plan`, `tf-apply`, `tf-destroy`, `tf-resync`,
+  `tf-commit-push`), and `ask-agent`, `track-provisioning`, `download-kubeconfig`, `show-kubectl`,
+  `open-workstation`
+- Extensions — page views and actions named `<extension-id>.<event>` (see the properties below)
 
-**The properties attached to them.** Names of the objects you create or edit — the ticket key
-(e.g. `DEVKIT-42`, not anything you typed), workspace, agent, provider, scope, credential, MCP
-server, permission set and group, command policy, quota, and their mappings. Object ids
-(workspace, provider, persona, ticket, instance). Counts and booleans (`scope_count`,
-`custom_field_count`, `message_length`, `has_files`, `has_commands`, `has_prompt`, and similar).
-Persona and skill *names* are not sent — those events carry only counts and type flags.
+**The properties attached to them.** Names of the objects you create or edit — workspace, agent,
+provider, scope, credential, MCP server, permission set and group, command policy, quota, and their
+mappings. Object ids (workspace, provider, persona, ticket, instance); tickets are identified by
+`ticket_id` only — the ticket key (e.g. `DEVKIT-42`) is not sent. Counts and booleans
+(`scope_count`, `custom_field_count`, `message_length`, `has_files`, `has_commands`, `has_prompt`,
+and similar). Persona and skill *names* are not sent — those events carry only counts and type
+flags. AI DevOps events carry only `resource_type`, `cloud` and `mode` — no resource names or ids.
 
-**Two properties carry free text**, both of them content your workspace admin configured rather
-than anything you typed:
+**No free-text properties are sent.** Nothing a person typed, and nothing an admin configured as
+text (such as prompt suggestion or template text), is attached to any event.
 
-- `suggestion_text` on `prompt_suggestion_clicked` — the full text of the prompt suggestion you
-  clicked, which is also the message that then gets sent to the agent.
-- `template_description` on `prompt_template_clicked` — the template's description. The template
-  *body* is not sent.
+**From extensions.** Each extension event carries `extension_id` and `extension_version`, plus only
+the properties the extension's author explicitly allowlisted in the manifest
+(`frontend.analytics.properties`). The portal strips everything else before sending.
 
 **Automatically, from your browser.** Mixpanel's library attaches to every event: your browser and
 version, OS, device type, screen size, the referrer, and the current page URL (which contains
@@ -51,17 +67,22 @@ IP address.
 
 ## What is *not* collected
 
-- **The chat messages you type.** `chat_message_sent` carries `message_length` — a number — not the
-  message. The one exception is above: clicking a prompt *suggestion* sends that suggestion's text.
+- **The chat messages you type.** `send-chat-message` carries `message_length` — a number — not the
+  message. No free text is sent at all.
 - **The commands or tool calls themselves.** No command text, tool names, or arguments —
-  `chat_action_sent` carries `has_commands` / `has_tools` flags alongside the ticket key. Command
+  `send-chat-action` carries `has_commands` / `has_tools` flags alongside the ticket id. Command
   policy events send the policy's name, never its regex patterns.
 - **Credential values, API keys, or tokens.** Credential events carry the credential's *name* and
   a *count* of its custom fields, never the values.
 - **Your files, or the contents of files you attach.** Only `has_files`.
-- **Anything from your extensions' code, or from the agent's output.** Skill events carry only the
-  skill's type and format — not its name, source, or body. Agent prompts are reduced to a
-  `has_prompt` flag, and free-text feedback to a `has_text` flag.
+- **Anything from your extensions' code beyond what the author allowlisted.** Extensions send page
+  views and actions named `<extension-id>.<event>` with `extension_id` and `extension_version`, plus
+  only the properties the author explicitly allowlisted in the manifest
+  (`frontend.analytics.properties`); the portal strips everything else. Nothing from the agent's
+  output is sent.
+- **Skill, agent prompt and feedback content.** Skill events carry only the skill's type and
+  format — not its name, source, or body. Agent prompts are reduced to a `has_prompt` flag, and
+  free-text feedback to a `has_text` flag.
 - **Anything from the studio backend.** These metrics come from the UI only; the studio has no
   analytics integration.
 
