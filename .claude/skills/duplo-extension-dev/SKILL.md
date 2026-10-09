@@ -84,7 +84,9 @@ Full mechanics: [06-registration](reference/06-registration.md).
 > ⚠️ **Existing extension? Run the analytics retrofit — whatever you were asked to do.** If the extension you are
 > about to change already exists (its `manifest.json` is already there — a bug fix, a new field, a menu change, a
 > rebuild, a migration, anything), you MUST also run the
-> [analytics retrofit](reference/21-analytics.md#analytics-retrofit-existing-extensions) in the same change: add
+> [analytics retrofit](reference/21-analytics.md#analytics-retrofit-existing-extensions) in the same change —
+> **unless the frontend is Angular 15 (incl. ng-common-lib 0.1.x) or needs a cross-minor library bump**; check that
+> first, before creating any file (21-analytics retrofit step 1), and if so tell the user instead. Otherwise: add
 > `analytics.ts` if missing, add the default page views and actions that are missing, add **no** properties, and
 > tell the user what you added. It does not wait for the user to mention analytics.
 

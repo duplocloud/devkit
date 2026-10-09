@@ -223,27 +223,33 @@ dropped, which is one more reason never to pass them.
 > question — "how does this extension provision?", "why is the list empty?" — changes nothing, so it does not
 > trigger the retrofit; the fix that follows it does.)
 
-1. **Check the wiring.** Look for the wrapper and the id:
+1. **Check the preconditions FIRST — before you create or edit any file.** Two cases stop the retrofit; when
+   either applies, create **nothing** (no `analytics.ts`, no tracking calls — an import of the token on an
+   unsupported frontend breaks the build):
+   - **Angular 15 / Webpack frontend** — `frontend/webpack.config.js` exists, or `@angular/core` is 15, or
+     `@duplocloud-internal/ng-common-lib` is on the **0.1.x** line (0.1.x is the Angular 15 build, so it is this
+     case, not a library refresh). **Do NOT start an Angular 15 → 22 migration as a side effect.** Tell the user
+     that analytics needs the [`duplo-extension-ng22-migration`](../../duplo-extension-ng22-migration/SKILL.md)
+     migration (the retrofit is that migration's last step), stop the retrofit here, and continue with the change
+     they actually asked for. Migrate only if they asked for the migration, or their change cannot work without it.
+   - **Library older than 0.4.1** — `grep ng-common-lib extensions/<name>/frontend/package.json` must point at
+     0.4.1 or later.
+     - On **0.4.0**: refresh it as part of the retrofit — copy the dev-kit's
+       `.claude/skills/duplo-extension-dev/templates/helloworld/frontend/vendor/duplocloud-internal-ng-common-lib-*.tgz`
+       into the extension's `frontend/vendor/`, remove the old tarball, update the `file:` dependency, and
+       regenerate the lockfile per [`docs/UPGRADING-ng-common-lib.md`](../../../../docs/UPGRADING-ng-common-lib.md).
+     - On **0.2.x or 0.3.x** (a cross-minor bump) during a change unrelated to the library: **tell the user and get
+       their go-ahead before refreshing** — a minor bump can change component APIs. Without it, stop the retrofit
+       here and say why.
+
+   Only when neither case applies (or the refresh is done) go on to step 2.
+2. **Check the wiring.** Look for the wrapper and the id:
    ```bash
    ls extensions/<name>/frontend/src/app/analytics.ts
    grep -rn "REMOTE_ExtensionAnalytics\|EXTENSION_ID" extensions/<name>/frontend/src
    ```
    Missing → create `analytics.ts` from the scaffold's file above (rename the class, set `EXTENSION_ID` to the
    manifest `id`).
-2. **Check the frontend can take it.** Two cases stop the retrofit from being a small add-on:
-   - **Angular 15 / Webpack frontend** (`frontend/webpack.config.js` exists, `@angular/core` 15). **Do NOT start an
-     Angular 15 → 22 migration as a side effect.** Tell the user that analytics needs the
-     [`duplo-extension-ng22-migration`](../../duplo-extension-ng22-migration/SKILL.md) migration (the retrofit is
-     that migration's last step), skip the remaining retrofit steps, and continue with the change they actually
-     asked for. Migrate only if they asked for the migration, or their change cannot work without it.
-   - **Library older than 0.4.1.** `grep ng-common-lib extensions/<name>/frontend/package.json` must point at
-     0.4.1 or later. If it is on the 0.4.x line (0.4.0), refresh it: copy the dev-kit's
-     `.claude/skills/duplo-extension-dev/templates/helloworld/frontend/vendor/duplocloud-internal-ng-common-lib-*.tgz`
-     into the extension's `frontend/vendor/`, remove the old tarball, update the `file:` dependency, and regenerate
-     the lockfile per [`docs/UPGRADING-ng-common-lib.md`](../../../../docs/UPGRADING-ng-common-lib.md). If the
-     refresh crosses a minor version (0.2.x or 0.3.x → 0.4.1) and the user's change is unrelated to the library,
-     **tell the user and get their go-ahead before doing it** — a minor bump can change component APIs. Without
-     it, skip the remaining retrofit steps and say why.
 3. **Check the page views.** For every component in `extension.routes.ts`, confirm `ngOnInit` calls
    `this.analytics.pageView('<page>')`. Add the missing ones.
 4. **Check the actions.** For every create / update / delete / deprovision / custom-action API call, confirm its
@@ -297,5 +303,5 @@ region or a count.
 - **`for(id)` is not bound to the caller.** Any extension could call `for('<another registered id>')` and emit
   events under another extension's name. Never do that — only ever pass your own `EXTENSION_ID`.
 - **Allowlisted values pass through as-is.** The host checks the key, not the value: it does not validate,
-  truncate or redact. Pass only flat strings, numbers and booleans — never objects, arrays or anything the user
-  typed.
+  truncate or redact. Pass only flat strings, numbers and booleans — never objects or arrays, and never anything
+  the user typed unless it was confirmed per rule 4 of the hard rule.
