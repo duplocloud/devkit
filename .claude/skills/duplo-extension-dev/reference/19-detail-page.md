@@ -122,7 +122,7 @@ Deployed phase does exactly this.
 ### Ladders by provisioning mode — and the ticket UI that goes with them
 
 Only **Agent** mode has a provisioning ticket. So only Agent-mode views render the header **Ask agent**
-button, the rail's **Track status** (`[trackable]="true"`) and a **"Needs your input"** phase; they also
+button, the rail's **Track status** (`[trackable]="true"`) and a **"Needs your input"** phase; their Add/Edit forms carry the `<app-ai-disclosure />` ([14](14-forms-and-wizards.md#ai-use-disclosure-agent-mode)); they also
 keep `track()`/`ticketName()` and the list-row "Track Provisioning" item. Worker, Passthrough and
 No-provision views omit all of those, use the ladders below, and label the add button **"Create"**
 (not "Provision"). Opt-in Ask AI sessions ([16-ask-ai](16-ask-ai.md)) are user-created and work in

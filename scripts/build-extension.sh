@@ -131,6 +131,12 @@ if [ "$viol" -ne 0 ]; then
 fi
 echo "    naming OK"
 
+echo "==> Checking AI-use disclosure (reference/14-forms-and-wizards.md)"
+# shellcheck source=scripts/_ai_disclosure_gate.sh
+source "$(dirname "$0")/_ai_disclosure_gate.sh"
+ai_disclosure_gate "$DIR" || { echo "ERROR: Agent-mode extension is missing the AI-use disclosure." >&2; exit 1; }
+echo "    disclosure OK"
+
 echo "==> Fetching SDK feed from $BASE_URL"
 auth=()
 [ -n "${TOKEN:-}" ] && auth=(-H "Authorization: Bearer $TOKEN")
@@ -222,8 +228,42 @@ echo "    host provides $(wc -l < "$PROVIDED" | tr -d ' ') assemblies (excluded 
 echo "==> Assembling bundle"
 PKG="$DIR/dist/pkg"
 rm -rf "$PKG"; mkdir -p "$PKG/backend" "$PKG/fe" "$PKG/skills"
-# Bundle manifest with the real host SDK version pinned in, and the digest of the SDK feed it was compiled against.
-jq --arg v "$SDK_VER" --arg d "$SDK_DIGEST" '.sdkVersion = $v | .sdkDigest = $d' "$DIR/manifest.json" > "$PKG/manifest.json"
+# Bundle manifest with the real host SDK version pinned in, the digest of the SDK feed it was compiled against
+# (sdkDigest), and both <id>/<version>/ paths derived from
+# id+version. The host stages the bundle to <ExtensionStudioPath>/<id>/<version>/ but reads the entry assembly
+# from backend.assemblyDir and each provisioning skill from skills[].folder, so all three have to agree.
+# Maintained by hand they drift the moment you bump version alone, and what that breaks depends on the target:
+#
+#   backend.assemblyDir  a host that still has the old version on disk keeps running the OLD backend DLL and
+#                        says nothing; a host that's never seen it refuses the install outright with
+#                        "Extension entry assembly not found: .../<old version>/backend/<dll>".
+#   skills[].folder      quieter in both directions. The loader's seeder returns early on a missing directory,
+#                        so a fresh host loads fine with the skill silently absent — Agent-mode provisioning
+#                        then fails later with a confusing "no skill" — and a host holding the old version
+#                        seeds the OLD skill.
+#
+# Both are always <id>/<version>/…, so compute them here instead of trusting the checked-in values. The skill
+# tail varies per entry (skills/<name>), so only the first two segments are replaced; a manifest with no
+# skills array is left alone rather than given an empty one.
+jq --arg v "$SDK_VER" --arg d "$SDK_DIGEST" '
+    .sdkVersion = $v
+  | .sdkDigest = $d
+  | .backend.assemblyDir = (.id + "/" + .version + "/backend")
+  | .id as $i | .version as $r
+  | if (.skills | type) == "array" then
+      .skills = [ .skills[]
+        | if ((.folder | split("/") | length) > 2)
+          then .folder = ($i + "/" + $r + "/" + (.folder | split("/") | .[2:] | join("/")))
+          else . end ]
+    else . end
+' "$DIR/manifest.json" > "$PKG/manifest.json"
+# Report drift rather than repairing it silently, so the checked-in value gets fixed at the source too.
+_ad_src=$(jq -r '.backend.assemblyDir // ""' "$MANIFEST")
+_ad_out=$(jq -r '.backend.assemblyDir' "$PKG/manifest.json")
+[ "$_ad_src" = "$_ad_out" ] || echo "    NOTE: stale backend.assemblyDir '$_ad_src' in $MANIFEST — bundled as '$_ad_out'"
+_sk_src=$(jq -r '[.skills[]?.folder] | join(", ")' "$MANIFEST")
+_sk_out=$(jq -r '[.skills[]?.folder] | join(", ")' "$PKG/manifest.json")
+[ "$_sk_src" = "$_sk_out" ] || echo "    NOTE: stale skills[].folder '$_sk_src' in $MANIFEST — bundled as '$_sk_out'"
 # Ship only backend assemblies the host does NOT already provide, plus each kept DLL's sidecars. Native
 # runtimes/ are host-provided too (Mongo/AWS natives load via the host's Default-ALC copies), so skip them.
 kept=0; dropped=0

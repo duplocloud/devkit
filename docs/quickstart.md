@@ -13,7 +13,7 @@ Kubernetes and extension-authoring pages, the full
 ## 1. Prerequisites
 
 You need Docker with Compose v2, `python3` on your `PATH`, an LLM key (an Anthropic `sk-ant-…` key, or AWS credentials with
-access to Bedrock), and a **work email address**.
+access to Bedrock), and an **email address you can receive mail at**.
 
 ```bash
 docker --version && docker compose version
@@ -41,7 +41,7 @@ docker --version && docker compose version
    ./run.sh
    ```
 
-   `./run.sh` prompts for `Admin email:` — use the work address. It then **blocks**: DuploCloud emails a
+   `./run.sh` prompts for `Admin email:` — use an address you can read right now. It then **blocks**: DuploCloud emails a
    verification link, and the run waits (up to 2 minutes) for you to click it before continuing on its
    own. If the wait times out nothing is lost — click the link, re-run `./run.sh`, and it resumes the same
    request without sending a second email.

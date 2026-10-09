@@ -34,7 +34,7 @@ On an EC2 host the provider prompt first probes whether the instance role can ac
 | `--reset-license` | Forget the license as well: the JWT and both ids it can be re-fetched from. Prints the JWT to stderr first, because DuploCloud will not issue a second one for your address. Refused when the run cannot prompt (`-y`, or no tty) and no `--license` replaces it. |
 | `--license <jwt>` | Use a license JWT you already have. No licensing call is made. |
 | `--non-interactive`, `-y` | Never prompt. A missing required value is an error instead: `Missing <KEY> — pass its flag (non-interactive).` |
-| `--email <addr>` | Admin email (your UI login, and the address the license is issued to). Must be a **work** address; personal domains are rejected by the license server. |
+| `--email <addr>` | Admin email (your UI login, and the address the license is issued to). Work or personal addresses both work; privacy-relay and disposable domains are rejected by the license server. |
 | `--password <pw>` | Admin password. |
 | `--model <1\|2\|3\|4\|5\|anthropic\|bedrock\|gateway\|bedrock-instance-role\|subscription>` | LLM provider. `1` is anthropic, `2` is bedrock, `3` is gateway, `4` is bedrock-instance-role, `5` is subscription. Option `4` is only offered at the prompt when the probe proves the role can invoke Bedrock, but `--model bedrock-instance-role` can be passed directly — it then probes and **fails** rather than falling back, since you asked for it explicitly. |
 | `--anthropic-key <key>` | Anthropic API key. |

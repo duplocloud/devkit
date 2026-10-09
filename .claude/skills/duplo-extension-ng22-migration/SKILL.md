@@ -102,12 +102,22 @@ both of which are barred here.
 
 ## 2. Add `federation.config.js`
 
-Copy the reference verbatim, then change exactly one line:
+Copy the reference verbatim, then change exactly two things — the container name, and the exposed
+module:
 
 ```bash
 cp <devkit>/samples/helloworld/frontend/federation.config.js "$FE/federation.config.js"
 perl -pi -e "s/duploExtensionHelloworld/$REMOTE_NAME/g" "$FE/federation.config.js"
+perl -pi -e "s{'\./Extension': '\./src/app/extension\.routes\.ts'}{'./Extension': './src/app/extension.module.ts'}" \
+  "$FE/federation.config.js"
 ```
+
+The second edit matters because helloworld has since been modernized to standalone components, so its
+config exposes `./src/app/extension.routes.ts`. This migration keeps the extension's
+`src/app/extension.module.ts` ([step 5](#5-rewrite-the-tsconfig-pair-and-srcmaints)), and an extension
+coming off Angular 15 has no `extension.routes.ts` — the build dies at config load with
+`FsPath: …/src/app/extension.routes.ts does not exist`. Point `exposes` at the NgModule; the modernization
+pass that later adds `extension.routes.ts` moves it back.
 
 Read the file's comment block — it documents the aliasing hazard, the subset rule and the skip list,
 all of which are covered in [Traps](#traps) below.
@@ -404,11 +414,18 @@ its request resolves.
 
 ## 7. Flip the manifest to `remoteEntry.json`
 
-Native Federation publishes a JSON descriptor, not a JS container. One character changes:
+Native Federation publishes a JSON descriptor, not a JS container. One line changes:
 
 ```bash
-perl -pi -e 's{/remoteEntry\.js"}{/remoteEntry.json"}' "$EXT/manifest.json"
+perl -pi -e 's{/remoteEntry\.js(\?[^"]*)?"}{/remoteEntry.json"}' "$EXT/manifest.json"
+grep -n '"remoteEntry"' "$EXT/manifest.json"   # must now end in /remoteEntry.json"
 ```
+
+The optional group drops a cache-busting query such as `remoteEntry.js?v=0.6.118`, which some Webpack-era
+manifests carry. Drop it rather than carrying it over: the [gate](reference/verification.md) requires
+`remoteEntry` to end in `/remoteEntry.json`, and the migrated samples carry no query. A substitution
+written for the bare `remoteEntry.js"` form matches nothing on such a manifest and leaves it on the Webpack
+entry, so check the `grep` output rather than assuming the edit landed.
 
 Keep `remoteName`, `exposedModule` and `type: "module"` exactly as they were.
 

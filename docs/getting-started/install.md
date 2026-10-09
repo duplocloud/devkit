@@ -3,8 +3,8 @@
 **What you'll do:** Clone the dev kit, adopt it as your own repo, bring the platform up with
 `./run.sh`, verify your email, and sign in.
 
-**What you need first:** [0. Prerequisites](prerequisites.md) — Docker with Compose v2, Python 3, LLM access, and a
-work email address you can read right now.
+**What you need first:** [0. Prerequisites](prerequisites.md) — Docker with Compose v2, Python 3, LLM access, and an
+email address you can read right now.
 
 ---
 
@@ -88,7 +88,7 @@ pulls from the official dev-kit URL, whatever you re-point your remote to in the
    ./run.sh
    ```
 
-   The first prompt is your admin email. Use the work address from
+   The first prompt is your admin email. Use the address from
    [0.4](prerequisites.md#04-an-email-address-you-can-read): it is both your portal login and the address
    the verification link is sent to.
 
@@ -100,7 +100,7 @@ pulls from the official dev-kit URL, whatever you re-point your remote to in the
 
 ## 1.4 Verify your email address
 
-Setup requires a **verified business email address**. `./run.sh` emails you a verification link and
+Setup requires a **verified email address** — work or personal. `./run.sh` emails you a verification link and
 **the run blocks here until you click it** — then it continues on its own.
 
 1. Watch for this, and go read your inbox:

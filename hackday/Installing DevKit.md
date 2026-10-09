@@ -28,7 +28,7 @@ running platform with no restart. You describe what you want in plain language a
 | **Python 3** on your `PATH` | `run.sh` uses it as its `.env` editor and JSON parser |
 | **Claude Code** | This is how you build the agent — `/duplo-extension` lives in the repo's `.claude/` |
 | **An LLM key** | An Anthropic `sk-ant-…` key, **or** AWS credentials with Bedrock access, **or** an Anthropic-compatible gateway (OpenRouter, Bifrost, LiteLLM) |
-| **A work email address** | Personal domains (gmail.com, outlook.com, …) are **rejected** — see the callout in step 2 |
+| **An email address you can read** | Work or personal both work; privacy-relay and disposable domains are **rejected** — see the callout in step 2 |
 | **Five free ports** | `4210`, `60031`, `8010`, `27018`, `6061`, plus `6333` for Qdrant |
 
 Verify the first two in one line:
@@ -63,7 +63,8 @@ extension directory — do it now so your Hack Day work has somewhere to live.
 
 > ### ⚠️ The email step will block you — read this first
 >
-> `run.sh` prompts for `Admin email:`. **Use your work address** — personal domains are not accepted.
+> `run.sh` prompts for `Admin email:`. **Use an address you can read right now** — work or personal is fine,
+> but privacy-relay and disposable domains are not accepted.
 >
 > DuploCloud then emails that address a **verification link**, and **the run stops and waits** for you to
 > click it, for up to 2 minutes. Click it and the run continues on its own.

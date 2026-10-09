@@ -162,7 +162,7 @@ required/optional), a **Result** field table (name · type), the **provisioning 
 **detail view's shape** — the **lifecycle phases** this resource goes through (label + the status/result field that
 drives each; [19-detail-page](reference/19-detail-page.md) → "Deriving phases") and the **Result tabs** (Overview at
 minimum; name each further tab; [17-custom-result-views](reference/17-custom-result-views.md)) — and a short
-**user-experience** walkthrough: left-nav placement, the add form, the list, the detail page, and what provisioning
+**user-experience** walkthrough: left-nav placement, the add form (with the AI-use disclosure in Agent mode), the list, the detail page, and what provisioning
 does end-to-end. Do this per resource for multi-resource extensions.
 
 **Where the answers come from / how to ask:**
@@ -209,7 +209,7 @@ Adapt inside `extensions/<name>/` — rename `HelloWorld`→`<Name>` consistentl
   `extensions/<feature>-<resource>` (== manifest `restSegment`; a bare leaf 404s).** Rename every FE `Hello`/`hw`
   identifier (files, classes, selectors, routes, and a **unique** `federation.config.js` `name`) per the rename table
   in [02](reference/02-authoring-guide.md#frontend). List = `searchable-datatable` with the filter + workspace-refresh
-  wiring; Add/Edit = `panel-form-accordion` + `form-field`; Detail = the **Template-G shell the scaffold already
+  wiring; Add/Edit = `panel-form-accordion` + `form-field`; **Agent mode: every Add/Edit form ends with `<app-ai-disclosure />`** (ISO 42001; the scaffold carries it, [14](reference/14-forms-and-wizards.md#ai-use-disclosure-agent-mode)); Detail = the **Template-G shell the scaffold already
   carries** — keep `shared/` as copied and **rewrite the two things that are the resource's own**: the `phases()`
   computed (your lifecycle ladder, per mode) and the Result strip's Overview tiles + any further tabs
   ([19](reference/19-detail-page.md), [17](reference/17-custom-result-views.md)). The federation `shared` block stays a
@@ -233,11 +233,11 @@ status", the "Needs your input" phase) exists **only in Agent mode** ([19](refer
   3. add an `IDuploExtension` whose `Configure` calls `builder.Services.AddHostedService<<Name>Worker>();` — hot-load
      starts the worker directly; `Configure` is what the boot-time replay uses ([10](reference/10-sdk-api.md) Gotchas).
   4. **delete** the `skills/` dir and ship **no** `skills`/`skillMappings` in the manifest.
-  5. **FE:** remove the ticket UI, drop the "Needs your input" phase, compute the Worker ladder from `workerState`
+  5. **FE:** remove the ticket UI and the `<app-ai-disclosure />` (Agent-only), drop the "Needs your input" phase, compute the Worker ladder from `workerState`
      (copy `samples/worker-compute`'s `phases()`), remove `track()`/`ticketName()` and the list-row "Track Provisioning"
      item, label the add button **"Create"** (not "Provision").
 - **Agent**: keep `skills/provision-*/SKILL.md` (+ `provision.sh`, write to the OWN route) and the manifest
-  `skills` + `skillMappings`; keep the ticket UI. **Deprovision seam (if it creates real infra):** the platform reuses the
+  `skills` + `skillMappings`; keep the ticket UI and the `<app-ai-disclosure />` on every Add/Edit form (`scripts/build-extension.sh` fails without it on ng-common-lib >= 0.4.0). **Deprovision seam (if it creates real infra):** the platform reuses the
   SAME ticket and sends the generic teardown message — there is **no separate deprovision skill mapping**, so the
   provision `SKILL.md` needs a **Deprovision** section + an idempotent `deprovision.sh`, or a second skill in the same
   `skillNames` ([11](reference/11-deprovisioning.md)). Once your skill POSTs `DeProvisioned`, the platform hard-deletes
@@ -249,7 +249,7 @@ status", the "Needs your input" phase) exists **only in Agent mode** ([19](refer
 ## Phases 3–5 shortcut (clone-and-own repo)
 
 If you're in a cloned dev-kit repo, **`./scripts/build-extension.sh extensions/<name>`** (or `./scripts/build-all.sh`
-for every extension) does Phases 3–5 in one step (naming gate, fetch + pin the SDK, `dotnet publish`,
+for every extension) does Phases 3–5 in one step (naming gate, AI-use disclosure check, fetch + pin the SDK, `dotnet publish`,
 `npm ci && npm run build`, trim the bundle to your extension's own assemblies, assemble
 `extensions/<name>/dist/extension.zip`). The manual steps below are the equivalent — use them in-platform or when
 there's no script. After it succeeds, skip to Phase 6.

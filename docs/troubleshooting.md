@@ -32,8 +32,10 @@ This kit needs a couple of things that aren't here yet:
 ```
 
 **Why** — `run.sh` checks its two host prerequisites before it touches anything: `python3` (it is the
-`.env` editor and the JSON parser for every API call the setup makes) and `docker`, including the
-`docker compose` v2 *subcommand* — the standalone `docker-compose` v1 binary does not satisfy it. Every
+`.env` editor and the JSON parser for every API call the setup makes) and a container runtime
+(`docker` or `podman` — auto-detected, or pinned with `RUNTIME` in `.env`),
+including its `compose` v2 *subcommand* — the standalone `docker-compose` v1 binary does not satisfy
+it, and podman needs a compose provider installed alongside it (`podman-compose`). Every
 missing item is listed in one pass, so the list is the whole list.
 
 **Fix** — install what it names, per [prerequisites](getting-started/prerequisites.md), and re-run.
@@ -45,8 +47,8 @@ missing item is listed in one pass, so the list is the whole list.
 python3 --version && docker compose version
 ```
 
-A *stopped* Docker daemon is only a warning at this stage; it becomes a real error later, at
-`docker compose pull`.
+An unreachable runtime is only a warning at this stage; it becomes a real error later, at
+`compose pull`.
 
 ### A port is already in use
 
@@ -62,7 +64,7 @@ but a port can still be taken by something else on your machine. The defaults ar
 `UI_PORT=4210`, `AGENT_PORT=8010`, `MONGO_PORT=27018`, `XTERM_PORT=6061`, `QDRANT_PORT=6333`.
 
 `QDRANT_PORT` is the exception to the offset: 6333 is Qdrant's own default, so a Qdrant you already run
-locally will hold it. `docker compose up -d` is not guarded against this — one clashing port aborts the
+locally will hold it. `compose up -d` is not guarded against this — one clashing port aborts the
 whole run — so move it in `.env` before starting.
 
 **Fix** — find what holds the port, then either stop it or move the dev kit:
@@ -82,10 +84,243 @@ docker compose ps        # every service Up
 curl -fsS http://localhost:4210 >/dev/null && echo "UI is answering"
 ```
 
+### podman-specific
+
+All of these are handled by the scripts; they are listed because you will meet them the moment you run
+a `compose` command *by hand* under podman, and the errors do not say what is actually wrong.
+
+| Symptom | Cause | What to do |
+| --- | --- | --- |
+| `missing services [builder]` | podman-compose does not implicitly enable a service's `profiles` the way `docker compose run` does, and `builder` sits behind the `tools` profile. `COMPOSE_PROFILES=tools` does **not** help — podman-compose ignores that variable. | Name it: `podman compose --profile tools run --rm --no-deps builder …` |
+| `invalid reference format` on an image ending in `}` | podman-compose 1.5 stops at the first `}` of a nested `${A:-${B}}` and appends the rest literally. | Already removed from `docker-compose.yml`; don't reintroduce nesting — `tests/test-runtime.sh` checks for it. |
+| `compose ps` exits 2 with a usage dump | podman-compose's `ps` has no `--services` or `--status`; its whole grammar is `-q` and `--format`. | The scripts use `runtime_compose_running_services` (in `scripts/_runtime.sh`), which falls back to filtering on the `com.docker.compose.*` labels that both implementations set. |
+| An extension bundle in `dist/` is owned by uid 101000 and you cannot delete it | Rootless podman maps *your* uid to container uid 0, so passing a real `--user 1000` lands on an unwritable subuid. | The build scripts pass `0:0` under rootless podman automatically. For an already-broken directory: `podman unshare rm -rf dist`. |
+| `rootless netns: kill network process: permission denied` on container teardown | A podman rootless cleanup quirk. Cosmetic — it is printed after the container has already exited, and the exit status is still propagated correctly. | Ignore it. |
+
+`host.docker.internal` works under podman: the `extra_hosts: host-gateway` entry in `docker-compose.yml`
+maps it, and podman additionally provides `host.containers.internal` for the same address.
+
+### `./run.sh` hangs on "Waiting for studio" (Apple Silicon)
+
+> `run.sh` now catches this before it happens — `runtime_rosetta_check` in `scripts/_runtime.sh` stops
+> the run with the fix below rather than letting it hang. You should only reach this entry if the check
+> could not reach the machine to judge it (it stays silent rather than guessing), or if you are on a
+> version of the kit that predates it. The diagnosis and fix are the same either way.
+
+**Symptom** — minutes of dots, then a failure that blames the wrong thing:
+
+```
+==> Waiting for studio at http://localhost:60031 ...........................
+==> Minting permanent admin API token…
+Login failed for you@example.com — check the admin email/password (./run.sh --reset to re-enter).
+```
+
+The studio container looks healthy — `podman ps` reports `Up`. Its log does not:
+
+```
+at Program.<Main>$(String[] args) in /src/Duplo.ai.studio/Program.cs:line 255
+qemu: uncaught target signal 6 (Aborted) - core dumped
+```
+
+**Why** — feature-branch studio images are built amd64-only (`platform: ${STUDIO_PLATFORM:-linux/amd64}`
+in `docker-compose.yml`), so on Apple Silicon the studio runs emulated. There are two emulators and only
+one of them works:
+
+- **Rosetta** — used when the podman VM has the Rosetta share attached. Runs .NET correctly.
+- **QEMU user-mode** — the fallback. Cannot run .NET's JIT/reflection; the process takes `SIGABRT` while
+  `MapControllers()` walks controller attributes at startup.
+
+**First check the provider — under libkrun none of the rest of this applies.** podman 6 defaults to the
+`libkrun` provider on Apple Silicon, and libkrun has **no Rosetta support at all**: upstream's
+`LibKrunStubber.GetRosetta` returns false unconditionally, so `rosetta = true` is read and discarded
+without a warning anywhere. The symptom is identical to a missing key — no `rosetta` binfmt handler, QEMU,
+a studio that aborts — but every fix aimed at the config or at restarting the machine is wasted, because
+the config was never the problem:
+
+```bash
+podman machine list --format '{{.Name}} {{.VMType}}'   # want applehv; libkrun can never have Rosetta
+```
+
+Unlike the rosetta key, **the provider is fixed at `podman machine init`**. Switching to applehv means
+recreating the VM, which destroys its images and volumes:
+
+```bash
+podman machine stop && podman machine rm -f
+podman machine init --provider applehv --cpus 4 -m 8192 --disk-size 100
+podman machine start
+```
+
+Podman Desktop muddies this further: it has a known bug ([#16341](https://github.com/podman-desktop/podman-desktop/issues/16341))
+where it reports Rosetta as enabled on libkrun machines that cannot have it.
+
+**On applehv, Rosetta is opt-in, and podman does not enable it for you.** Unless
+`~/.config/containers/containers.conf` sets `[machine] rosetta = true`, the VM is started with no Rosetta
+share and every amd64 binary falls through to QEMU. The key is read on every `podman machine start`, not
+only at `init`. Measured on an **applehv** machine, podman 6.1.2, reading `AppleHypervisor.Vfkit.Rosetta`
+from the machine's JSON (these numbers do not describe libkrun, which is false in every row):
+
+| `containers.conf` | resulting `Vfkit.Rosetta` |
+| --- | --- |
+| `[machine] rosetta = true` | `true` |
+| *file absent* | `false` |
+| `[machine] rosetta = false` | `false` |
+
+An absent file behaves exactly like an explicit `false`. Do not assume the default is on.
+
+Nothing tells you it is off, because it then fails **silently** twice over:
+
+1. Inside the VM, `rosetta-activation.service` runs `mount -t virtiofs rosetta /var/mnt`, fails with
+   `wrong fs type, bad option, bad superblock on rosetta`, and **exits 0 anyway**. `systemctl status`
+   reports the unit as `status=0/SUCCESS`.
+2. The studio container stays `Up` after the .NET process aborts — the crash does not take PID 1 down
+   promptly — so `podman ps` shows nothing wrong.
+
+A second possible cause, **not observed here and not verified** — recorded because the strings are present
+in the `vfkit` binary and it would produce identical symptoms even with the config set correctly: vfkit
+degrades on its own with `Rosetta installation failed. Continuing without Rosetta.` and still exits 0,
+which would happen if Rosetta were not registered on the host when the machine starts and vfkit probes
+for it. The diagnosis below catches it either way; step 1 of the fix rules it out.
+
+With the studio dead, `/healthz` never answers and the 90 × 3s poll in `run.sh` spins for ~4.5 minutes
+before falling through to a login failure that has nothing to do with your password.
+
+> **Do not trust the top-level `Rosetta` field** in `~/.config/containers/podman/machine/applehv/podman-machine-default.json`.
+> It is not the field that decides, and it is routinely the *opposite* of the effective value. The one
+> that matters is `AppleHypervisor.Vfkit.Rosetta`, which is what `podman machine inspect` reports.
+
+**Diagnose** — the decisive check is the binfmt handler list inside the VM:
+
+```bash
+podman machine ssh 'ls /proc/sys/fs/binfmt_misc/'
+```
+
+| You see | Meaning |
+| --- | --- |
+| `rosetta` present | Rosetta is live. This is not your problem — look elsewhere. |
+| `qemu-x86_64` present, no `rosetta` | Broken. amd64 runs under QEMU and .NET will abort. |
+
+Corroborate:
+
+```bash
+podman machine list --format '{{.VMType}}'            # libkrun means Rosetta is impossible, not absent
+podman machine inspect --format '{{.Rosetta}}'        # false when broken
+podman machine ssh 'mount | grep -i rosetta'          # no output when broken
+podman machine ssh 'systemctl status rosetta-activation.service --no-pager -l'
+                                                      # "wrong fs type" despite status=0/SUCCESS
+```
+
+**Fix** — add the config, then restart the machine. **The machine does not need to be recreated.** podman
+reads `[machine] rosetta` at every `podman machine start`, not only at `init`, so a stop/start picks it up
+and nothing is destroyed.
+
+1. Confirm Rosetta on the host first — the VM share cannot be created if the host has no Rosetta:
+
+```bash
+arch -x86_64 /usr/bin/true && echo "Rosetta OK" || softwareupdate --install-rosetta --agree-to-license
+```
+
+If you just installed it, re-run the `arch -x86_64` check and see it succeed before going on.
+
+2. Opt in to Rosetta. **This is mandatory, not a nicety** — see the table above.
+
+   **Only if `~/.config/containers/containers.conf` does not exist yet:**
+
+```bash
+mkdir -p ~/.config/containers
+printf '[machine]\nrosetta = true\n' > ~/.config/containers/containers.conf
+```
+
+   > ⚠️ **If the file already exists, edit it — do not append.** Add `rosetta = true` under its
+   > existing `[machine]` section, or add a `[machine]` section if it has none. Appending a second
+   > `[machine]` table is a TOML duplicate-key error and podman then refuses to run **at all**:
+   >
+   > ```
+   > Failed to obtain podman configuration: parsing containers.conf:
+   > toml: line 11: Key 'machine' has already been defined.
+   > ```
+   >
+   > That is a worse state than the missing Rosetta you started with. `run.sh`'s preflight reads your
+   > actual config and prints the right instruction for whichever case you are in.
+
+   Keep the file — it is read on every start, so deleting it silently loses Rosetta at the next one.
+
+3. Restart the machine. No `rm`, no `init`, no re-pull — images and volumes are untouched:
+
+```bash
+podman machine stop
+podman machine start
+```
+
+> Verified by toggling one machine twice: with the file absent a stop/start yields `Vfkit.Rosetta: false`
+> and a `qemu-x86_64` binfmt handler; with the file present the same machine yields `true` and a `rosetta`
+> handler. The machine's `Created` timestamp is unchanged throughout, so no re-creation is involved.
+>
+> Only recreate the machine if you need to change its **sizing** — and then pass your sizing back
+> explicitly, because the `init` default is 2048 MiB and `runtime_machine_check` rejects anything under
+> 6144: `podman machine init --cpus 4 -m 8192 --disk-size 100`.
+
+**Confirm** — run this gate *before* `./run.sh`, so a failure costs seconds rather than a confusing hang:
+
+```bash
+podman machine inspect --format '{{.Rosetta}}'                    # true
+podman machine ssh 'ls /proc/sys/fs/binfmt_misc/' | grep rosetta  # rosetta
+podman machine ssh 'mount | grep -i rosetta'                      # rosetta on /var/mnt type virtiofs
+podman run --rm --platform linux/amd64 docker.io/library/alpine:3 uname -m   # x86_64
+```
+
+The first three must pass, and `qemu-x86_64` should now be **absent** from the binfmt list — Rosetta
+replaces it. The fourth is a liveness check only: a trivial amd64 binary runs under QEMU too, so `x86_64`
+there confirms amd64 executes but does **not** prove Rosetta is the thing executing it. The binfmt list is
+the discriminating check.
+Then start the stack and verify the studio is alive rather than merely `Up`:
+
+```bash
+./run.sh
+curl -fsS http://localhost:60031/healthz && echo " studio is answering"
+podman logs devkit-duplo-ai-studio-1 2>&1 | grep -c 'uncaught target signal'   # must be 0
+```
+
+**Avoiding it entirely** — if an arm64 studio image exists for your tag, use it and skip emulation.
+Observed so far: `branch-*` tags are published amd64-only, while `dev-*` tags are multi-arch. Never assume
+either way — check:
+
+```bash
+podman manifest inspect "quay.io/duplocloud/backend:$(grep '^STUDIO_TAG=' .env | cut -d= -f2)" \
+  | grep architecture
+```
+
+If an `arm64` variant is listed, set `STUDIO_PLATFORM=linux/arm64` in `.env` and re-run `./run.sh`.
+
+**Or use Docker instead** — Docker Desktop on Apple Silicon provides Rosetta itself, with no
+`containers.conf` and no machine configuration. The same amd64 studio image that aborts under podman's
+QEMU starts normally under Docker: `uname -m` reports `x86_64` and the log carries zero
+`uncaught target signal` entries. This whole entry is podman-specific.
+
+> **If you have both installed, check which one you are actually using.** `runtime_detect` in
+> `scripts/_runtime.sh` walks `docker podman` and takes the first on `PATH` — presence only, with no
+> daemon check — so installing Docker silently takes precedence over podman. A podman machine can be up
+> and correctly configured while `./run.sh` uses Docker. Pin it deliberately:
+>
+> ```bash
+> bash -c 'source scripts/_runtime.sh; echo "using: $(runtime_detect)"'   # what it will pick
+> echo 'RUNTIME=podman' >> .env                                           # force podman
+> ```
+
+### `✗ Agent-mode extension … renders no <app-ai-disclosure />`
+
+`build-extension.sh` fails an Agent-mode extension (non-empty `skillMappings`) on ng-common-lib >= 0.4.0 when
+no form renders the AI-use disclosure (ISO 42001). The copied `wizard-stepper.component.ts` does not count.
+
+Fix: add `<app-ai-disclosure />` to every Add/Edit form, or set `[aiDisclosure]="true"` on the wizard
+(`reference/14-forms-and-wizards.md`, "AI-use disclosure").
+
+On ng-common-lib below 0.4.0 the build prints `! Agent-mode extension on ng-common-lib <ver> renders no <app-ai-disclosure />`
+and continues. Upgrade with `scripts/refresh-common-lib.sh` (see `docs/UPGRADING-ng-common-lib.md`) and add the component.
+
 ### More entries belong here
 
-Image pull failures and `docker login quay.io`, and insufficient memory or disk. Add them as they are hit —
-with the verbatim error string.
+Image pull failures and `<runtime> login quay.io`, and insufficient memory or disk. Add them as they are
+hit — with the verbatim error string.
 
 ---
 
@@ -159,8 +394,9 @@ If you already hold the JWT, skip the round trip entirely with `./run.sh --licen
 
 ### The license server rejected my email
 
-Personal domains are not accepted. Re-run with a work address — `./run.sh --email you@yourcompany.com`.
-A rejected address is not spent, so this is safe to correct.
+Work and personal addresses are both accepted; privacy-relay and disposable domains are not. Re-run with a
+different address — `./run.sh --email you@example.com`. A rejected address is not spent, so this is safe to
+correct.
 
 ### The license is for the wrong address
 
@@ -345,7 +581,7 @@ up and reachable at the resolved base URL before a build can start. With `DUPLO_
 - **Local** — confirm the stack is running and the port matches `.env`:
 
   ```bash
-  docker compose ps
+  ./logs.sh --no-follow duplo-ai-studio     # or: <your runtime> compose ps
   grep STUDIO_PORT .env
   ```
 
@@ -363,6 +599,45 @@ curl -fsS -H "Authorization: Bearer $(grep ^DUPLO_ADMIN_TOKEN= .env | cut -d= -f
 A version string like `{"version":"1.0.6"}` means the build will get past this step. The SDK feed is
 **authenticated** — without the header you get a 401, which is not the same problem as the studio being down.
 For that, `curl -fsS http://localhost:60031/healthz` answers anonymously.
+
+### The build warns it cannot see the studio, then works anyway
+
+**Symptom** — `./scripts/build-extension.sh` prints a warning, then the build carries on and succeeds:
+
+```
+WARNING: no running duplo-ai-studio in this compose project (docker compose scopes services
+         per project) … will try the published host port instead:
+         http://host.docker.internal:60031
+```
+
+**Why** — the build and the stack are on **different container runtimes**. Compose scopes services per
+project *per runtime*, so a build running under docker cannot see a studio that was started under podman,
+or the reverse. It is easy to end up here because detection is presence-based and docker-first: you may
+have started the stack with `RUNTIME=podman ./run.sh` while the build, run without that variable,
+auto-detects docker.
+
+**This is usually benign.** The fallback URL reaches the studio through its *published host port* — the
+same port your browser uses — so the SDK fetch still succeeds and the bundle builds correctly. Treat it as
+noise unless the build actually fails on the SDK step, which is the previous entry.
+
+**Confirm the fallback route is alive** — from inside a container on the build's runtime:
+
+```bash
+RT=docker      # the runtime the BUILD uses, not the stack's
+IMG=$(grep ^BUILDER_IMAGE= .env | cut -d= -f2-)
+PORT=$(grep ^STUDIO_PORT= .env | cut -d= -f2-); PORT=${PORT:-60021}
+$RT run --rm --add-host host.docker.internal:host-gateway "$IMG" \
+  curl -sS -o /dev/null -w '%{http_code}\n' \
+  "http://host.docker.internal:$PORT/v1/aiservicedesk/extensions/sdk-version"
+```
+
+**`401` means the route is fine.** The SDK feed is authenticated, so an unauthenticated request from inside
+the container is *supposed* to be rejected — reaching a 401 proves the network path works. A connection
+error or `000` is the real failure. Do not read the 401 as the problem.
+
+**Silence it** — put both on the same runtime, e.g. `echo 'RUNTIME=podman' >> .env`, so the build and the
+stack share a compose project. The builder image is cached per runtime, so the first build after switching
+pays a one-time pull.
 
 ### The extension's page never loads in the portal
 

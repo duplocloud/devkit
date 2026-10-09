@@ -50,6 +50,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 ENV=.env
+. ./scripts/_runtime.sh          # → $RUNTIME (docker | podman); resolved in preflight
 . ./scripts/_provider_gateway.sh
 . ./scripts/_provider_subscription.sh
 . ./scripts/_studio_api.sh
@@ -101,6 +102,14 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# ── .env must exist before anything reads it ──────────────────────────────────
+# Ahead of the prerequisite checks deliberately: runtime_resolve below reads RUNTIME from .env and then
+# memoises its answer for the whole run. Creating .env after that point meant a first run on a box with
+# both CLIs installed auto-detected docker and ignored RUNTIME=podman — set in .env or shipped in
+# .env.example — for both podman preflights, `compose pull` and `compose up`. Needs neither python3 nor
+# $RUNTIME, so it is safe this early.
+[ -f "$ENV" ] || { [ -f .env.example ] && cp .env.example "$ENV" || touch "$ENV"; }
+
 # ── prerequisites ────────────────────────────────────────────────────────────
 # Checked here, after flag parsing (so --help still works on a bare machine) and before the first line
 # that needs either one — setenv() below is already python3. Both are hard requirements, so report every
@@ -109,33 +118,92 @@ done
 #   python3  every .env write and every JSON response in this script and in scripts/ is parsed with it.
 #            No version floor: only the stdlib (json, sys, os, datetime, base64) is used, so anything
 #            still called python3 is new enough.
-#   docker   the whole stack, and every extension build, runs in containers. Compose must be v2, i.e.
-#            the `docker compose` subcommand — the standalone `docker-compose` v1 binary is not used.
+#   RUNTIME  the whole stack, and every extension build, runs in containers. Which CLI drives them is
+#            resolved by scripts/_runtime.sh (RUNTIME in the environment or .env, else auto-detected);
+#            it must provide a v2-style `compose` subcommand. The standalone `docker-compose` v1 binary
+#            is not used.
 #
-# The daemon-not-running case is a warning, not an error: `docker compose pull` further down reports it
-# far better than we can, and failing here would block the flag-only paths that never touch the daemon.
+# The daemon-not-running case is a warning, not an error: `$RUNTIME compose pull` further down reports
+# it far better than we can, and failing here would block the flag-only paths that never touch it.
 MISSING=""
 command -v python3 >/dev/null 2>&1 || MISSING="${MISSING}
   • python3 — not on PATH. macOS: brew install python3 (or install Xcode command line tools).
     Debian/Ubuntu: sudo apt-get install -y python3. RHEL/Amazon Linux: sudo dnf install -y python3."
-if ! command -v docker >/dev/null 2>&1; then
+
+# runtime_resolve must run in THIS shell, not a command substitution: it sets RUNTIME as a side effect,
+# which a subshell would discard. So its diagnostics go straight to stderr rather than into $MISSING —
+# the one-pass property is preserved by deferring the exit until python3 has been reported too.
+RUNTIME_OK=1
+runtime_resolve || RUNTIME_OK=0
+if [ "$RUNTIME_OK" = 1 ] && ! "$RUNTIME" compose version >/dev/null 2>&1; then
+  # The CLI exists but has no `compose` subcommand: Compose v1 only, or a plugin-less install. For
+  # podman that usually means the podman-compose (or docker-compose) provider is missing, since podman
+  # shells out to one rather than implementing compose itself.
   MISSING="${MISSING}
-  • docker — not on PATH. Install Docker Desktop (https://docs.docker.com/get-docker/), Colima, or
-    Rancher Desktop, then re-run."
-elif ! docker compose version >/dev/null 2>&1; then
-  # `docker` exists but has no `compose` subcommand: either Compose v1 only, or a plugin-less install.
-  MISSING="${MISSING}
-  • docker compose (v2) — 'docker compose version' failed. The standalone docker-compose v1 binary is
-    not enough; install the Compose v2 plugin, or upgrade Docker Desktop."
+  • $RUNTIME compose — '$RUNTIME compose version' failed. A v2-style compose subcommand is required;
+    the standalone docker-compose v1 binary is not enough.
+      docker  — install the Compose v2 plugin, or upgrade Docker Desktop.
+      podman  — it shells out to a compose provider rather than implementing compose itself.
+                Podman Desktop can install one for you, or: brew install podman-compose"
+  # Before reciting prerequisites, check whether another supported runtime is simply ready. Hit in
+  # practice with RUNTIME=podman pinned in .env, podman's socket broken, and docker up with compose v2:
+  # the advice above is all correct and all irrelevant when a working runtime is already installed.
+  _calt="$(runtime_alternatives_compose)"
+  _pinned="$(runtime_requested)"
+  for _c in $_calt; do
+    if [ -n "$_pinned" ]; then
+      MISSING="${MISSING}
+    $_c is installed, responding, and has compose. RUNTIME is currently pinned to '$_pinned' — that
+    pin outranks auto-detection, which would have chosen $_c. Change it in .env:
+        RUNTIME=$_c"
+    else
+      MISSING="${MISSING}
+    $_c is installed, responding, and has compose. Set it in .env:
+        echo 'RUNTIME=$_c' >> .env"
+    fi
+    MISSING="${MISSING}
+    Set it in .env rather than per-command: run.sh, the build scripts, logs.sh and stop.sh each
+    resolve the runtime independently, so a one-off on the command line leaves the next command on
+    the other runtime."
+  done
+  unset _calt _pinned _c
 fi
 if [ -n "$MISSING" ]; then
   echo "This kit needs a couple of things that aren't here yet:$MISSING" >&2
-  exit 1
+  RUNTIME_OK=0
 fi
-docker info >/dev/null 2>&1 || echo "Note: the Docker daemon doesn't look like it's running — start it before this gets to 'Pulling images'." >&2
+[ "$RUNTIME_OK" = 1 ] || exit 1
+# If the resolved runtime is not answering, say so — and if another supported one IS, name it. Detection
+# is presence-based, so a stopped Docker Desktop alongside a healthy podman resolves to docker and then
+# fails at 'Pulling images' with nothing pointing at the way out.
+if ! "$RUNTIME" info >/dev/null 2>&1; then
+  echo "Note: $RUNTIME doesn't look ready (daemon not running, or no connection) — sort that out before this gets to 'Pulling images'." >&2
+  _alt="$(runtime_alternatives)"
+  if [ -n "$_alt" ]; then
+    for _a in $_alt; do
+      echo "      $_a is installed and responding. To use it, set it in .env — every script reads it" >&2
+      echo "      there, and a one-off on the command line would leave the next command elsewhere:" >&2
+      echo "          echo 'RUNTIME=$_a' >> .env" >&2
+    done
+  fi
+  unset _alt _a
+fi
+
+# Sized-VM check. Separate from the MISSING one-pass above because it needs RUNTIME already resolved,
+# and it is a hard failure by design: an undersized podman machine does not stop the stack from coming
+# up, it silently poisons every extension build later with an OOM kill that reports itself as a Go
+# deadlock and 'exit status 137'. A no-op on docker and on a machine-less podman.
+runtime_machine_check || exit 1
+
+# Rosetta preflight. Same shape and the same reason as the sized-VM check above: on Apple Silicon a
+# podman machine without Rosetta hands amd64 binaries to QEMU, which cannot run the studio's .NET
+# runtime — and every layer of that failure lies. The container reports "Up", /healthz simply never
+# answers, and the wait loop further down burns 4.5 minutes before exiting on "Login failed", which
+# points at credentials. Catching it here turns all of that into one accurate message. A no-op on
+# docker, on an amd64 host, and on an arm64 studio image.
+runtime_rosetta_check || exit 1
 
 # ── .env helpers (line-based; safe for tokens/keys with special chars) ────────
-[ -f "$ENV" ] || { [ -f .env.example ] && cp .env.example "$ENV" || touch "$ENV"; }
 getenv() { grep -E "^$1=" "$ENV" 2>/dev/null | head -1 | cut -d= -f2- || true; }
 setenv() {
   python3 - "$ENV" "$1" "${2-}" <<'PY'
@@ -224,7 +292,7 @@ license_warn_expiry() {
 #   ISSUED<TAB><message><TAB><recover-path>  one trial per email — already used. <recover-path> is set when
 #                                   the server says that trial is recoverable; recover it rather than asking
 #                                   the user for a JWT they may never have been sent.
-#   EMAIL<TAB><message>             email rejected (personal domain, malformed, …)
+#   EMAIL<TAB><message>             email rejected (privacy-relay or disposable domain, malformed, …)
 #   ERR<TAB><message>               anything else, including transport failure
 license_request() { # email api-url
   E="$1" U="$2" python3 - <<'PY'
@@ -582,7 +650,7 @@ fi
 # whenever that fetch failed. --reset-license (below) is how you ask for it to actually go away.
 if [ "$RESET" = 1 ]; then
   echo "==> --reset: tearing down stack + volumes (DB, extensions, file store)…"
-  docker compose down -v 2>/dev/null || true
+  "$RUNTIME" compose down -v 2>/dev/null || true
   for k in Authentication__LocalAdminEmail Authentication__LocalAdminPassword Authentication__SuperUsers \
            DEVKIT_MODEL ANTHROPIC_API_KEY AWS_REGION AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
            CLAUDE_MODEL CLAUDE_EXTRA_MODELS "${GATEWAY_KEYS[@]}" "${SUBSCRIPTION_KEYS[@]}" \
@@ -790,12 +858,12 @@ if [ -z "$LIC" ]; then
         break ;;
       EMAIL)
         echo "  ✖ $MSG" >&2
-        [ "$NONINTERACTIVE" = 1 ] && { echo "    Re-run with --email <work address> — personal domains are not accepted." >&2; exit 1; }
-        [ "$TRIES" -ge 3 ] && { echo "Giving up after $TRIES attempts — re-run with --email <work address>." >&2; exit 1; }
-        read -r -p 'Work email: ' EMAIL || { echo "No work email provided — re-run with --email <addr>." >&2; exit 1; }
+        [ "$NONINTERACTIVE" = 1 ] && { echo "    Re-run with --email <addr> — most work and personal addresses are accepted; privacy-relay and disposable domains are not." >&2; exit 1; }
+        [ "$TRIES" -ge 3 ] && { echo "Giving up after $TRIES attempts — re-run with --email <addr>." >&2; exit 1; }
+        read -r -p 'Email address: ' EMAIL || { echo "No email provided — re-run with --email <addr>." >&2; exit 1; }
         while ! email_valid "$EMAIL"; do
           echo "Invalid email address: '${EMAIL:-<empty>}' (expected name@example.com)." >&2
-          read -r -p 'Work email: ' EMAIL || { echo "No work email provided — re-run with --email <addr>." >&2; exit 1; }
+          read -r -p 'Email address: ' EMAIL || { echo "No email provided — re-run with --email <addr>." >&2; exit 1; }
         done ;;
       ISSUED)
         # The address already has a trial. When the server can recover it this is not an error the user has
@@ -868,7 +936,7 @@ if [ -z "$MODEL" ]; then
   fi
   # CONTAINER_IMDS is ok | blocked | unknown:<why>. Only a definite `blocked` withholds option 3 —
   # that one means the container test ran and failed (the hop limit), so the role would break at
-  # runtime. `unknown:` means we couldn't run the test at all (no docker yet, daemon down, busybox
+  # runtime. `unknown:` means we couldn't run the test at all (no runtime yet, daemon down, busybox
   # not pullable); the role itself is proven, so offer it with the caveat rather than hiding a
   # working option because our own check couldn't execute.
   if [ "$BEDROCK_AVAILABLE" = 1 ] && [ "$CONTAINER_IMDS" != blocked ]; then
@@ -997,8 +1065,11 @@ for v in STUDIO_TAG UI_TAG; do
 done
 
 # ── start the stack ───────────────────────────────────────────────────────────
-echo "==> Pulling images…"; docker compose pull
-echo "==> Starting…"; docker compose up -d
+# Name the runtime here, not only when something breaks: auto-detect is presence-based and docker-first,
+# so on a box with both installed the choice is otherwise invisible until it goes wrong.
+echo "==> Using $(runtime_label)"
+echo "==> Pulling images…"; "$RUNTIME" compose pull
+echo "==> Starting…"; "$RUNTIME" compose up -d
 
 STUDIO_PORT="$(getenv STUDIO_PORT)"; [ -z "$STUDIO_PORT" ] && STUDIO_PORT=60021
 UI_PORT="$(getenv UI_PORT)"; [ -z "$UI_PORT" ] && UI_PORT=4200

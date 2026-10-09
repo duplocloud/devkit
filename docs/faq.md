@@ -39,15 +39,16 @@ Improvements to the *framework* are welcome. Your own extensions belong in your 
 ### Do I need a DuploCloud account?
 
 No account, but three things: the ability to pull `quay.io/duplocloud/*` (run `docker login quay.io` if the
-pull is denied), an LLM key for the agent — Anthropic, Azure AI Foundry, or AWS Bedrock — and a **work email
-address**, because the stack is licensed. On an EC2 instance whose IAM role can already invoke Bedrock,
+pull is denied), an LLM key for the agent — Anthropic, Azure AI Foundry, or AWS Bedrock — and an **email
+address you can receive mail at**, because the stack is licensed. On an EC2 instance whose IAM role can already invoke Bedrock,
 `run.sh` offers a keyless option and you need no LLM key at all.
 
 ### Do I need a license key, and where does it come from?
 
 Yes, and `./run.sh` gets it for you. On first run it requests a trial license for the admin email you enter
 and writes the JWT into `.env` as `Licensing__Token`; the studio reads it from there. You have to click a
-verification link emailed to that address, so use a work address — personal domains are rejected — and expect
+verification link emailed to that address, so use one you can read right now — work or personal is fine, but
+privacy-relay and disposable domains are rejected — and expect
 one interactive moment on a first install.
 
 The server issues **one license per address** and never a second, so `run.sh` is built never to need one: it
@@ -72,7 +73,7 @@ Yes. Set `DUPLO_TARGET=remote` with `DUPLO_HOST` and `DUPLO_TOKEN` (an Administr
 
 ### What are the prerequisites?
 
-Docker with Compose v2, `python3`, an LLM key, and a work email address you can receive mail at (the license
+Docker with Compose v2, `python3`, an LLM key, and an email address you can receive mail at (the license
 verification link goes there). That is the whole list — building an extension needs nothing extra on your
 machine, because the build runs in a container. See [Prerequisites](getting-started/prerequisites.md).
 

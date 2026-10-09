@@ -1,6 +1,6 @@
 import { Component, OnInit, inject, signal, viewChild } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { FormGroupErrorsComponent, SharedFormsModule } from '@duplocloud-internal/ng-common-lib';
+import { AiDisclosureComponent, FormGroupErrorsComponent, SharedFormsModule } from '@duplocloud-internal/ng-common-lib';
 import { HelloParent, ParentChildService } from '../parentchild.service';
 
 // Create/Edit form in the platform 3-column `panel-form-accordion` layout (title | inputs | help). The
@@ -10,7 +10,7 @@ import { HelloParent, ParentChildService } from '../parentchild.service';
 // assign to a signal, and signals keep async prefills repainting under the OnPush default).
 @Component({
   selector: 'pc-add-parent',
-  imports: [SharedFormsModule],
+  imports: [SharedFormsModule, AiDisclosureComponent],
   styles: [`
     :host { display: block; }
     .panel-form-accordion { background: #fff; padding: 1.25rem 0 1rem 1.5rem; }
@@ -56,6 +56,8 @@ import { HelloParent, ParentChildService } from '../parentchild.service';
                     {{ isEdit ? 'Save' : 'Provision' }}
                   </button>
                 </div>
+                <!-- Agent mode only (ISO 42001): remove with the ticket UI when converting to Worker/Passthrough. -->
+                <app-ai-disclosure class="mt-1" />
               </div>
             </form>
           }
