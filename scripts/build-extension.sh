@@ -122,7 +122,7 @@ case "$DIR" in
   *samples/*|*templates/*) ;;
   *)
     if [ -d "$DIR/frontend/src" ]; then
-      hits=$(grep -rnE 'HelloService|HelloWorld|hw-(add|list|view|root)|hello\.service' "$DIR/frontend/src" 2>/dev/null || true)
+      hits=$(grep -rnE 'HelloService|HelloWorld|HelloAnalytics|hw-(add|list|view|root)|hello\.service|hello-(list|detail|form)|(create|update|delete)-hello' "$DIR/frontend/src" 2>/dev/null || true)
       if [ -n "$hits" ]; then
         echo "  ✗ frontend still has template 'Hello'/'hw-' identifiers — rename them to your resource:" >&2
         printf '%s\n' "$hits" | head -8 | sed 's/^/      /' >&2; viol=1

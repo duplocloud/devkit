@@ -4,6 +4,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { Subscription, interval } from 'rxjs';
 import { CommonLibComponentsModule } from '@duplocloud-internal/ng-common-lib';
 import { HelloService, HelloWorld } from '../hello.service';
+import { HelloAnalytics } from '../analytics';
 import { StatusBadgeComponent } from '../shared/status-badge.component';
 import { LifecyclePhase, LifecycleRailComponent, RailFact } from '../shared/lifecycle-rail.component';
 
@@ -141,6 +142,7 @@ export class ViewHelloComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
   private readonly locale = inject(LOCALE_ID);
+  private readonly analytics = inject(HelloAnalytics);
 
   protected readonly item = signal<HelloWorld | undefined>(undefined);
   protected readonly view = signal<'spec' | 'result'>('spec');
@@ -217,6 +219,7 @@ export class ViewHelloComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    this.analytics.pageView('hello-detail');
     this.refresh();
     this.destroyRef.onDestroy(() => this.poll?.unsubscribe());
   }

@@ -3,6 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FilterTableUtils, SearchableDatatableComponent, SearchableDatatableModule } from '@duplocloud-internal/ng-common-lib';
 import { HelloService, HelloWorld, REMOTE_UserSession } from '../hello.service';
+import { HelloAnalytics } from '../analytics';
 import { StatusBadgeComponent } from '../shared/status-badge.component';
 
 // List view built on the platform UI library's <searchable-datatable> (from
@@ -84,6 +85,7 @@ export class ListHelloComponent implements OnInit {
   // token needs a cast — unlike constructor @Inject(...), which accepts a bare string.
   private readonly session = inject<any>(REMOTE_UserSession as any);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly analytics = inject(HelloAnalytics);
 
   // The <searchable-datatable> owns the search box + term; we read its `searchTerm` when filtering.
   private readonly table = viewChild(SearchableDatatableComponent);
@@ -103,6 +105,7 @@ export class ListHelloComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    this.analytics.pageView('hello-list');
     // Re-fetch on first load, on every workspace switch, AND on each poll tick — no page reload needed.
     // getTenantRefreshTimer emits [tenant, tenantChanged]; the flag is true only when the workspace changed.
     this.session.getTenantRefreshTimer(true)
