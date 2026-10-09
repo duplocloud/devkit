@@ -169,9 +169,12 @@ You are done when you see:
 
 Build & deploy your extension (scripts read the target from .env — no DUPLO_BASE= prefix needed):
   ./scripts/build-extension.sh  extensions/<name>               # your extensions live in extensions/<name>/
-  ./scripts/deploy-extension.sh extensions/<name>/dist/extension.zip
+  # the installer service loads each build in extensions/<name>/dist/ by itself, within about 20 seconds
+  # without the installer, or on a remote target: ./scripts/deploy-extension.sh extensions/<name>/dist/extension.zip
   # or build every extension:    ./scripts/build-all.sh
   # or build a bundled sample:   ./scripts/build-extension.sh samples/helloworld
+  #   then load it, since the installer reads only extensions/:
+  #   ./scripts/deploy-extension.sh samples/helloworld/dist/extension.zip
   # re-attach the agent to another workspace: ./scripts/register-agent.sh <workspace-id>
 ```
 

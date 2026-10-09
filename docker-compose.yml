@@ -43,16 +43,21 @@ services:
       - qdrant_data:/qdrant/storage
 
   # One-shot: chown the shared named volumes to uid 1001 so the non-root studio + agent
-  # (both appuser 1001) can write them. Named volumes are created root-owned, and run.sh
-  # does `down -v` each start, so this must run every startup (see the services' depends_on).
+  # (both appuser 1001) can write them. Named volumes are created root-owned, on first start and again after
+  # `run.sh --reset` or `stop.sh --wipe` removes them, so this runs every startup (see the services' depends_on).
   # Both processes writing as 1001 keeps ticket/skill/extension dirs interoperable.
+  # The installer's state volume goes to 65532 instead, the distroless nonroot user its image runs as.
   init-perms:
     image: busybox:1.36
-    command: ["sh", "-c", "chown -R 1001:1001 /data /extstudio /csessions && echo 'volumes chowned to 1001'"]
+    command:
+      - sh
+      - -c
+      - chown -R 1001:1001 /data /extstudio /csessions && chown -R 65532:65532 /installer && echo 'volumes chowned'
     volumes:
       - platform_data:/data
       - extension_studio_data:/extstudio
       - claude_sessions:/csessions
+      - installer_state:/installer
 
   duplo-ai-studio:
     image: quay.io/duplocloud/backend:${STUDIO_TAG}
@@ -75,6 +80,7 @@ services:
       # Browser reaches xterm on the published host port, so this must be host-reachable.
       - AIStudio__XtermHost=http://localhost:${XTERM_PORT:-6060}
       - LocalFileStorage__RootPath=/data
+      - Extensions__InstallerUrl=http://installer:8080
     volumes:
       # Shared /data file store (skills + loaded-extension skill files). Shared with the agent so it can
       # read the seeded skills. Survives restart.
@@ -85,6 +91,49 @@ services:
     depends_on:
       mongo:
         condition: service_started
+      init-perms:
+        condition: service_completed_successfully
+
+  # Installs and upgrades extensions in the studio: each build that changes in extensions/[name]/dist/ while it runs,
+  # and a catalog extension when the Available tab asks. Only the studio calls it, signing each call with the shared JWT
+  # secret, so no host port is published.
+  installer:
+    # Defaults to .env.example's pin, so `docker compose up` before run.sh copies INSTALLER_TAG into .env still starts.
+    image: quay.io/duplocloud/helpdesk-installer:${INSTALLER_TAG:-main-8d05eb4e}
+    restart: unless-stopped
+    environment:
+      - INSTALLER_PLATFORM=compose
+      - INSTALLER_BACKEND_URL=http://duplo-ai-studio:60021
+      # The studio service's image, which the status record reports and holds are keyed on.
+      - INSTALLER_BACKEND_IMAGE=quay.io/duplocloud/backend:${STUDIO_TAG}
+      - INSTALLER_STATE_DIR=/var/lib/installer
+      - INSTALLER_LOCAL_DIR=/extensions
+      # One key at a time rather than env_file, so the installer holds none of .env's LLM, AWS or admin credentials.
+      - Authentication__JwtSharedSecret=${Authentication__JwtSharedSecret:-}
+      - Licensing__Token=${Licensing__Token:-}
+      # The selection. With no selection key set, every pass skips as no-release-config and installs nothing, so the
+      # installer reads an empty value as unset.
+      - EXTENSIONS_ENABLED=${EXTENSIONS_ENABLED:-true}
+      - EXTENSIONS_SOURCE=${EXTENSIONS_SOURCE:-customer}
+      - EXTENSIONS_EXCLUDE=${EXTENSIONS_EXCLUDE:-}
+      - EXTENSIONS_RESET_AT=${EXTENSIONS_RESET_AT:-}
+      - EXTENSIONS_UPDATE_INSTALLED=${EXTENSIONS_UPDATE_INSTALLED:-}
+      - EXTENSIONS_FROZEN=${EXTENSIONS_FROZEN:-}
+      - EXTENSIONS_DRY_RUN=${EXTENSIONS_DRY_RUN:-}
+      - EXTENSIONS_OPT_OUT=${EXTENSIONS_OPT_OUT:-}
+      - EXTENSIONS_LAYERS=${EXTENSIONS_LAYERS:-}
+      - EXTENSIONS_CONFIG_INVALID=${EXTENSIONS_CONFIG_INVALID:-}
+      - EXTENSIONS_ENROLLMENT_ID=${EXTENSIONS_ENROLLMENT_ID:-}
+      # The license server's catalog, off while LICENSE_SERVER_URL is empty, so the installer runs on local builds only.
+      - LICENSE_SERVER_URL=${LICENSE_SERVER_URL:-}
+      - URL_ROUTE_URL=${URL_ROUTE_URL:-}
+      - CHANNELS_BASE_URL=${CHANNELS_BASE_URL:-}
+      - CHANNELS_BUCKET=${CHANNELS_BUCKET:-}
+    volumes:
+      # The status record. A named volume, so it survives a recreate and goes with the database on `down -v`.
+      - installer_state:/var/lib/installer
+      - ./extensions:/extensions:ro
+    depends_on:
       init-perms:
         condition: service_completed_successfully
 
@@ -304,6 +353,7 @@ volumes:
   extension_studio_data:
   claude_sessions:
   qdrant_data:
+  installer_state:
   dind_storage:
   # Keyed by uid on purpose: these are written as the calling user (see the service's `user:`), and one
   # uid's runtime-created cache subdirectories are not writable by another, so sharing a single pair

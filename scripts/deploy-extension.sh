@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Hot-load a built extension.zip into the running platform (no restart).
+# Hot-load a built extension.zip into the running platform (no restart). A local build under extensions/ goes through
+# the installer service instead while it runs (installer_handoff below).
 # Usage: ./scripts/deploy-extension.sh <extension-dir>/dist/extension.zip   # e.g. extension/dist/extension.zip
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -26,6 +27,89 @@ if command -v unzip >/dev/null && command -v jq >/dev/null; then
     fi
   fi
 fi
+
+# Prints one decision from the installer's status record, read as the tar stream `cp ... -` writes: ok, fail, wait, or
+# off when the installer leaves this build to the POST. Matches on the zip's digest, since a same-version rebuild shares
+# id and version.
+STATUS_PY='
+import json, sys, tarfile
+want_id, want_sha = sys.argv[1], sys.argv[2]
+try:
+    with tarfile.open(fileobj=sys.stdin.buffer, mode="r|") as tf:
+        rec = next(json.load(tf.extractfile(m)) for m in tf if m.isfile())
+    res, st = json.loads(rec.get("extensions") or "{}"), json.loads(rec.get("extensionsState") or "{}")
+except Exception:
+    print("wait|it has written no status yet")
+    sys.exit()
+if (res.get("effective") or {}).get("enabled") == "false":
+    print("off|")
+    sys.exit()
+it = next((i for i in res.get("items") or [] if i.get("id") == want_id and i.get("bundleSha256") == want_sha), None)
+if it is None:
+    print("wait|its last pass ended %s %s without it" % (res.get("outcome") or "unfinished", res.get("reason") or ""))
+    sys.exit()
+o, ver = it.get("outcome") or "", it.get("declaredVersion") or "?"
+why = ": ".join(x for x in (it.get("reason"), it.get("detail") or it.get("lastError")) if x)
+mine = any(a.get("id") == want_id and a.get("bundleSha256") == want_sha for a in st.get("applied") or [])
+if o == "skipped" and it.get("reason") in ("excluded-by-customer-file", "install-not-requested"):
+    print("off|")
+elif o == "converged" or (o == "already" and mine):
+    print("ok|Installed %s v%s." % (want_id, ver))
+elif o == "already":
+    print("fail|%s v%s is installed from a load the installer did not make, so it keeps that one. Bump manifest.version, "
+          "or run ./scripts/remove-extension.sh %s and build again." % (want_id, ver, want_id))
+elif o in ("skipped", "error", "backed-out"):
+    print("fail|the installer did not install this build, %s%s." % (o, ": " + why if why else ""))
+else:
+    print("wait|it is still installing it")
+'
+
+# Hands a build in extensions/[name]/dist/ to the installer service rather than POSTing it, since a POST beside the
+# installer races its pass and leaves it no digest to compare, so a same-version rebuild afterwards reads as already
+# installed. Returns 0 once the installer reports this zip installed, 1 with its reason when it refuses the build or
+# does not report it within INSTALLER_WAIT_SECONDS, and 2 when the installer leaves this build alone and the POST should
+# run.
+installer_handoff() {
+  local root abs name cid meta id sha deadline res
+  [ "$_TARGET" = local ] && command -v python3 >/dev/null || return 2
+  root="$(pwd -P)"
+  abs="$(cd "$(dirname "$ZIP")" && pwd -P)/$(basename "$ZIP")"
+  name="${abs#"$root/extensions/"}"; name="${name%/dist/extension.zip}"
+  case "$name" in ''|*/*) return 2 ;; esac
+  # shellcheck source=scripts/_runtime.sh
+  . scripts/_runtime.sh
+  runtime_resolve >/dev/null 2>&1 || return 2
+  cid="$("$RUNTIME" ps -q --filter "label=com.docker.compose.project=$(runtime_compose_project)" \
+    --filter label=com.docker.compose.service=installer 2>/dev/null | head -1)"
+  [ -n "$cid" ] || return 2
+  meta="$(python3 -c '
+import hashlib, json, sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as z:
+    print(json.loads(z.read("manifest.json")).get("id") or "-", hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())
+' "$ZIP" 2>/dev/null)" || return 2
+  read -r id sha <<<"$meta"
+  [ "$id" != - ] || return 2
+  echo "==> The installer service loads extensions/$name/dist/ on this target. Waiting for it to install $id"
+  deadline=$((SECONDS + ${INSTALLER_WAIT_SECONDS:-240}))
+  while :; do
+    res="$("$RUNTIME" cp "$cid:/var/lib/installer/installer-status.json" - 2>/dev/null \
+      | python3 -c "$STATUS_PY" "$id" "$sha" || true)"
+    case "$res" in
+      ok\|*)   echo "==> ${res#ok|}"; echo "    Refresh the UI. The new resource type should appear in the left nav."; return 0 ;;
+      fail\|*) echo "ERROR: ${res#fail|}" >&2; break ;;
+      off\|*)  return 2 ;;
+    esac
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      echo "ERROR: the installer has not reported this build after ${INSTALLER_WAIT_SECONDS:-240}s, ${res#wait|}." >&2
+      break
+    fi
+    sleep 3
+  done
+  echo "       See ./logs.sh installer, and 'A build in extensions/ never loads' in docs/troubleshooting.md." >&2
+  return 1
+}
+HANDOFF=0; installer_handoff || HANDOFF=$?
+case "$HANDOFF" in 0) exit 0 ;; 1) exit 1 ;; esac
 
 echo "==> Loading $ZIP ($(du -h "$ZIP" | cut -f1)) → $BASE_URL"
 RESP_FILE=$(mktemp)

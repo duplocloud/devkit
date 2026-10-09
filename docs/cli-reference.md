@@ -107,7 +107,7 @@ extensions, Mongo, the file store, and the Knowledge Base vectors are lost.
 ```
 
 A thin wrapper around `docker compose logs -f`; every argument is passed straight through. Services are
-`duplo-ai-studio`, `claude-code-agent`, `dind`, `duplo-ui`, `mongo`, `qdrant`, and `xterm`.
+`duplo-ai-studio`, `claude-code-agent`, `dind`, `duplo-ui`, `installer`, `mongo`, `qdrant`, and `xterm`.
 
 ## What each command destroys
 

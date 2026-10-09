@@ -11,7 +11,7 @@ hot-loads into the running platform with no restart.
 
 ## Why you'd want it
 
-- **A whole platform, locally.** Six containers, one command.
+- **A whole platform, locally.** Seven containers, one command.
 - **Your own resource types.** Not plugins bolted on the side — they get a REST API, a portal UI, and a
   provisioning workflow, exactly like the built-in types.
 - **Hot-load, no restart.** Build, deploy, and the new type is live in the UI seconds later.
@@ -49,7 +49,7 @@ region against six security rules, charts the violations over time, and fixes th
 
 | | |
 | --- | --- |
-| `docker-compose.yml` | The platform from published images — mongo, qdrant, studio, agent, ui, xterm |
+| `docker-compose.yml` | The platform from published images: mongo, qdrant, studio, agent, dind, ui, xterm, installer |
 | `.env` / `.env.example` | Image tags, auth, LLM credentials, and the build target |
 | `run.sh` `stop.sh` `logs.sh` | Lifecycle |
 | `scripts/` | Build, deploy, register, and upgrade |
@@ -57,6 +57,69 @@ region against six security rules, charts the violations over time, and fixes th
 | `.claude/` | The `/duplo-extension` authoring command, its skill, and 20 reference guides |
 | `extensions/terraform/` | The real, shipping **Terraform extension** — source, fetched once by `run.sh`, disconnected from git and yours to modify |
 | `extensions/<name>/` | **Yours** (subject to our and any third party's rights in the underlying software and technology upon which they are built). The one thing an upgrade never touches |
+
+## Installing an extension
+
+The `installer` service installs extensions into the running studio and keeps them current.
+
+**Your own build.** Build it into `extensions/[name]/dist/`:
+
+```bash
+./scripts/build-extension.sh extensions/[name]
+```
+
+The installer installs each build in `extensions/[name]/dist/` that changes while it runs, within about 20 seconds,
+including a rebuild at the same version. The studio may keep running the previous backend DLL after a same-version
+reload, as `deploy-extension.sh` warns, so bump the version for backend changes.
+
+A build already in `dist/` when the installer starts, as after `./run.sh --reset`, waits for its next rebuild, and so
+does an extension you remove. The installer also leaves alone a build older than the installed version, unless that
+version failed to load.
+
+`./scripts/deploy-extension.sh extensions/[name]/dist/extension.zip` hands that build to the installer while it runs,
+waits for the installer to report it, and exits non-zero with the installer's reason when it does not install it. For
+a build the installer leaves alone, with the installer stopped or `EXTENSIONS_ENABLED=false`, for an id in
+`EXTENSIONS_EXCLUDE`, or for a zip outside `extensions/`, it loads the zip itself.
+
+The installer reinstalls a same-version rebuild only over a build it installed itself. After a load it did not make,
+such as `deploy-extension.sh` with the installer stopped or Extension Studio's in-platform flow, bump the version or
+run `./scripts/remove-extension.sh [id]` before relying on the installer for a rebuild.
+
+**From the catalog.** The Available tab lists the extensions your license entitles you to. Install there hands
+the click to this installer only once the UI tag and the studio tag in `.env.example` are images that do that.
+Those two tags predate that handoff. The installer reads that catalog only when `.env` sets these keys, so by
+default it runs on your own builds alone:
+
+```bash
+LICENSE_SERVER_URL=https://console.duplocloud.com
+URL_ROUTE_URL=https://results.prod-apps.duplocloud.net/urls
+CHANNELS_BASE_URL=https://channels.prod-apps.duplocloud.net
+CHANNELS_BUCKET=duplo-helpdesk-channels
+```
+
+Re-run `./run.sh` after changing them. `EXTENSIONS_ENABLED=false` in `.env` stops the installer installing anything,
+and `EXTENSIONS_EXCLUDE` takes a JSON array of extension ids it leaves alone. `docker-compose.yml` lists the other
+`EXTENSIONS_` keys it passes through.
+
+**How it checks an install.** The installer judges an install by the studio's `/healthz` and the extension's row. It
+sees a studio restart only as missed `/healthz` reads spanning at least 5 seconds followed by an answer. A quicker
+restart goes unseen, and the row alone then judges the install.
+
+**A load that hangs the studio.** Under compose the installer backs out only through the studio's API, so it cannot
+back out a build that hangs the studio when it starts. Stop the studio, disable the extension's row by hand, with
+`[id]` its manifest id, and start the studio again:
+
+```bash
+docker compose stop duplo-ai-studio
+docker compose exec mongo mongosh -u authuser -p authpass --authenticationDatabase admin duplo-ai-helpdesk \
+  --eval 'db.loaded_extensions.updateOne({ExtensionId: "[id]", IsCurrent: true}, {$set: {Status: NumberInt(1)}})'
+docker compose start duplo-ai-studio
+```
+
+To install a fixed build, run `./scripts/remove-extension.sh [id]` and then rebuild. The rebuild has to differ in
+content from the build that hung, since the installer may hold that exact build. An install whose load timed out also
+waits until you restart the studio, with `docker compose restart duplo-ai-studio`. Under podman, use `podman compose`
+for each `docker compose` above.
 
 ## Documentation
 

@@ -30,6 +30,7 @@ IMAGES=(
   "duplocloud/duplo-agent:AGENT_TAG"
   "duplocloud/duplo-ai-helpdesk-ui:UI_TAG"
   "duplocloud/duplo-xterm:XTERM_TAG"
+  "duplocloud/helpdesk-installer:INSTALLER_TAG"
 )
 
 # _tag_value <VAR> [<file>] -> the value of VAR= in <file> (default .env.example), or empty.

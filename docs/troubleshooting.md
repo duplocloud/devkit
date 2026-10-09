@@ -655,14 +655,53 @@ host's version — but your list stays a **subset** of the host's, never a copy 
 packages your extension doesn't depend on, e.g. `yaml`, and `lookupVersion()` throws if you copy those in).
 
 There is no standalone dev server. Extension frontends are remotes loaded into the portal, so use the
-build → deploy → hot-load loop:
+build and hot-load loop. The installer service loads each build in `extensions/<name>/dist/` by itself:
 
 ```bash
 ./scripts/build-extension.sh  extensions/<name>
-./scripts/deploy-extension.sh extensions/<name>/dist/extension.zip
 ```
 
+On a remote target or a stack without the installer, load it with `./scripts/deploy-extension.sh extensions/<name>/dist/extension.zip`.
+
 See [Build your first extension](getting-started/build-your-first-extension.md).
+
+### A build in extensions/ never loads
+
+The installer service installs each build in `extensions/<name>/dist/`, and a build it skips or fails shows only in
+its log and its status record. `deploy-extension.sh` run on that build waits for the installer and prints its reason.
+Otherwise read the log:
+
+```bash
+./logs.sh installer
+```
+
+or the status record. The installer's image has no shell, so copy the record out of its volume:
+
+```bash
+docker compose cp installer:/var/lib/installer/installer-status.json - | tar -xO | python3 -c '
+import json, sys
+res = json.loads(json.load(sys.stdin).get("extensions") or "{}")
+print("pass:", res.get("outcome"), res.get("reason") or "")
+for i in res.get("items") or []:
+    print(i.get("id"), i.get("declaredVersion"), i.get("outcome"), i.get("reason") or "", i.get("detail") or i.get("lastError") or "")'
+```
+
+Under podman, replace `docker compose cp installer:` with
+`podman cp "$(podman ps -q --filter label=com.docker.compose.service=installer)":`.
+
+A build with no line of its own never reached the installer's decision, and the `pass:` line says why. Otherwise:
+
+| Outcome and reason | What to do |
+|---|---|
+| `already` for a build you changed | A load the installer did not make holds this id at this version, such as `deploy-extension.sh` with the installer stopped. Bump `manifest.version`, or run `./scripts/remove-extension.sh <id>` and build again. |
+| `skipped` `held-after-failure` | This exact build failed its install or its check, and the detail says how. Fix it and rebuild. Any change to the zip releases the hold. |
+| `skipped` `disabled-by-admin` | The extension is disabled in the UI. Enable it there. |
+| `skipped` `excluded-by-customer-file` | Its id is in `EXTENSIONS_EXCLUDE` in `.env`. Remove it there, or let `deploy-extension.sh` load the build itself. |
+| `skipped` `install-not-requested` | The build was in `dist/` before the installer started, is the one installed before you removed the extension, or is older than the installed version, which the detail then names. Rebuild it, or let `deploy-extension.sh` load it. |
+| `skipped` `no-build-for-host-sdk` | The build targets an SDK the running studio does not host, and the detail names both. Rebuild against the running studio. |
+| `error` `bundle-manifest-invalid` or `load-bundle-failed` | The zip's manifest, or the studio's load, refused the build. The detail carries the message. |
+
+The README's [Installing an extension](../README.md#installing-an-extension) covers which builds the installer leaves alone.
 
 ### More entries belong here
 

@@ -39,7 +39,7 @@ Framework-shipped defaults — the image tags and `STUDIO_PLATFORM` — live in
 `.env.example`. An upgrade changes that file, but it never touches your `.env`. `run.sh` bridges the two on
 every run.
 
-The tracked keys are `STUDIO_TAG`, `AGENT_TAG`, `UI_TAG`, `XTERM_TAG`, and `STUDIO_PLATFORM`. Nothing
+The tracked keys are `STUDIO_TAG`, `AGENT_TAG`, `UI_TAG`, `XTERM_TAG`, `INSTALLER_TAG`, and `STUDIO_PLATFORM`. Nothing
 licensing-related is adopted or overwritten this way — `Licensing__Token` is yours, not a framework
 default, and the license server URL is a built-in rather than a shipped `.env` value.
 
