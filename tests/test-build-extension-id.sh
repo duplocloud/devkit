@@ -34,5 +34,20 @@ done
 t "build-extension.sh uses the helper (single regex source)"
 grep -q 'extension_id_valid' scripts/build-extension.sh && ! grep -q 'a-z0-9-\]+)' scripts/build-extension.sh && ok || bad "not wired"
 
+echo "frontend EXTENSION_ID parity:"
+tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+mkdir -p "$tmp/match" "$tmp/stale" "$tmp/none"
+echo "export const EXTENSION_ID = 'com.acme.my-ext';" > "$tmp/match/analytics.ts"
+echo "export const EXTENSION_ID = 'duplo.examples.helloworld';" > "$tmp/stale/analytics.ts"
+echo "export const X = 1;" > "$tmp/none/a.ts"
+t "matching EXTENSION_ID passes"; [ -z "$(extension_id_fe_mismatches "$tmp/match" com.acme.my-ext)" ] && ok || bad "flagged"
+t "stale EXTENSION_ID fails"; [ "$(extension_id_fe_mismatches "$tmp/stale" com.acme.my-ext)" = "duplo.examples.helloworld" ] && ok || bad "not flagged"
+t "no EXTENSION_ID declaration passes"; [ -z "$(extension_id_fe_mismatches "$tmp/none" com.acme.my-ext)" ] && ok || bad "flagged"
+t "missing dir passes"; [ -z "$(extension_id_fe_mismatches "$tmp/nope" com.acme.my-ext)" ] && ok || bad "flagged"
+t "template analytics.ts matches template manifest id"
+[ -z "$(extension_id_fe_mismatches .claude/skills/duplo-extension-dev/templates/helloworld/frontend/src "$(jq -r .id .claude/skills/duplo-extension-dev/templates/helloworld/manifest.json)")" ] && ok || bad "drift"
+t "build-extension.sh wires the parity check"
+grep -q 'extension_id_fe_mismatches' scripts/build-extension.sh && ok || bad "not wired"
+
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -89,6 +89,12 @@ if [ -d "$DIR/skills" ]; then
         | grep -vE 'environment/(extensions/|extension-studio)' | grep -vE 'environment/\{' || true)
   [ -n "$bad" ] && { echo "  ! skill callback URL(s) not under 'environment/extensions/' — confirm they target this extension's restSegment:" >&2; printf '%s\n' "$bad" | sed 's/^/      /' >&2; }
 fi
+# Analytics id parity: a frontend EXTENSION_ID (analytics.ts) MUST equal the manifest id, or the host drops
+# every event silently. Checked only when such a declaration exists.
+while IFS= read -r v; do
+  [ -n "$v" ] || continue
+  echo "  ✗ frontend EXTENSION_ID '$v' != manifest id '$mid' (they must be identical or the host drops all analytics events)" >&2; viol=1
+done < <(extension_id_fe_mismatches "$DIR/frontend/src" "$mid")
 # Frontend ↔ backend route parity: the FE service builds its data URL from REST_SEGMENT, which MUST be the full
 # 'extensions/<…>' path AND (for a single top-level resource) equal the manifest restSegment. A bare leaf 404s
 # every list/get/create/view-template call — the #1 scaffolding pitfall. See reference/00-naming.md.
