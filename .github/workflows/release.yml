@@ -1,12 +1,14 @@
 # Publishes each extension in this repo as a GitHub Release on push to main.
 #
-# For every extensions/<name>/ it builds the bundle and, ONLY when manifest.version is new (its
-# <name>-v<version> tag doesn't exist yet), cuts a GitHub Release with extension.zip attached. Bumping
-# manifest.version is therefore how you publish a new version to the extension library.
+# For every extensions/<name>/ it builds the bundle and publishes one release per build, tagged
+# <name>-v<version>-sdk-<sdkVersion> at the commit that was built. scripts/release-extensions.sh holds the rules:
+# a build already released is skipped, and an extension whose content changed at a version that already has a
+# release fails the job, so bumping manifest.version is how you publish a new version to the extension library.
 #
 # This file ships with the dev-kit. After scripts/init-project.sh makes the repo yours, set these repo secrets
 # (same as Extension CI): DUPLO_HOST + DUPLO_TOKEN. The build fetches the host SDK feed from DUPLO_HOST, so it
-# must be reachable from CI (a public DuploCloud, not localhost).
+# must be reachable from CI (a public DuploCloud, not localhost). Turn on immutable releases in the repository's
+# settings, too; the publish step warns on every release that lands mutable.
 #
 # NOTE: the hot-load/deploy step is intentionally COMMENTED OUT (see below). We publish releases but do not
 # auto-install onto the portal, so the install-from-registry flow stays testable end to end. Uncomment the
@@ -30,6 +32,10 @@ jobs:
       DUPLO_TOKEN: ${{ secrets.DUPLO_TOKEN }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Every tag and the history it points at: the publish step compares each released version's commit with
+          # this one to tell an unchanged extension from one that changed without a version bump.
+          fetch-depth: 0
 
       - name: Discover extensions
         id: guard
@@ -39,15 +45,7 @@ jobs:
           if [ ${#dirs[@]} -gt 0 ]; then echo "build=true" >> "$GITHUB_OUTPUT"
           else echo "build=false" >> "$GITHUB_OUTPUT"; echo "::notice::No extensions/*/manifest.json — nothing to release."; fi
 
-      - uses: actions/setup-dotnet@v6
-        if: steps.guard.outputs.build == 'true'
-        with:
-          dotnet-version: '8.0.x'
-      - uses: actions/setup-node@v7
-        if: steps.guard.outputs.build == 'true'
-        with:
-          node-version: '22'
-
+      # Runs in the builder container (scripts/_builder.sh) on the runner's Docker, with the digest-pinned toolchain.
       - name: Build all extensions
         if: steps.guard.outputs.build == 'true'
         run: ./scripts/build-all.sh
@@ -58,35 +56,8 @@ jobs:
       #   if: steps.guard.outputs.build == 'true'
       #   run: ./scripts/deploy-all.sh
 
-      - name: Publish GitHub releases (only for new manifest.version)
+      - name: Publish GitHub releases (one per new build)
         if: steps.guard.outputs.build == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          published=0; skipped=0
-          for m in extensions/*/manifest.json extension/*/manifest.json extension/manifest.json; do
-            [ -f "$m" ] || continue
-            dir="$(dirname "$m")"
-            zip="$dir/dist/extension.zip"
-            if [ ! -f "$zip" ]; then
-              echo "::warning::$dir — no dist/extension.zip (build produced nothing); skipping."
-              continue
-            fi
-            name="$(jq -r '.name // (.id)' "$m")"
-            version="$(jq -r '.version' "$m")"
-            slug="$(basename "$dir")"
-            tag="${slug}-v${version}"
-            if gh release view "$tag" >/dev/null 2>&1; then
-              echo "==> $tag already released — skipping (bump manifest.version to publish a new one)."
-              skipped=$((skipped+1))
-              continue
-            fi
-            echo "==> Publishing release $tag ($name $version)"
-            gh release create "$tag" "$zip" \
-              --title "$name $version" \
-              --notes "Automated release of $name v$version from $slug (extension.zip attached)."
-            published=$((published+1))
-          done
-          echo "==> Released $published, skipped $skipped (already-published versions)."
+        run: ./scripts/release-extensions.sh

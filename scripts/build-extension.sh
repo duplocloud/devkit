@@ -24,6 +24,8 @@ DIR="${DIR%/}"
 source "$(dirname "$0")/_target.sh"   # → BASE_URL (+ TOKEN) from .env / env per DUPLO_TARGET
 # shellcheck source=scripts/_builder.sh
 source "$(dirname "$0")/_builder.sh"  # → native, or re-launch this build in the builder container
+# shellcheck source=scripts/_sdk_digest.sh
+source "$(dirname "$0")/_sdk_digest.sh"  # → sdk_digest, stamped into the bundle manifest beside sdkVersion
 BASE_URL="${BASE_URL%/}"               # tolerate a trailing slash in DUPLO_HOST (avoids // in URLs)
 [ -f "$DIR/manifest.json" ] || { echo "No manifest.json in $DIR" >&2; exit 1; }
 
@@ -159,7 +161,13 @@ curl -fsSL -m 120 "${auth[@]}" "$BASE_URL/v1/aiservicedesk/extensions/sdk-bundle
   || { echo "ERROR: failed to download the SDK bundle from $BASE_URL/v1/aiservicedesk/extensions/sdk-bundle" >&2; exit 1; }
 unzip -oq "$DIR/dist-sdk.zip" -d "$DIR/backend/sdk-packages" \
   || { echo "ERROR: SDK bundle is not a valid zip — got $(file -b "$DIR/dist-sdk.zip" 2>/dev/null). Check DUPLO_HOST." >&2; exit 1; }
-rm -f "$DIR/dist-sdk.zip"
+# Digest a fresh extraction, not sdk-packages/: that directory accumulates packages from earlier builds, and the
+# digest must describe only the SDK this build compiled against. See scripts/_sdk_digest.sh for the definition.
+SDK_FEED="$(mktemp -d)"
+unzip -oq "$DIR/dist-sdk.zip" -d "$SDK_FEED"
+SDK_DIGEST="$(sdk_digest "$SDK_FEED")" || { rm -rf "$SDK_FEED"; echo "ERROR: the SDK bundle from $BASE_URL is empty." >&2; exit 1; }
+rm -rf "$SDK_FEED" "$DIR/dist-sdk.zip"
+echo "    host SDK digest: $SDK_DIGEST"
 
 CSPROJ=$(find "$DIR/backend" -maxdepth 1 -name '*.csproj' | head -1)
 [ -n "$CSPROJ" ] || { echo "No .csproj under $DIR/backend" >&2; exit 1; }
@@ -220,7 +228,8 @@ echo "    host provides $(wc -l < "$PROVIDED" | tr -d ' ') assemblies (excluded 
 echo "==> Assembling bundle"
 PKG="$DIR/dist/pkg"
 rm -rf "$PKG"; mkdir -p "$PKG/backend" "$PKG/fe" "$PKG/skills"
-# Bundle manifest with the real host SDK version pinned in, and both <id>/<version>/ paths derived from
+# Bundle manifest with the real host SDK version pinned in, the digest of the SDK feed it was compiled against
+# (sdkDigest), and both <id>/<version>/ paths derived from
 # id+version. The host stages the bundle to <ExtensionStudioPath>/<id>/<version>/ but reads the entry assembly
 # from backend.assemblyDir and each provisioning skill from skills[].folder, so all three have to agree.
 # Maintained by hand they drift the moment you bump version alone, and what that breaks depends on the target:
@@ -236,8 +245,9 @@ rm -rf "$PKG"; mkdir -p "$PKG/backend" "$PKG/fe" "$PKG/skills"
 # Both are always <id>/<version>/…, so compute them here instead of trusting the checked-in values. The skill
 # tail varies per entry (skills/<name>), so only the first two segments are replaced; a manifest with no
 # skills array is left alone rather than given an empty one.
-jq --arg v "$SDK_VER" '
+jq --arg v "$SDK_VER" --arg d "$SDK_DIGEST" '
     .sdkVersion = $v
+  | .sdkDigest = $d
   | .backend.assemblyDir = (.id + "/" + .version + "/backend")
   | .id as $i | .version as $r
   | if (.skills | type) == "array" then

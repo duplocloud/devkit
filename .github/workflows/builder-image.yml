@@ -49,6 +49,7 @@ jobs:
           username: ${{ secrets.QUAY_USERNAME }}
           password: ${{ secrets.QUAY_PASSWORD }}
       - uses: docker/build-push-action@v7
+        id: push
         with:
           # `build`, not `.`, to match how scripts/_builder.sh builds this same image locally: the
           # Dockerfile COPYs nothing from the build context (only --from=node), so sending the whole
@@ -61,3 +62,16 @@ jobs:
           tags: |
             quay.io/duplocloud/duplo-extension-builder:latest
             quay.io/duplocloud/duplo-extension-builder:${{ github.sha }}
+      # scripts/_builder.sh pins the default toolchain by digest, so a publish here changes nothing until that pin
+      # moves in a reviewed PR. Hand the reviewer the exact value.
+      - name: Report the digest to pin
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          {
+            echo "### Builder image published"
+            echo "To build with it by default, set in scripts/_builder.sh and docker-compose.yml:"
+            echo '```'
+            echo "quay.io/duplocloud/duplo-extension-builder@${DIGEST}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

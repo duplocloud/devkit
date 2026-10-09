@@ -245,6 +245,13 @@ builder_keep_local_copy() { # builder_keep_local_copy <pull-error-text>
   echo "         $RUNTIME pull said: $(printf '%s' "${1-}" | tail -1)" >&2
 }
 
+# The toolchain image a build uses when neither BUILDER_IMAGE nor BUILDER_TAG is set, pinned by digest so two
+# builds of one extension version compile with the same toolchain. `:latest` moves on every toolchain publish,
+# which would let two builds of one version differ. The digest is the multi-arch index, so it resolves on amd64
+# and arm64 alike. .github/workflows/builder-image.yml prints the new digest after each publish. Moving this pin
+# (and docker-compose.yml's matching default) is a reviewed change, since it changes what every extension builds with.
+_BUILDER_PINNED_IMAGE="quay.io/duplocloud/duplo-extension-builder@sha256:8185e6a74379ae99e145f55608b3bc17e3037e95e64a612a226fe0eb15c0dbcd"
+
 builder_resolve_image() {
   # The raw value is kept for the error message: BUILDER_PULL may have come from .env rather than the
   # environment, and naming a value the user cannot see in their shell is not a diagnostic.
@@ -269,17 +276,22 @@ builder_resolve_image() {
     return 1
   fi
 
-  local tag; tag="$(builder_clean_value "$(_envv BUILDER_TAG)")"; tag="${tag:-latest}"
-  # OCI tag grammar: [A-Za-z0-9_][A-Za-z0-9._-]{0,127}. Checked here because the alternative is
-  # a pull that fails for an unobvious reason and a silent fall-through to building something else.
-  case "$tag" in
-    *[!A-Za-z0-9._-]* | [!A-Za-z0-9_]* )
-      echo "ERROR: BUILDER_TAG is not a valid image tag: $(printf '%q' "$tag")" >&2
-      echo "       Tags are [A-Za-z0-9_][A-Za-z0-9._-]* — check .env for quotes, stray whitespace or" >&2
-      echo "       Windows line endings." >&2
-      return 1 ;;
-  esac
-  BUILDER_IMAGE="quay.io/duplocloud/duplo-extension-builder:$tag"; export BUILDER_IMAGE
+  local tag; tag="$(builder_clean_value "$(_envv BUILDER_TAG)")"
+  if [ -z "$tag" ]; then
+    BUILDER_IMAGE="$_BUILDER_PINNED_IMAGE"
+  else
+    # OCI tag grammar: [A-Za-z0-9_][A-Za-z0-9._-]{0,127}. Checked here because the alternative is
+    # a pull that fails for an unobvious reason and a silent fall-through to building something else.
+    case "$tag" in
+      *[!A-Za-z0-9._-]* | [!A-Za-z0-9_]* )
+        echo "ERROR: BUILDER_TAG is not a valid image tag: $(printf '%q' "$tag")" >&2
+        echo "       Tags are [A-Za-z0-9_][A-Za-z0-9._-]* — check .env for quotes, stray whitespace or" >&2
+        echo "       Windows line endings." >&2
+        return 1 ;;
+    esac
+    BUILDER_IMAGE="quay.io/duplocloud/duplo-extension-builder:$tag"
+  fi
+  export BUILDER_IMAGE
   if [ "$force_pull" != 1 ] && "$RUNTIME" image inspect "$BUILDER_IMAGE" >/dev/null 2>&1; then return 0; fi
 
   echo "==> Fetching the build toolchain image ($BUILDER_IMAGE)" >&2

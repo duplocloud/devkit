@@ -36,6 +36,9 @@ jobs:
       QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The PR's base history, so the release checks below can diff each extension against the merge base.
+          fetch-depth: 0
 
       - name: Discover extensions
         id: guard
@@ -64,6 +67,12 @@ jobs:
       - name: Build all extensions
         if: steps.guard.outputs.build == 'true'
         run: ./scripts/build-all.sh
+
+      # Warnings only: what each changed extension's release will need (version bump, declared skills, Native
+      # Federation frontend). !cancelled() so a failed build still reports the checks that need no bundle.
+      - name: Release checks
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.guard.outputs.build == 'true' }}
+        run: ./scripts/check-extension-pr.sh "origin/${{ github.base_ref }}"
 
       - name: Upload bundles
         if: steps.guard.outputs.build == 'true'
