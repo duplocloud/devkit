@@ -208,6 +208,44 @@ if [ "$RC" = 0 ] && ! grep -q "release create" "$GH_LOG" && [ ! -f "$REPO/extens
    && jq -e --arg s "$ZSHA19" '.[0] | .sha256 == $s and .signature == "SIGBYTES"' "$TMP/console.19/artifacts.json" >/dev/null
 then ok; else bad "rc=$RC out=$OUT"; fi
 
+# resume_run <console dir> [VAR=value ...]: an existing signed release of an allowlisted extension, resumed with the
+# given environment, against its own scratch bucket and console.
+resume_run() {
+  local c=$1; shift
+  new_repo; git -C "$REPO" tag demo-v0.1.0-sdk-1.0.6; build_zip 1.0.6
+  mkdir -p "$c/assets" "$c/s3" "$c/console"
+  printf 'ZIPBYTES' > "$c/assets/extension.zip"; printf 'SIGBYTES' > "$c/assets/extension.zip.sig"
+  (
+    export ASSETS="$c/assets" S3="$c/s3" CONSOLE="$c/console" CONSOLE_API_KEY=secret-key GITHUB_REPOSITORY=duplocloud/demo \
+      GITHUB_REPOSITORY_OWNER=duplocloud EXTENSION_SIGNING_KEY=k EXTENSION_SIGNING_CERT=c
+    ZSHA="$(shasum -a 256 "$c/assets/extension.zip" | cut -d' ' -f1)"; export ZSHA
+    for kv in "$@"; do export "${kv?}"; done
+    run
+  )
+}
+
+t "an allowlist entry with publish true publishes the version it registers"
+jq '.publishers[0].publish = true' "$TMP/pub.json" > "$TMP/pub-publish.json"
+OUT="$(resume_run "$TMP/p1" PUBLISHERS_FILE="$TMP/pub-publish.json")"; RC=$?
+[ "$RC" = 0 ] && [ -f "$TMP/p1/console/published" ] && ok || bad "rc=$RC out=$OUT"
+
+t "with publish true, a later push does not publish the version again once it is unpublished"
+rm -f "$TMP/p1/console/published"
+OUT="$(resume_run "$TMP/p1" PUBLISHERS_FILE="$TMP/pub-publish.json")"; RC=$?
+[ "$RC" = 0 ] && [ ! -f "$TMP/p1/console/published" ] && ok || bad "rc=$RC out=$OUT"
+
+t "a manual run with EXTENSION_PUBLISH=true publishes a version an earlier run registered"
+OUT="$(resume_run "$TMP/p1" PUBLISHERS_FILE="$TMP/pub.json" EXTENSION_PUBLISH=true)"; RC=$?
+[ "$RC" = 0 ] && [ -f "$TMP/p1/console/published" ] && ok || bad "rc=$RC out=$OUT"
+
+t "a run with EXTENSION_PUBLISH=true publishes the version it registers"
+OUT="$(resume_run "$TMP/p2" PUBLISHERS_FILE="$TMP/pub.json" EXTENSION_PUBLISH=true)"; RC=$?
+[ "$RC" = 0 ] && [ -f "$TMP/p2/console/published" ] && ok || bad "rc=$RC out=$OUT"
+
+t "without either opt-in, a registered version stays unpublished"
+OUT="$(resume_run "$TMP/p3" PUBLISHERS_FILE="$TMP/pub.json")"; RC=$?
+[ "$RC" = 0 ] && [ ! -f "$TMP/p3/console/published" ] && grep -q "registered" <<<"$OUT" && ok || bad "rc=$RC out=$OUT"
+
 t "a release cut before signing warns with the bump and does not fail"
 new_repo; git -C "$REPO" tag demo-v0.1.0-sdk-1.0.6; build_zip 1.0.6
 OUT="$(GH_ASSETS=extension.zip PUBLISHERS_FILE="$TMP/pub.json" GITHUB_REPOSITORY=duplocloud/demo GITHUB_REPOSITORY_OWNER=duplocloud \

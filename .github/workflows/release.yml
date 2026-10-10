@@ -33,6 +33,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish each version this run registers. Allowlist entries with "publish" true publish regardless.
+        type: boolean
+        default: false
 
 permissions:
   contents: write        # create GitHub Releases
@@ -109,6 +114,7 @@ jobs:
           EXTENSION_SIGNING_KEY: ${{ secrets.CONSOLE_SIGNING_KEY }}
           EXTENSION_SIGNING_CERT: ${{ vars.CONSOLE_SIGNING_CERT }}
           CONSOLE_API_KEY: ${{ secrets.CONSOLE_API_KEY }}
+          EXTENSION_PUBLISH: ${{ inputs.publish }}
           CONSOLE_URL: ${{ vars.CONSOLE_URL }}
           BUNDLE_BUCKET: ${{ vars.BUNDLE_BUCKET }}
         run: ./scripts/release-extensions.sh

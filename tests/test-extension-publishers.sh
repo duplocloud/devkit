@@ -23,6 +23,16 @@ for F in "$REAL" "$FIXTURE"; do
     "$F" >/dev/null && ok || bad "shape"
 done
 
+t "publish, where an entry sets it, is a boolean"
+jq -e 'all(.publishers[]; (has("publish") | not) or (.publish | type == "boolean"))' "$REAL" >/dev/null && ok || bad "publish is not a boolean"
+
+t "publisher_auto_publish is true only for an entry that sets publish true"
+jq '.publishers[0].publish = true' "$FIXTURE" > "$TMP/auto.json"
+id="$(jq -r '.publishers[0].manifestId' "$FIXTURE")"; repo="$(jq -r '.publishers[0].repository' "$FIXTURE")"
+id2="$(jq -r '.publishers[1].manifestId' "$FIXTURE")"; repo2="$(jq -r '.publishers[1].repository' "$FIXTURE")"
+( publishers_file="$TMP/auto.json"; publisher_auto_publish "$id" "$repo" && ! publisher_auto_publish "$id2" "$repo2" \
+  && ! publisher_auto_publish "$id" "other/repo" ) && ok || bad "auto-publish lookup"
+
 t "the real file is empty or every entry passes the shape check"
 jq -e '(.publishers | length == 0) or
   all(.publishers[]; (.repository | test("^[^/]+/[^/]+$")) and (.consoleExtension | test("^[0-9a-f-]{36}$")))' \

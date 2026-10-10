@@ -20,3 +20,12 @@ publisher_extension_uuid() {
   [ -n "$uuid" ] || return 1
   printf '%s\n' "$uuid"
 }
+
+# publisher_auto_publish <manifest-id> <org/repo>: exit 0 when that repository's entry for the id sets "publish": true,
+# so a build the release job newly registers for it is also published. The job reads the extension repository's own
+# copy of this file, so the flag is gated by that repository's branch protection, not by devkit's review.
+publisher_auto_publish() {
+  [ -f "$publishers_file" ] || return 1
+  jq -e --arg id "$1" --arg repo "$2" \
+    'any(.publishers[]; .manifestId == $id and .repository == $repo and .publish == true)' "$publishers_file" >/dev/null 2>&1
+}

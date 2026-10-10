@@ -66,6 +66,9 @@ case "$method $url" in
     [ -n "${RACE:-}" ] && [ ! -f "$CONSOLE/raced" ] && { touch "$CONSOLE/raced"; echo '[{"uuid":"v-1"}]' > "$CONSOLE/versions.json"; echo '{"version":["1.0.0 already exists for this extension."]}'; exit 22; }
     [ -n "${VERSION_VANISHES:-}" ] && { echo '{"uuid":"v-1"}'; exit 0; }
     echo '[{"uuid":"v-1"}]' > "$CONSOLE/versions.json"; echo '{"uuid":"v-1"}' ;;
+  "GET "*"/versions/v-1/")
+    if [ -f "$CONSOLE/published" ]; then echo '{"uuid":"v-1","is_published":true}'; else echo '{"uuid":"v-1","is_published":false}'; fi ;;
+  "PATCH "*"/versions/v-1/") echo "$data" > "$CONSOLE/published"; echo '{"uuid":"v-1","is_published":true}' ;;
   "GET "*"/artifacts/?sdk_version="*) cat "$CONSOLE/artifacts.json" 2>/dev/null || echo '[]' ;;
   "POST "*"/artifacts/") echo "[$data]" > "$CONSOLE/artifacts.json"; echo "$data" ;;
 esac

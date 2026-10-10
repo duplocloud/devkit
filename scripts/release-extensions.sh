@@ -21,7 +21,9 @@
 # signing credential. Within a Duplo organization, the manifest id also has to be in the extension publisher
 # allowlist (scripts/_publishers.sh) for the repository, or the release still ships signed but scripts/_publish.sh's
 # publish_build is never called for it. An allowlisted id with no CONSOLE_API_KEY fails before it is signed or
-# released, since that build could be released but never registered.
+# released, since that build could be released but never registered. A registered version stays unpublished unless
+# its allowlist entry sets "publish": true, which publishes only a build this run newly registers, or
+# EXTENSION_PUBLISH=true (a manual run's publish input) asks to publish it.
 #
 # Resuming: a tag that already has a release is never rebuilt, re-signed or re-released. Its own assets, read back
 # with gh release view, decide what happens next: a signed release calls publish_build again so a run that stopped
@@ -94,6 +96,14 @@ for m in extensions/*/manifest.json extension/*/manifest.json extension/manifest
       uuid=""
       echo "::notice::$dir — $id is not in the extension publisher allowlist for $repo, so it is released but not published to the license server."
     fi
+  fi
+  # Publishing is opt-in. An allowlist entry's "publish" publishes only a build this run newly registers, and a manual
+  # run's publish input (EXTENSION_PUBLISH) also publishes one an earlier run registered. publish_build reads
+  # publish_version, and _publish.sh's maybe_publish has the rule.
+  publish_version=""
+  if [ -n "$uuid" ]; then
+    if [ "${EXTENSION_PUBLISH:-}" = true ]; then publish_version=any
+    elif publisher_auto_publish "$id" "$repo"; then publish_version=new; fi
   fi
   # Registration needs the console key, so a missing one fails here, before a release that could never be registered.
   if [ -n "$uuid" ] && [ -z "${CONSOLE_API_KEY:-}" ]; then
