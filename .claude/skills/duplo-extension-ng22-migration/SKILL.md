@@ -13,7 +13,8 @@ never mounts.
 
 This skill converts one extension in place. The reference shape is **`samples/helloworld/frontend/`**
 in this dev-kit; diff against it whenever a step is ambiguous. It is the only copy that has been built
-and gate-verified end to end.
+and gate-verified end to end. It has **no** `analytics.ts`: for the analytics retrofit ([step 9](#9-analytics-retrofit))
+copy from the skill template instead, `.claude/skills/duplo-extension-dev/templates/helloworld/frontend/src/app/`.
 
 Throughout, `<devkit>` is a checkout of `duplo-ai-extension-devkit` and `<portal>` is a checkout of
 `duplo-ui/portal`. You need the dev-kit for the reference files and the gate script; you need the
@@ -224,7 +225,9 @@ Then, against the pre-migration `package.json` (recover it with
 - **Drop** the build-time Webpack stack: `@angular-architects/module-federation`, `ngx-build-plus`,
   `@angular-devkit/build-angular`, and the `start` script.
 - **Repoint** `@duplocloud-internal/ng-common-lib` at a **0.2.0-or-later** tarball (Angular 22 peers).
-  The 0.1.x tarballs carry Angular 15 peers and will fail a strict install.
+  The 0.1.x tarballs carry Angular 15 peers and will fail a strict install. Use **0.4.1 or later** (the
+  dev-kit's current tarball): the analytics retrofit in [step 9](#9-analytics-retrofit) imports a token that
+  0.4.0 and earlier do not export.
 
   Careful here: the `cp` above brought helloworld's own `file:../../../packages/...` path with it, which
   is correct **only** for something living at `samples/<name>/frontend/`. A self-contained extension
@@ -458,6 +461,29 @@ Across the dev-kit's samples, **no source change beyond `standalone: false` was 
 richer extension may still hit API drift in the jumped major versions — `@ng-bootstrap/ng-bootstrap`
 13→21, `@swimlane/ngx-datatable` 20→25, `@ngx-translate/core` 14→18, RxJS 6→7. Those surface as
 ordinary compile errors; fix them against each library's changelog.
+
+---
+
+## 9. Analytics retrofit
+
+Once the frontend builds and passes the gate, run the **analytics retrofit** on it — always, even though the
+request was "migrate". The single owner is
+[`duplo-extension-dev/reference/21-analytics.md`](../duplo-extension-dev/reference/21-analytics.md#analytics-retrofit-existing-extensions);
+in short:
+
+1. Add `frontend/src/app/analytics.ts` from the dev-kit scaffold
+   (`.claude/skills/duplo-extension-dev/templates/helloworld/frontend/src/app/analytics.ts`), class renamed to
+   `<Name>Analytics`, `EXTENSION_ID` set to the manifest `id`. It is an `@Injectable({ providedIn: 'root' })`
+   service, so it works unchanged in a migrated `standalone: false` NgModule extension.
+2. Add `pageView('<page>')` to `ngOnInit` of every routed page, `action('<verb>-<object>')` to the success
+   callback of every create / update / delete / deprovision / custom action, and — on Agent-mode extensions —
+   `action('ask-agent')` / `action('track-provisioning')` in the click handlers of the buttons that open the
+   provisioning ticket (as the scaffold's `list-hello` and `view-hello` do).
+3. **No properties** — not in the calls, not in the manifest (⛔ hard rule in 21-analytics).
+4. Rebuild with `scripts/build-extension.sh`: it also checks the manifest `id` format (lowercase reverse-DNS,
+   ≥ 3 segments) and that `EXTENSION_ID` equals it. If an old extension's `id` fails the format check, tell the
+   user instead of renaming it yourself.
+5. Tell the user which page views and actions you added, alongside the migration summary.
 
 ---
 

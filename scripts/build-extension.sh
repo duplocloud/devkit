@@ -26,6 +26,8 @@ source "$(dirname "$0")/_target.sh"   # → BASE_URL (+ TOKEN) from .env / env p
 source "$(dirname "$0")/_builder.sh"  # → native, or re-launch this build in the builder container
 # shellcheck source=scripts/_sdk_digest.sh
 source "$(dirname "$0")/_sdk_digest.sh"  # → sdk_digest, stamped into the bundle manifest beside sdkVersion
+# shellcheck source=scripts/_extension_id.sh
+source "$(dirname "$0")/_extension_id.sh"  # → extension_id_valid / extension_id_error (manifest id format)
 BASE_URL="${BASE_URL%/}"               # tolerate a trailing slash in DUPLO_HOST (avoids // in URLs)
 [ -f "$DIR/manifest.json" ] || { echo "No manifest.json in $DIR" >&2; exit 1; }
 
@@ -43,6 +45,9 @@ builder_dispatch scripts/build-extension.sh "$DIR"
 echo "==> Validating extension naming (reference/00-naming.md)"
 MANIFEST="$DIR/manifest.json"
 viol=0
+# The manifest id is the analytics event namespace: lowercase reverse-DNS, ≥3 segments.
+mid=$(jq -r '.id // empty' "$MANIFEST")
+extension_id_valid "$mid" || { extension_id_error "$mid" >&2; echo >&2; viol=1; }
 # Top-level resources must namespace their own restSegment. A nested child (has a `parent` block) is exempt: its
 # restSegment is a leaf and the namespacing comes from parent.routeSegment (checked below) — its route is
 # …/extensions/<parent>/{parentId}/<leaf>.
@@ -84,6 +89,12 @@ if [ -d "$DIR/skills" ]; then
         | grep -vE 'environment/(extensions/|extension-studio)' | grep -vE 'environment/\{' || true)
   [ -n "$bad" ] && { echo "  ! skill callback URL(s) not under 'environment/extensions/' — confirm they target this extension's restSegment:" >&2; printf '%s\n' "$bad" | sed 's/^/      /' >&2; }
 fi
+# Analytics id parity: a frontend EXTENSION_ID (analytics.ts) MUST equal the manifest id, or the host drops
+# every event silently. Checked only when such a declaration exists.
+while IFS= read -r v; do
+  [ -n "$v" ] || continue
+  echo "  ✗ frontend EXTENSION_ID '$v' != manifest id '$mid' (they must be identical or the host drops all analytics events)" >&2; viol=1
+done < <(extension_id_fe_mismatches "$DIR/frontend/src" "$mid")
 # Frontend ↔ backend route parity: the FE service builds its data URL from REST_SEGMENT, which MUST be the full
 # 'extensions/<…>' path AND (for a single top-level resource) equal the manifest restSegment. A bare leaf 404s
 # every list/get/create/view-template call — the #1 scaffolding pitfall. See reference/00-naming.md.
@@ -117,7 +128,7 @@ case "$DIR" in
   *samples/*|*templates/*) ;;
   *)
     if [ -d "$DIR/frontend/src" ]; then
-      hits=$(grep -rnE 'HelloService|HelloWorld|hw-(add|list|view|root)|hello\.service' "$DIR/frontend/src" 2>/dev/null || true)
+      hits=$(grep -rnE 'HelloService|HelloWorld|HelloAnalytics|hw-(add|list|view|root)|hello\.service|hello-(list|detail|form)|(create|update|delete)-hello' "$DIR/frontend/src" 2>/dev/null || true)
       if [ -n "$hits" ]; then
         echo "  ✗ frontend still has template 'Hello'/'hw-' identifiers — rename them to your resource:" >&2
         printf '%s\n' "$hits" | head -8 | sed 's/^/      /' >&2; viol=1

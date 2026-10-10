@@ -1,7 +1,10 @@
 # Upgrading an extension's UI library: the vendored `@duplocloud-internal/ng-common-lib` tarball
 
 For extensions built from this dev-kit (or from the `duplo-extension-dev` skill template) that vendor the UI
-library as a tarball. The current line is 0.4.0 (Angular 22); the notes below contrast it with the 0.1.x line.
+library as a tarball. The current line is 0.4.1 (Angular 22); the notes below contrast it with the 0.1.x line.
+0.4.1 adds the `REMOTE_ExtensionAnalytics` host token (with the `ExtensionAnalytics` / `ExtensionTracker` types) that
+an extension's `analytics.ts` imports — an extension that tracks page views and actions needs 0.4.1 or later
+([`reference/21-analytics.md`](../.claude/skills/duplo-extension-dev/reference/21-analytics.md)).
 
 > **This is not a drop-in upgrade.** 0.2.0 is compiled against **Angular 22** and ships as ESM
 > (`fesm2022`, `"type": "module"`); its peer range is `@angular/core@^22.1.0`. It is meant to be consumed by

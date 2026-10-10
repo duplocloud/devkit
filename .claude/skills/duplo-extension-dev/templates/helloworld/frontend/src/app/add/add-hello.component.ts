@@ -1,6 +1,7 @@
 import { Component, OnInit, inject, signal, viewChild } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { AiDisclosureComponent, FormGroupErrorsComponent, SharedFormsModule } from '@duplocloud-internal/ng-common-lib';
+import { HelloAnalytics } from '../analytics';
 import { HelloService } from '../hello.service';
 
 // Add/Edit form in the platform's 3-column `panel-form-accordion` layout: title+description (left), inputs
@@ -99,6 +100,7 @@ export class AddHelloComponent implements OnInit {
   private readonly svc = inject(HelloService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly analytics = inject(HelloAnalytics);
 
   protected readonly name = signal('');
   protected readonly firstName = signal('');
@@ -118,6 +120,7 @@ export class AddHelloComponent implements OnInit {
   private readonly formErrors = viewChild(FormGroupErrorsComponent);
 
   ngOnInit(): void {
+    this.analytics.pageView('hello-form');
     if (!this.isEdit) {
       return;
     }
@@ -144,7 +147,10 @@ export class AddHelloComponent implements OnInit {
       ? this.svc.update(this.id, spec)
       : this.svc.create(this.name(), spec);
     call.subscribe({
-      next: () => this.back(),
+      next: () => {
+        this.analytics.action(this.isEdit ? 'update-hello' : 'create-hello');
+        this.back();
+      },
       error: (err) => {
         this.saving.set(false);
         this.formErrors()?.reportError(err);

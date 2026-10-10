@@ -37,7 +37,8 @@ from a built-in resource (Network, Namespace, …).
 > [17-custom-result-views](reference/17-custom-result-views.md) — the hand-written Result content: Overview tiles, tabs, panels ·
 > [18-access-control](reference/18-access-control.md) — the `[AccessControl]` declaration and named actions ·
 > [19-detail-page](reference/19-detail-page.md) — the detail-page shell, the lifecycle rail, per-resource phases per mode ·
-> [20-ui-library](reference/20-ui-library.md) — every `ng-common-lib` export, a "need X → use Y" picker, verified recipes, and what works in a remote.
+> [20-ui-library](reference/20-ui-library.md) — every `ng-common-lib` export, a "need X → use Y" picker, verified recipes, and what works in a remote ·
+> [21-analytics](reference/21-analytics.md) — default page-view/action tracking, event naming, the ⛔ no-properties rule, and the retrofit for existing extensions.
 
 > **Every dev-kit extension is TYPED — there is no archetype choice.** A typed extension ships a compiled
 > .NET DLL (`manifest.archetype = "typed"`) with the resource's own controller/route/collection, an Angular
@@ -79,6 +80,15 @@ Full mechanics: [06-registration](reference/06-registration.md).
 >   to adopt it; if your repo already has dev-kit content, just work in it.
 >
 > In every case, author the extension in **`extensions/<extension_name>/`** at the repo root.
+
+> ⚠️ **Existing extension? Run the analytics retrofit — whatever you were asked to do.** If the extension you are
+> about to change already exists (its `manifest.json` is already there — a bug fix, a new field, a menu change, a
+> rebuild, a migration, anything), you MUST also run the
+> [analytics retrofit](reference/21-analytics.md#analytics-retrofit-existing-extensions) in the same change —
+> **unless the frontend is Angular 15 (incl. ng-common-lib 0.1.x) or needs a cross-minor library bump**; check that
+> first, before creating any file (21-analytics retrofit step 1), and if so tell the user instead. Otherwise: add
+> `analytics.ts` if missing, add the default page views and actions that are missing, add **no** properties, and
+> tell the user what you added. It does not wait for the user to mention analytics.
 
 ## Phase 1 — settle the resource shape (GATE: build nothing until this is unambiguous)
 
@@ -163,7 +173,12 @@ required/optional), a **Result** field table (name · type), the **provisioning 
 drives each; [19-detail-page](reference/19-detail-page.md) → "Deriving phases") and the **Result tabs** (Overview at
 minimum; name each further tab; [17-custom-result-views](reference/17-custom-result-views.md)) — and a short
 **user-experience** walkthrough: left-nav placement, the add form (with the AI-use disclosure in Agent mode), the list, the detail page, and what provisioning
-does end-to-end. Do this per resource for multi-resource extensions.
+does end-to-end. Do this per resource for multi-resource extensions. Also list the **analytics events** the
+extension will emit — the defaults from [21-analytics](reference/21-analytics.md#default-coverage--what-every-extension-tracks):
+a page view per routed page (`<resource>-list`, `<resource>-detail`, `<resource>-form`) and an action per successful
+create/update/delete/deprovision/custom action (`create-<resource>`, …), plus `ask-agent` / `track-provisioning`
+on the ticket buttons in Agent mode. Event names only: **never ask about, offer
+or list properties** — they come only from the user raising them (⛔ hard rule in [21](reference/21-analytics.md)).
 
 **Where the answers come from / how to ask:**
 - **In-platform:** read `spec.description`/`spec.icon` from `shared/extension.json`. If anything required is missing
@@ -214,7 +229,14 @@ Adapt inside `extensions/<name>/` — rename `HelloWorld`→`<Name>` consistentl
   computed (your lifecycle ladder, per mode) and the Result strip's Overview tiles + any further tabs
   ([19](reference/19-detail-page.md), [17](reference/17-custom-result-views.md)). The federation `shared` block stays a
   **subset** of the host's list, matching your `package.json` ([02](reference/02-authoring-guide.md#native-federation-sharing--share-the-libs-di-peer-packages-avoids-nullinjectorerror)).
-- `manifest.json` — `id`, `version`, `backend.{assemblyDir=<id>/<version>/backend, entryAssembly}`,
+- `frontend/src/app/analytics.ts` — keep the scaffold's file: rename `HelloAnalytics` → `<Name>Analytics` and set
+  `EXTENSION_ID` to the manifest `id` (the build fails if they differ). Wire the default events into every routed
+  page and every successful mutation/custom action, keep the scaffold's `ask-agent` / `track-provisioning` click
+  events on the ticket buttons (Agent mode only), and rename the template's `hello-*` events — **no properties,
+  no `frontend.analytics` block** unless the user explicitly named the event and property
+  ([21-analytics](reference/21-analytics.md)).
+- `manifest.json` — `id` (lowercase reverse-DNS, ≥ 3 segments — it is the analytics namespace;
+  [21](reference/21-analytics.md#build-time-checks)), `version`, `backend.{assemblyDir=<id>/<version>/backend, entryAssembly}`,
   the `resources[]` entry (`archetype:"typed"`, `registrar:"DevOpsResource"`, + the five FQ type names),
   `skills`/`skillMappings` (**Agent mode only** — omit for Worker/Passthrough/No-provision), `frontend`.
 
@@ -234,8 +256,8 @@ status", the "Needs your input" phase) exists **only in Agent mode** ([19](refer
      starts the worker directly; `Configure` is what the boot-time replay uses ([10](reference/10-sdk-api.md) Gotchas).
   4. **delete** the `skills/` dir and ship **no** `skills`/`skillMappings` in the manifest.
   5. **FE:** remove the ticket UI and the `<app-ai-disclosure />` (Agent-only), drop the "Needs your input" phase, compute the Worker ladder from `workerState`
-     (copy `samples/worker-compute`'s `phases()`), remove `track()`/`ticketName()` and the list-row "Track Provisioning"
-     item, label the add button **"Create"** (not "Provision").
+     (copy `samples/worker-compute`'s `phases()`), remove `track()`/`ticketName()` (with their `ask-agent`/`track-provisioning` analytics calls) and the list-row
+     "Track Provisioning" item, label the add button **"Create"** (not "Provision").
 - **Agent**: keep `skills/provision-*/SKILL.md` (+ `provision.sh`, write to the OWN route) and the manifest
   `skills` + `skillMappings`; keep the ticket UI and the `<app-ai-disclosure />` on every Add/Edit form. **Deprovision seam (if it creates real infra):** the platform reuses the
   SAME ticket and sends the generic teardown message — there is **no separate deprovision skill mapping**, so the
@@ -334,4 +356,8 @@ backend code** ([06](reference/06-registration.md#reloading-changed-code--bump-m
   and `GET …/admin/extensions` lists it. Create one → it persists to its `extension_<entity>` collection, fires a
   provisioning ticket (Agent mode), your skill runs and fills the Result. (Teardown: `DELETE …/admin/extensions/{id}`
   → route withdraws live.)
+- **Analytics (when you can open the portal):** open each page and run each tracked action with the browser console
+  open, and search it for **`[analytics]`** — any such warning names an event the host dropped (id mismatch, bad
+  name). Fix per [21-analytics](reference/21-analytics.md#verifying). Events are only sent for a user who has
+  given analytics consent.
 
