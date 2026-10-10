@@ -43,6 +43,7 @@
       {
         "id": "duplo.examples.helloworld-devops",
         "title": "DevOps",
+        "agent": "DevOps",
         "type": "collapsible-section",
         "children": [
           {

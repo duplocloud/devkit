@@ -166,6 +166,37 @@ see [00-naming](00-naming.md)):
 `extension-route-registrar.ts` injects these under `suite/:tenantId` at runtime (no host rebuild). A child
 resolver recovers `:parentId` by walking `ActivatedRoute.params`.
 
+### Filing under an agent — the `agent` field
+A **top-level** `menus[]` node may carry an optional `agent` string — the agent this extension is filed under.
+Children never carry it. The portal groups every extension sharing an `agent` value under **one** left-nav heading,
+titled with the agent name and marked with a shared agent icon; the extensions beneath keep their own icons.
+`"DevOps"` merges into the platform's existing built-in **DevOps** group rather than creating a second one.
+
+Ask the author to pick one (the starter list), or to type their own:
+
+1. DevOps
+2. Compliance
+3. Observability
+4. Release Management
+5. Something else (type a name)
+
+Write the chosen value **verbatim** as `agent` — no slugging. If the author declines, **omit the field**; never write
+`agent: ""`. Title the node after the agent too (as below) and the portal folds its children straight into the agent's
+heading; a node titled differently nests as its own sub-group under that heading.
+
+```jsonc
+// manifest.json → frontend.menus : filed under the DevOps agent
+"menus": [
+  { "id": "duplo.examples.helloworld-devops", "title": "DevOps", "type": "collapsible-section",
+    "agent": "DevOps",
+    "children": [
+      { "id": "duplo.examples.helloworld-hello-world", "title": "Hello World", "type": "item",
+        "matIcon": "star-outline", "relativeUrl": "extensions/helloworlds", "order": 40 }
+    ]
+  }
+]
+```
+
 ### Choosing `matIcon` — give the nav entry a real icon, not the template's placeholder
 The portal renders every menu node as `<mat-icon svgIcon="{{ item.matIcon }}">`, resolved against two SVG sprites
 it registers at startup (`app.component.ts` → `addSvgIconSet`):
