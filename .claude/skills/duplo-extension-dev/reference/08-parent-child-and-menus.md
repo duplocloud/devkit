@@ -166,6 +166,65 @@ see [00-naming](00-naming.md)):
 `extension-route-registrar.ts` injects these under `suite/:tenantId` at runtime (no host rebuild). A child
 resolver recovers `:parentId` by walking `ActivatedRoute.params`.
 
+### Filing under an agent — the root `agent` field
+`agent` is an optional field at the **manifest root** — a sibling of `id`, `name`, `version` and `frontend` — naming
+the agent this extension is filed under. It describes the **extension**, so it never goes on a `menus[]` node.
+**One agent per extension.**
+
+It is either a plain string, or an object when the author also wants to suggest where the agent's heading sits:
+
+```jsonc
+// manifest.json (root) — the usual form
+"agent": "Release Management",
+
+// …or, only when there is an order to carry
+"agent": { "name": "Release Management", "order": 3 },
+```
+
+Use the plain string unless the author gives an order.
+
+Ask the author to pick one (the starter list), or to type their own:
+
+1. DevOps
+2. Compliance
+3. Observability
+4. Release Management
+5. Something else (type a name)
+
+Write the chosen name **verbatim** — no slugging. Then, only if the author wants to position the heading, ask for a
+heading order and use the object form; otherwise don't ask further. If the author declines to pick an agent,
+**omit the field entirely**; never write `agent: ""`.
+
+How the portal places it:
+
+- The portal groups every extension sharing an agent name under **one** left-nav heading, titled with the agent name
+  and marked with a shared agent icon. `"DevOps"` merges into the platform's built-in **DevOps** heading rather than
+  creating a second one.
+- **Every top-level `frontend.menus[]` node becomes a child of that heading.** So don't wrap your menus in a node
+  titled after the agent — that would render as a same-named sub-group under the heading. A top-level `item` sits
+  directly under the heading; a top-level `collapsible-section` becomes a sub-group under it.
+  With `agent` set, the heading decides top-level placement; the title-based placement in Pattern A above
+  applies to extensions without one.
+- **Menu `order` vs agent `order`.** A menu node's `order` only positions it among the heading's children. The
+  heading's own position comes from the agent `order` — the **lowest** order any extension of that agent suggests.
+- The deployment's `config.json` → `ai-menu.order`, keyed by the heading id (`ai-suite-agent-<slug>`, e.g.
+  `ai-suite-agent-release-management`), **overrides** the suggested agent order.
+
+```jsonc
+// manifest.json : filed under the DevOps agent — the item lands directly under the DevOps heading
+{
+  "id": "duplo.examples.helloworld", "name": "Hello World", "version": "0.1.0",
+  "agent": "DevOps",
+  …
+  "frontend": {
+    "menus": [
+      { "id": "duplo.examples.helloworld-hello-world", "title": "Hello World", "type": "item",
+        "matIcon": "star-outline", "relativeUrl": "extensions/helloworlds", "order": 40 }
+    ]
+  }
+}
+```
+
 ### Choosing `matIcon` — give the nav entry a real icon, not the template's placeholder
 The portal renders every menu node as `<mat-icon svgIcon="{{ item.matIcon }}">`, resolved against two SVG sprites
 it registers at startup (`app.component.ts` → `addSvgIconSet`):

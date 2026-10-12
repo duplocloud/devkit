@@ -153,6 +153,13 @@ Settle before building (derive, else ask — **after** listening):
   **no menu**. The user gives titles; **you** generate ids, `relativeUrl`s and the matching `frontend.routes[]` —
   [08-parent-child-and-menus](reference/08-parent-child-and-menus.md). Also settle **title** + **`matIcon`** per
   item — derive the icon from the extension's purpose, per the Left-nav icon bullet above.
+- **Agent** — ask which agent this extension is filed under: DevOps, Compliance, Observability, Release
+  Management, or a typed custom name. Write it verbatim as the **manifest-root** `agent` field (sibling of `id` /
+  `name` / `version`; never on a menu node; one agent per extension). Only if the author wants to position the
+  agent's left-nav heading, also ask for an order and write `"agent": { "name": "…", "order": N }`; otherwise the
+  plain string. Every top-level `menus[]` node then renders as a child of the agent's heading, so don't wrap menus
+  in a node titled after the agent ([08 → Filing under an agent](reference/08-parent-child-and-menus.md#filing-under-an-agent--the-root-agent-field)).
+  If the author declines to pick one, omit the field entirely — never write `agent: ""`.
 - **One or many resources?** — **flat** (independent — e.g. `GCP` → network/cluster/database) or **parent → child**
   (`samples/parent-child`); several top-level menu groups are fine — [08](reference/08-parent-child-and-menus.md).
 
