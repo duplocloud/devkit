@@ -89,187 +89,16 @@ if [ -z "$A" ] && [ "$B" = podman ]; then ok; else bad "auto='$A' explicit='$B'"
 ros() { # ros <host-arch> <studio-platform> <probe-rc> [runtime] -> "<rc>|<first line of stderr>"
   ( HA="$1"; PL="$2"; PRC="$3"
     export DUPLO_ENV_FILE=/dev/null RUNTIME="${4:-podman}" STUDIO_PLATFORM="$PL"
-    # Pin the provider inputs too: left alone, the check reads the developer's real containers.conf and
-    # shells out to podman, and these cases would then answer differently on an applehv laptop than on
-    # CI. The provider's own behaviour is asserted through rosmsg below, where it is set explicitly.
-    export CONTAINERS_CONF=/dev/null; unset CONTAINERS_MACHINE_PROVIDER
     . ./scripts/_runtime.sh
     eval "_runtime_host_arch() { printf '%s' '$HA'; }"
     eval "runtime_rosetta_active() { return $PRC; }"
-    _runtime_machine_vmtype() { printf ''; }
     ERR="$(runtime_rosetta_check 2>&1 >/dev/null)"; RC=$?
     printf '%s|%s' "$RC" "$(printf '%s' "$ERR" | head -1)" )
 }
 
-# The remediation the check prints depends on what containers.conf already says. Appending a second
-# [machine] table to an existing file is a TOML "key already defined" error that stops podman dead, so
-# the advice must never be one-size-fits-all. CONTAINERS_CONF is podman's own override, so pointing it
-# at a fixture is both faithful and testable.
-conf() { # conf <file-contents-or-NONE> -> the state word
-  ( F=/dev/null
-    if [ "$1" != NONE ]; then F="$(mktemp)"; printf '%s' "$1" > "$F"; else F="$(mktemp -u)"; fi
-    export CONTAINERS_CONF="$F"
-    . ./scripts/_runtime.sh
-    _runtime_rosetta_conf_state )
-}
-
-t "conf state reports absent when containers.conf does not exist"
-[ "$(conf NONE)" = absent ] && ok || bad "got '$(conf NONE)'"
-
-t "conf state reports enabled when [machine] already sets rosetta = true"
-R="$(conf '[containers]
-[machine]
-rosetta = true
-[network]
-')"
-[ "$R" = enabled ] && ok || bad "got '$R'"
-
-t "conf state reports disabled when [machine] explicitly sets rosetta = false"
-R="$(conf '[machine]
-rosetta = false
-')"
-[ "$R" = disabled ] && ok || bad "got '$R'"
-
-t "conf state reports no-key when [machine] exists without a rosetta key"
-R="$(conf '[containers]
-[machine]
-cpus = 4
-')"
-[ "$R" = no-key ] && ok || bad "got '$R'"
-
-t "conf state finds [machine] when the header carries a trailing comment"
-# `[machine]   # my settings` is valid TOML. Anchoring the scan on end-of-line after the header hid the
-# section, and the resulting no-machine advice tells the user to ADD [machine] — a duplicate-key error
-# that stops podman outright, on a user whose config was already correct.
-R="$(conf '[containers]
-[machine]   # my settings
-rosetta = true
-')"
-[ "$R" = enabled ] && ok || bad "got '$R' (a commented header must not read as a missing section)"
-
-t "conf state reports no-machine when the file exists with no [machine] section"
-R="$(conf '[containers]
-[engine]
-env = []
-')"
-[ "$R" = no-machine ] && ok || bad "got '$R'"
-
-# Machine provider. Rosetta is an applehv feature: the libkrun provider's GetRosetta returns false
-# unconditionally upstream, so `rosetta = true` under libkrun is read and discarded. The provider is
-# therefore part of the diagnosis, not a detail. Resolution order mirrors podman's own, and the podman
-# call is its own function so the policy is testable without a VM.
-prov() { # prov <env-assignments> <conf-contents-or-NONE> <vmtype-or-NONE> -> the provider word
-  ( eval "$1"
-    if [ "$2" != NONE ]; then F="$(mktemp)"; printf '%s' "$2" > "$F"; else F="$(mktemp -u)"; fi
-    export CONTAINERS_CONF="$F"
-    . ./scripts/_runtime.sh
-    if [ "$3" != NONE ]; then eval "_runtime_machine_vmtype() { printf '%s' '$3'; }"
-    else _runtime_machine_vmtype() { printf ''; }; fi
-    _runtime_machine_provider )
-}
-
-t "an existing machine's VMType outranks containers.conf, which only describes the NEXT machine"
-# `podman machine init --provider applehv` does not write containers.conf, so the two disagree the
-# moment anyone passes the flag — and the VM that is running is the one this run will talk to. Reading
-# the config first would blame libkrun for a healthy applehv machine and advise destroying it.
-R="$(prov 'unset CONTAINERS_MACHINE_PROVIDER' '[machine]
-provider = "libkrun"
-' applehv)"
-[ "$R" = applehv ] && ok || bad "got '$R'"
-
-t "with no machine yet, CONTAINERS_MACHINE_PROVIDER outranks containers.conf"
-R="$(prov 'export CONTAINERS_MACHINE_PROVIDER=applehv' '[machine]
-provider = "libkrun"
-' NONE)"
-[ "$R" = applehv ] && ok || bad "got '$R'"
-
-t "with no machine and no environment override, containers.conf says what the next machine will be"
-R="$(prov 'unset CONTAINERS_MACHINE_PROVIDER' '[machine]
-provider = "libkrun"
-' NONE)"
-[ "$R" = libkrun ] && ok || bad "got '$R'"
-
-t "machine provider is empty rather than guessed when nothing can say"
-R="$(prov 'unset CONTAINERS_MACHINE_PROVIDER' NONE NONE)"
-[ -z "$R" ] && ok || bad "got '$R'"
-
 t "rosetta check fails when an amd64 image would run on an arm64 host without Rosetta"
 R="$(ros arm64 linux/amd64 1)"
 case "$R" in 1\|*[Rr]osetta*) ok ;; *) bad "got '$R'" ;; esac
-
-rosmsg() { # rosmsg <conf-contents-or-NONE> [provider] -> the whole stderr message
-  ( C="$1"; P="${2-}"
-    if [ "$C" != NONE ]; then F="$(mktemp)"; printf '%s' "$C" > "$F"; else F="$(mktemp -u)"; fi
-    export DUPLO_ENV_FILE=/dev/null RUNTIME=podman STUDIO_PLATFORM=linux/amd64 CONTAINERS_CONF="$F"
-    . ./scripts/_runtime.sh
-    _runtime_host_arch() { printf 'arm64'; }
-    runtime_rosetta_active() { return 1; }
-    # Unset provider (the default) is the "cannot tell" case: the advice must still stand on the config
-    # alone, which is what every pre-existing case below asserts.
-    eval "_runtime_machine_provider() { printf '%s' '$P'; }"
-    runtime_rosetta_check 2>&1 >/dev/null )
-}
-
-# NOTE: capture into a variable, never `rosmsg ... | grep -q`. Under the `set -o pipefail` at the top of
-# this file, grep -q exits on first match, SIGPIPEs the writer, and the pipeline reports the writer's
-# failure — so the condition reads FALSE precisely when the pattern matched. That silently inverted
-# these three assertions when they were first written.
-t "the fix never suggests appending a second [machine] table to an existing config"
-M="$(rosmsg '[containers]
-[machine]
-rosetta = false
-')"
-if printf '%s\n' "$M" | grep -qE '>>[[:space:]]*[^|]*containers\.conf'; then
-  bad "tells the user to append a second [machine] table — a TOML duplicate-key error that stops podman"
-else ok; fi
-
-t "an applehv machine whose config is already right points at a restart, not at recreating"
-# applehv's StartVM re-reads cfg.Machine.Rosetta from containers.conf on every start and syncs it into
-# the machine config, so the key really does take effect without re-initialising. Only the PROVIDER is
-# fixed at init. Telling an applehv user to destroy their VM would cost them images and volumes for a
-# change a stop/start already makes.
-M="$(rosmsg '[machine]
-rosetta = true
-' applehv)"
-if printf '%s\n' "$M" | grep -qi 'already' && printf '%s\n' "$M" | grep -q 'podman machine start' \
-   && ! printf '%s\n' "$M" | grep -q 'podman machine rm'; then ok
-else bad "got: $(printf '%s' "$M" | sed -n '9,16p' | tr '\n' ' ')"; fi
-
-t "a libkrun machine is diagnosed as the provider, not as a missing or unrestarted config"
-M="$(rosmsg '[machine]
-provider = "libkrun"
-rosetta = true
-' libkrun)"
-if printf '%s\n' "$M" | grep -q 'applehv' && printf '%s\n' "$M" | grep -qi 'libkrun'; then ok
-else bad "never names the provider: $(printf '%s' "$M" | sed -n '5,14p' | tr '\n' ' ')"; fi
-
-t "the libkrun remediation does not send the user back to a config that is already correct"
-M="$(rosmsg '[machine]
-provider = "libkrun"
-rosetta = true
-' libkrun)"
-if printf '%s\n' "$M" | grep -qi 'rosetta = true.*add\|add.*rosetta = true'; then
-  bad "tells them to add a key they already have"
-else ok; fi
-
-t "a non-applehv machine is never told a restart will do, because the provider is fixed at init"
-# The provider — unlike rosetta — is written at `podman machine init` and never revisited. The old
-# footer's "it does NOT need to be recreated, and nothing is lost" is true for applehv and false here,
-# and it is the sentence that turns a five-minute fix into an afternoon of recreating the same VM.
-M="$(rosmsg '[machine]
-provider = "libkrun"
-rosetta = true
-' libkrun)"
-if printf '%s\n' "$M" | grep -qi 'not need to be recreated'; then
-  bad "promises a restart is enough for a provider that can never honour the key"
-elif printf '%s\n' "$M" | grep -q 'podman machine rm'; then ok
-else bad "never tells them to recreate: $(printf '%s' "$M" | sed -n '20,28p' | tr '\n' ' ')"; fi
-
-t "a missing config gets a create command that cannot clobber anything"
-M="$(rosmsg NONE)"
-# `>` not `>>`: there is no file to append to, and `>>` would be the wrong habit to teach.
-if printf '%s\n' "$M" | grep -qE "printf .* > " && printf '%s\n' "$M" | grep -qi 'create it'; then ok
-else bad "no safe create command: $(printf '%s' "$M" | sed -n '10,13p' | tr '\n' ' ')"; fi
 
 t "rosetta check is a no-op on docker, which provides Rosetta itself"
 R="$(ros arm64 linux/amd64 1 docker)"
@@ -291,9 +120,59 @@ t "rosetta check stays quiet when the machine cannot be probed rather than cryin
 R="$(ros arm64 linux/amd64 2)"
 [ "$R" = "0|" ] && ok || bad "got '$R'"
 
-t "rosetta check treats an unset STUDIO_PLATFORM as amd64, matching the compose default"
+t "rosetta check treats an unset STUDIO_PLATFORM as native and stays quiet"
+# The compose default is no pin now, so unset means "resolve from the manifest" — which is arm64 on
+# Apple Silicon and needs no translation. Firing here would hard-exit every podman user on that host.
 R="$(ros arm64 "" 1)"
-case "$R" in 1\|*[Rr]osetta*) ok ;; *) bad "got '$R'" ;; esac
+[ "$R" = "0|" ] && ok || bad "got '$R'"
+
+t "rosetta check still fires on an EXPLICIT amd64 pin with no Rosetta"
+R="$(ros arm64 linux/amd64 1)"
+case "$R" in 1\|*) ok ;; *) bad "got '$R'" ;; esac
+
+# The retained check's whole message.
+#
+# Capture into a variable and match with a herestring, never `rosfull | grep -q`. Under the `set -o
+# pipefail` at the top of this file, grep -q exits on first match, SIGPIPEs the writer, and the pipeline
+# reports the WRITER's failure — so the condition reads FALSE precisely when the pattern matched. That
+# silently inverted three assertions when they were first written.
+rosfull() { # rosfull -> the whole stderr message for an explicit amd64 pin, arm64 host, no Rosetta
+  ( export DUPLO_ENV_FILE=/dev/null RUNTIME=podman STUDIO_PLATFORM=linux/amd64
+    . ./scripts/_runtime.sh
+    _runtime_host_arch() { printf 'arm64'; }
+    runtime_rosetta_active() { return 1; }
+    runtime_rosetta_check 2>&1 >/dev/null )
+}
+
+t "the fix leads with removing the STUDIO_PLATFORM pin"
+M="$(rosfull)"
+if grep -q 'STUDIO_PLATFORM' <<<"$M" && grep -qiE 'remove|delete|unset' <<<"$M"; then ok
+else bad "does not tell the user to drop the pin: $M"; fi
+
+t "the fix also covers a genuinely amd64-only tag, which unsetting cannot help"
+M="$(rosfull)"
+if grep -qiE 'rosetta' <<<"$M" && grep -qiE 'only|mirror|private' <<<"$M"; then ok
+else bad "an amd64-only registry mirror is left with advice that cannot work: $M"; fi
+
+t "the fix no longer walks the user through containers.conf surgery"
+M="$(rosfull)"
+if grep -qE '^\s*\[machine\]' <<<"$M" || grep -qiE 'ADD this section|add a second|duplicate' <<<"$M"; then
+  bad "still carries the six-branch conf remediation"
+else ok; fi
+
+t "the retired provider and conf-state helpers are gone"
+LEFT=""
+for f in _runtime_rosetta_conf_state _runtime_machine_provider _runtime_machine_conf_provider _runtime_machine_vmtype; do
+  grep -qE "^$f\(\)" scripts/_runtime.sh && LEFT="$LEFT $f"
+done
+if [ -z "$LEFT" ]; then ok; else bad "still defined:$LEFT"; fi
+
+t "the policy seams the check still needs are retained"
+MISS=""
+for f in _runtime_host_arch runtime_rosetta_active runtime_machine_check runtime_migrate_studio_platform; do
+  grep -qE "^$f\(\)" scripts/_runtime.sh || MISS="$MISS $f"
+done
+if [ -z "$MISS" ]; then ok; else bad "wrongly removed:$MISS"; fi
 
 t "builder ids are the caller's uid/gid on docker, but 0:0 on rootless podman"
 IDS="$( ( export DUPLO_ENV_FILE=/dev/null; . ./scripts/_runtime.sh; runtime_resolve 2>/dev/null
@@ -422,6 +301,87 @@ else bad "no runtime announced next to 'Pulling images'"; fi
 t "builder_dispatch's error:runtime branch delegates to the message function"
 if grep -A4 'error:runtime)' scripts/_builder.sh | grep -q 'builder_runtime_message'; then ok
 else bad "the branch still inlines its own text, so none of the above applies to a real build"; fi
+echo "studio platform is unpinned:"
+
+t "compose does not default the studio platform to amd64"
+if grep -qE '^\s*platform: \$\{STUDIO_PLATFORM:-\}\s*$' docker-compose.yml; then ok
+else bad "expected 'platform: ${STUDIO_PLATFORM:-}' (unset = resolve natively from the manifest)"; fi
+
+t ".env.example ships no live STUDIO_PLATFORM value"
+if grep -qE '^STUDIO_PLATFORM=' .env.example; then
+  bad "still ships a live pin; existing users can never adopt a blank (run.sh skips blank example keys)"
+else ok; fi
+
+# The migration takes its file paths as arguments so the policy is testable without touching a real .env.
+mig() { # mig <env-contents> <lock-contents-or-NONE> -> "<remaining-count>|<note>"
+  ( d="$(mktemp -d)"; printf '%s' "$1" > "$d/.env"
+    if [ "$2" = NONE ]; then rm -f "$d/.env.defaults"; else printf '%s' "$2" > "$d/.env.defaults"; fi
+    . ./scripts/_runtime.sh
+    NOTE="$(runtime_migrate_studio_platform "$d/.env" "$d/.env.defaults" 2>/dev/null)"
+    printf '%s|%s' "$(grep -c '^STUDIO_PLATFORM=' "$d/.env" || true)" "$NOTE"
+    rm -rf "$d" )
+}
+
+t "migration removes the old amd64 default when the lock agrees it was never hand-pinned"
+R="$(mig 'STUDIO_TAG=x
+STUDIO_PLATFORM=linux/amd64
+UI_TAG=y
+' 'STUDIO_PLATFORM=linux/amd64
+')"
+case "$R" in 0\|*) ok ;; *) bad "got '$R' (expected the line gone)" ;; esac
+
+t "migration leaves the rest of .env alone when it removes the line"
+KEPT="$( ( d="$(mktemp -d)"; printf 'STUDIO_TAG=x\nSTUDIO_PLATFORM=linux/amd64\nUI_TAG=y\n' > "$d/.env"
+           printf 'STUDIO_PLATFORM=linux/amd64\n' > "$d/.env.defaults"
+           . ./scripts/_runtime.sh
+           runtime_migrate_studio_platform "$d/.env" "$d/.env.defaults" >/dev/null 2>&1
+           tr '\n' ',' < "$d/.env"; rm -rf "$d" ) )"
+[ "$KEPT" = "STUDIO_TAG=x,UI_TAG=y," ] && ok || bad "got '$KEPT'"
+
+t "migration keeps a hand-pinned STUDIO_PLATFORM the lock disagrees with"
+R="$(mig 'STUDIO_PLATFORM=linux/arm64
+' 'STUDIO_PLATFORM=linux/amd64
+')"
+case "$R" in 1\|*) ok ;; *) bad "got '$R' (must never undo a value the user chose)" ;; esac
+
+t "migration keeps the value when there is no lock to vouch for it"
+R="$(mig 'STUDIO_PLATFORM=linux/amd64
+' NONE)"
+case "$R" in 1\|*) ok ;; *) bad "got '$R' (cannot prove it was the tracked default)" ;; esac
+
+t "migration is a no-op when STUDIO_PLATFORM is already absent"
+R="$(mig 'STUDIO_TAG=x
+' 'STUDIO_PLATFORM=linux/amd64
+')"
+[ "$R" = "0|" ] && ok || bad "got '$R' (should say nothing when there is nothing to do)"
+
+t "migration announces itself when it changes .env"
+R="$(mig 'STUDIO_PLATFORM=linux/amd64
+' 'STUDIO_PLATFORM=linux/amd64
+')"
+case "$R" in *STUDIO_PLATFORM*) ok ;; *) bad "silent .env edit: got '$R'" ;; esac
+
+t "the docs no longer carry the containers.conf / libkrun Rosetta walkthrough"
+LEFT="$(grep -rliE 'LibKrunStubber|Vfkit\.Rosetta|rosetta-activation|provider = "applehv"' docs/ 2>/dev/null)"
+if [ -z "$LEFT" ]; then ok; else bad "the applehv/libkrun deep-dive outlived the pin that needed it: $LEFT"; fi
+
+t "no doc still claims the studio image is amd64-only"
+LEFT="$(grep -rniE 'studio image is amd64[- ]only|built amd64-only|amd64-only \(emulated\)' docs/ .env.example 2>/dev/null)"
+if [ -z "$LEFT" ]; then ok; else bad "factually wrong now that every release publishes arm64: $LEFT"; fi
+
+t "configuration.md documents STUDIO_PLATFORM as unset-means-native"
+if grep -E '\| *`STUDIO_PLATFORM`' docs/configuration.md | grep -qiE 'unset|native|manifest'; then ok
+else bad "still documents a linux/amd64 default"; fi
+
+t "no doc still tells the user to set STUDIO_PLATFORM=linux/arm64"
+LEFT="$(grep -rn 'STUDIO_PLATFORM=linux/arm64' docs/ 2>/dev/null)"
+if [ -z "$LEFT" ]; then ok; else bad "arm64 is the native resolution now, not something to pin: $LEFT"; fi
+
+t "run.sh runs the platform migration before it adopts .env.example defaults"
+MIGL="$(grep -n 'runtime_migrate_studio_platform' run.sh | head -1 | cut -d: -f1)"
+ADOPTL="$(grep -n 'DEFAULT_KEYS=' run.sh | head -1 | cut -d: -f1)"
+if [ -n "$MIGL" ] && [ -n "$ADOPTL" ] && [ "$MIGL" -lt "$ADOPTL" ]; then ok
+else bad "migration at ${MIGL:-?}, adoption at ${ADOPTL:-?} -- must run first or the lock is rewritten under it"; fi
 
 echo "no stray hard-coded docker calls:"
 
