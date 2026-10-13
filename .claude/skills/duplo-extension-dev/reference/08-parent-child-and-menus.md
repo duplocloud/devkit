@@ -171,13 +171,15 @@ resolver recovers `:parentId` by walking `ActivatedRoute.params`.
 the agent this extension is filed under. It describes the **extension**, so it never goes on a `menus[]` node.
 **One agent per extension.**
 
-It is either a plain string, or an object when the author also wants to carry a heading order:
+It is either a plain string or `{ "name": …, "order": <integer> }`. The object form is only for a customer
+extension whose author wants to set its heading order; a Duplo-managed extension uses the plain string (its pack's
+name), since the console decides its heading order:
 
 ```jsonc
 // manifest.json (root) — the usual form
 "agent": "Release Management",
 
-// …or, only when there is an order to carry
+// …or, for a customer extension whose author gives a heading order
 "agent": { "name": "Release Management", "order": 3 },
 ```
 
@@ -204,7 +206,9 @@ Write the chosen name **verbatim** — no slugging. Then, only if the author wan
 heading order and use the object form; otherwise don't ask further. If the author declines to pick an agent,
 **omit the field entirely**; never write `agent: ""`.
 
-**Validation.** An invalid `agent` is rejected at upload/deploy with HTTP 400:
+**Validation.** An invalid `agent` is rejected when the extension is uploaded (HTTP 400), and fails the provisioning
+when it is deployed through an extension resource. An extension already installed with an invalid `agent` still
+loads, re-enables and rolls back; it is simply filed under no agent. The rules:
 
 - the name is non-empty after trimming, at most 64 characters, with no control characters;
 - `order`, when present, is an integer;
@@ -229,6 +233,8 @@ How the portal places it:
   - `ai-suite-agent-<pack uuid>` for console agents;
   - `ai-suite-agent-<slug(name)>` for manifest agents, where the slug keeps runs of `[a-z0-9]` joined by `-`, e.g.
     `ai-suite-agent-release-management`. A name with no ASCII letters or digits gets a hashed id instead.
+  - An agent named like a built-in heading (`DevOps`) sits under that heading, so it moves by the built-in's id
+    (`ai-suite-infrastructure`), not by an `ai-suite-agent-…` key.
 
 ```jsonc
 // manifest.json : filed under the DevOps agent — the item lands directly under the DevOps heading

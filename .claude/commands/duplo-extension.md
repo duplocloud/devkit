@@ -162,7 +162,8 @@ backend + Angular remote + provisioning skill) — never ask the user to choose 
   console's pack wins for Duplo-managed extensions (which still set their pack's name), and a customer name matching a
   console agent joins it, otherwise it gets its own heading. Optionally an integer heading order
   (`{ "name": …, "order": N }`) only if the author wants one; the name must be non-empty, at most 64 characters, no
-  control characters, or the upload is rejected (400); omit the field if the author doesn't pick one;
+  control characters, or the upload is rejected (HTTP 400) and a deploy through a resource fails its provisioning;
+  omit the field if the author doesn't pick one;
 - **Ask AI** is opt-in: scaffold it ONLY if the user's requirement explicitly asks for AI chat sessions on the
   resource — never offer it or add it unprompted (see skill reference 16-ask-ai);
 - for an external system: **auth** style (basic/bearer) and which API calls provisioning makes (a custom
