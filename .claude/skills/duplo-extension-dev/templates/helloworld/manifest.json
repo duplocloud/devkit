@@ -3,7 +3,7 @@
   "id": "duplo.examples.helloworld",
   "name": "Hello World",
   "version": "0.1.0",
-  "agent": { "name": "DevOps", "order": 30 },
+  "agent": "DevOps",
 
   "sdkVersion": "REPLACED_BY_SKILL_FROM_sdk-version_ENDPOINT",
   "backend": {
