@@ -157,6 +157,13 @@ backend + Angular remote + provisioning skill) — never ask the user to choose 
   sit under a parent / an extension category? Should any endpoint require an **explicitly granted named action**
   rather than plain CRUD (restart, console/exec, credential-minting shapes — see reference/18-access-control.md)?
 - **menu** placement (a top-level `collapsible-section` with `item` children renders nested correctly);
+- **agent** — which agent (DevOps / Compliance / Observability / Release Management / custom) this
+  extension files under, written as the manifest-root `agent` field (never on a menu node). It is the fallback: the
+  console's pack wins for Duplo-managed extensions (which still set their pack's name), and a customer name matching a
+  console agent joins it, otherwise it gets its own heading. Optionally an integer heading order
+  (`{ "name": …, "order": N }`) only if the author wants one; the name must be non-empty, at most 64 characters, no
+  control characters, or the upload is rejected (HTTP 400) and a deploy through a resource fails its provisioning;
+  omit the field if the author doesn't pick one;
 - **Ask AI** is opt-in: scaffold it ONLY if the user's requirement explicitly asks for AI chat sessions on the
   resource — never offer it or add it unprompted (see skill reference 16-ask-ai);
 - for an external system: **auth** style (basic/bearer) and which API calls provisioning makes (a custom

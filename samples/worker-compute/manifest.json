@@ -3,6 +3,7 @@
   "id": "duplo.examples.worker-compute",
   "name": "Worker Compute (Calculator)",
   "version": "0.1.0",
+  "agent": "DevOps",
 
   "sdkVersion": "REPLACED_BY_SKILL_FROM_sdk-version_ENDPOINT",
   "backend": {
@@ -33,14 +34,7 @@
       "type": "module"
     },
     "menus": [
-      {
-        "id": "duplo.examples.worker-compute-devops",
-        "title": "DevOps",
-        "type": "collapsible-section",
-        "children": [
-          { "id": "duplo.examples.worker-compute-cw", "title": "Calc Worker", "type": "item", "matIcon": "calculate", "relativeUrl": "extensions/calcworkers", "order": 45 }
-        ]
-      }
+      { "id": "duplo.examples.worker-compute-cw", "title": "Calc Worker", "type": "item", "matIcon": "calculate", "relativeUrl": "extensions/calcworkers", "order": 45 }
     ],
     "routes": [
       { "path": "extensions/calcworkers", "resourceType": "CalcWorker", "subType": "calc-worker" }

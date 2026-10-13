@@ -153,6 +153,18 @@ Settle before building (derive, else ask — **after** listening):
   **no menu**. The user gives titles; **you** generate ids, `relativeUrl`s and the matching `frontend.routes[]` —
   [08-parent-child-and-menus](reference/08-parent-child-and-menus.md). Also settle **title** + **`matIcon`** per
   item — derive the icon from the extension's purpose, per the Left-nav icon bullet above.
+- **Agent** — ask which agent this extension is filed under: DevOps, Compliance, Observability, Release
+  Management, or a typed custom name. Write it verbatim as the **manifest-root** `agent` field (sibling of `id` /
+  `name` / `version`; never on a menu node; one agent per extension). The manifest `agent` is the **fallback**: for
+  Duplo-managed extensions the console's pack decides the agent, heading position and order (and the extension still
+  sets `agent` to its pack's name as a backup); a customer extension's name that matches a console agent joins it,
+  otherwise it gets its own heading. Only if the author wants to position the heading, also ask for an integer order
+  and write `"agent": { "name": "…", "order": N }`; otherwise the plain string. The name must be non-empty, at most 64
+  characters, with no control characters, and `order` an integer — an invalid value is rejected at upload (HTTP 400)
+  and fails the provisioning when deployed through a resource.
+  Every top-level `menus[]` node then renders as a child of the agent's heading, so don't wrap menus
+  in a node titled after the agent ([08 → Filing under an agent](reference/08-parent-child-and-menus.md#filing-under-an-agent--the-root-agent-field)).
+  If the author declines to pick one, omit the field entirely — never write `agent: ""`.
 - **One or many resources?** — **flat** (independent — e.g. `GCP` → network/cluster/database) or **parent → child**
   (`samples/parent-child`); several top-level menu groups are fine — [08](reference/08-parent-child-and-menus.md).
 

@@ -3,6 +3,7 @@
   "id": "duplo.examples.passthrough-configmap",
   "name": "Passthrough ConfigMap",
   "version": "0.1.0",
+  "agent": "DevOps",
 
   "sdkVersion": "REPLACED_BY_SKILL_FROM_sdk-version_ENDPOINT",
   "backend": {
@@ -33,14 +34,7 @@
       "type": "module"
     },
     "menus": [
-      {
-        "id": "duplo.examples.passthrough-configmap-devops",
-        "title": "DevOps",
-        "type": "collapsible-section",
-        "children": [
-          { "id": "duplo.examples.passthrough-configmap-cm", "title": "ConfigMaps", "type": "item", "matIcon": "settings", "relativeUrl": "extensions/configmapdemos", "order": 42 }
-        ]
-      }
+      { "id": "duplo.examples.passthrough-configmap-cm", "title": "ConfigMaps", "type": "item", "matIcon": "settings", "relativeUrl": "extensions/configmapdemos", "order": 42 }
     ],
     "routes": [
       { "path": "extensions/configmapdemos", "resourceType": "ConfigMapDemo", "subType": "configmap-demo" }

@@ -3,6 +3,7 @@
   "id": "duplo.examples.parentchild",
   "name": "Parent / Child",
   "version": "0.1.0",
+  "agent": "DevOps",
 
   "sdkVersion": "REPLACED_BY_SKILL_FROM_sdk-version_ENDPOINT",
   "backend": {
@@ -60,19 +61,12 @@
     },
     "menus": [
       {
-        "id": "duplo.examples.parentchild-devops",
-        "title": "DevOps",
-        "type": "collapsible-section",
-        "children": [
-          {
-            "id": "duplo.examples.parentchild-parent-child",
-            "title": "Parent / Child",
-            "type": "item",
-            "matIcon": "account-tree",
-            "relativeUrl": "extensions/hello-parents",
-            "order": 44
-          }
-        ]
+        "id": "duplo.examples.parentchild-parent-child",
+        "title": "Parent / Child",
+        "type": "item",
+        "matIcon": "account-tree",
+        "relativeUrl": "extensions/hello-parents",
+        "order": 44
       }
     ],
     "routes": [

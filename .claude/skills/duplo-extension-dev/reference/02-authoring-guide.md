@@ -61,6 +61,7 @@ Ties the bundle together. For a typed extension (see the hello-world manifest):
 {
   "manifestVersion": "1.0",
   "id": "duplo.examples.helloworld", "name": "Hello World", "version": "0.1.0",
+  "agent": "DevOps",   // optional, root-level fallback for console grouping (≤64 chars; order, if an object, an integer) — see 08-parent-child-and-menus → Filing under an agent
   "sdkVersion": "<from GET …/extensions/sdk-version>",
   "backend": { "assemblyDir": "duplo.examples.helloworld/0.1.0/backend",
                "entryAssembly": "Duplo.Extension.HelloWorld.dll" },

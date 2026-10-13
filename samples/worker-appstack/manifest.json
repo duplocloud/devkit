@@ -3,6 +3,7 @@
   "id": "duplo.examples.worker-appstack",
   "name": "Worker AppStack",
   "version": "0.1.0",
+  "agent": "DevOps",
 
   "sdkVersion": "REPLACED_BY_SKILL_FROM_sdk-version_ENDPOINT",
   "backend": {
@@ -33,14 +34,7 @@
       "type": "module"
     },
     "menus": [
-      {
-        "id": "duplo.examples.worker-appstack-devops",
-        "title": "DevOps",
-        "type": "collapsible-section",
-        "children": [
-          { "id": "duplo.examples.worker-appstack-as", "title": "App Stacks", "type": "item", "matIcon": "layers", "relativeUrl": "extensions/appstacks", "order": 43 }
-        ]
-      }
+      { "id": "duplo.examples.worker-appstack-as", "title": "App Stacks", "type": "item", "matIcon": "layers", "relativeUrl": "extensions/appstacks", "order": 43 }
     ],
     "routes": [
       { "path": "extensions/appstacks", "resourceType": "AppStack", "subType": "app-stack" }

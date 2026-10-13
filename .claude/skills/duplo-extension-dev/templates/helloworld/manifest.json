@@ -3,6 +3,7 @@
   "id": "duplo.examples.helloworld",
   "name": "Hello World",
   "version": "0.1.0",
+  "agent": "DevOps",
 
   "sdkVersion": "REPLACED_BY_SKILL_FROM_sdk-version_ENDPOINT",
   "backend": {
@@ -41,19 +42,12 @@
     },
     "menus": [
       {
-        "id": "duplo.examples.helloworld-devops",
-        "title": "DevOps",
-        "type": "collapsible-section",
-        "children": [
-          {
-            "id": "duplo.examples.helloworld-hello-world",
-            "title": "Hello World",
-            "type": "item",
-            "matIcon": "star-outline",
-            "relativeUrl": "extensions/helloworlds",
-            "order": 40
-          }
-        ]
+        "id": "duplo.examples.helloworld-hello-world",
+        "title": "Hello World",
+        "type": "item",
+        "matIcon": "star-outline",
+        "relativeUrl": "extensions/helloworlds",
+        "order": 40
       }
     ],
     "routes": [

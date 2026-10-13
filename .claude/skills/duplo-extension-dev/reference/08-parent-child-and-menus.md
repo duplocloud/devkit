@@ -166,6 +166,91 @@ see [00-naming](00-naming.md)):
 `extension-route-registrar.ts` injects these under `suite/:tenantId` at runtime (no host rebuild). A child
 resolver recovers `:parentId` by walking `ActivatedRoute.params`.
 
+### Filing under an agent — the root `agent` field
+`agent` is an optional field at the **manifest root** — a sibling of `id`, `name`, `version` and `frontend` — naming
+the agent this extension is filed under. It describes the **extension**, so it never goes on a `menus[]` node.
+**One agent per extension.**
+
+It is either a plain string or `{ "name": …, "order": <integer> }`. The object form is only for a customer
+extension whose author wants to set its heading order; a Duplo-managed extension uses the plain string (its pack's
+name), since the console decides its heading order:
+
+```jsonc
+// manifest.json (root) — the usual form
+"agent": "Release Management",
+
+// …or, for a customer extension whose author gives a heading order
+"agent": { "name": "Release Management", "order": 3 },
+```
+
+Use the plain string unless the author gives an order.
+
+**The manifest `agent` is the fallback; the console decides when it can.**
+
+- **Duplo-managed extensions** — the console's pack membership decides the agent, the heading's position (the pack's
+  sort order, used as given) and the extension's position under the heading (its place in the pack). The console wins
+  over the manifest. Duplo-managed extensions **still set `"agent": "<their pack's name>"`** as a backup, for
+  deployments without console data (air-gapped, or before the first sync).
+- **Customer extensions** — set `agent` as a string or `{ "name": …, "order": <integer> }`. A name matching a console
+  agent (trimmed, case-insensitive) joins that agent's heading. Otherwise the extension gets its own heading.
+
+Ask the author to pick one (the starter list), or to type their own:
+
+1. DevOps
+2. Compliance
+3. Observability
+4. Release Management
+5. Something else (type a name)
+
+Write the chosen name **verbatim** — no slugging. Then, only if the author wants to position the heading, ask for a
+heading order and use the object form; otherwise don't ask further. If the author declines to pick an agent,
+**omit the field entirely**; never write `agent: ""`.
+
+**Validation.** An invalid `agent` is rejected when the extension is uploaded (HTTP 400), and fails the provisioning
+when it is deployed through an extension resource. An extension already installed with an invalid `agent` still
+loads, re-enables and rolls back; it is simply filed under no agent. The rules:
+
+- the name is non-empty after trimming, at most 64 characters, with no control characters;
+- `order`, when present, is an integer;
+- the object has no keys other than `name` and `order`.
+
+How the portal places it:
+
+- The portal groups every extension sharing an agent under **one** left-nav heading, titled with the agent name
+  and marked with a shared agent icon. `"DevOps"` merges into the platform's built-in **DevOps** heading rather than
+  creating a second one; under a built-in heading the built-in pages come first, then the agent's extensions.
+- **Every top-level `frontend.menus[]` node becomes a child of that heading.** So don't wrap your menus in a node
+  titled after the agent — that would render as a same-named sub-group under the heading. A top-level `item` sits
+  directly under the heading; a top-level `collapsible-section` becomes a sub-group under it.
+  With `agent` set, the heading decides top-level placement; the title-based placement in Pattern A above
+  applies to extensions without one.
+- **Menu `order` vs agent `order`.** A menu node's `order` only positions it among the heading's children. A manifest
+  agent's `order` is the heading's nav position, used **exactly as given**, in the same number space as the built-in
+  headings (HelpDesk 10, Projects 20, DevOps 30, … Settings 90). A missing order is `0`; ties go by title. If several
+  extensions of one manifest agent disagree on `order`, the lowest wins. Console agents take their position from the
+  console, not from the manifest.
+- The deployment's `config.json` → `ai-menu.order`, keyed by the heading id, **overrides** the heading's position:
+  - `ai-suite-agent-<pack uuid>` for console agents;
+  - `ai-suite-agent-<slug(name)>` for manifest agents, where the slug keeps runs of `[a-z0-9]` joined by `-`, e.g.
+    `ai-suite-agent-release-management`. A name with no ASCII letters or digits gets a hashed id instead.
+  - An agent named like a built-in heading (`DevOps`) sits under that heading, so it moves by the built-in's id
+    (`ai-suite-infrastructure`), not by an `ai-suite-agent-…` key.
+
+```jsonc
+// manifest.json : filed under the DevOps agent — the item lands directly under the DevOps heading
+{
+  "id": "duplo.examples.helloworld", "name": "Hello World", "version": "0.1.0",
+  "agent": "DevOps",
+  …
+  "frontend": {
+    "menus": [
+      { "id": "duplo.examples.helloworld-hello-world", "title": "Hello World", "type": "item",
+        "matIcon": "star-outline", "relativeUrl": "extensions/helloworlds", "order": 40 }
+    ]
+  }
+}
+```
+
 ### Choosing `matIcon` — give the nav entry a real icon, not the template's placeholder
 The portal renders every menu node as `<mat-icon svgIcon="{{ item.matIcon }}">`, resolved against two SVG sprites
 it registers at startup (`app.component.ts` → `addSvgIconSet`):
