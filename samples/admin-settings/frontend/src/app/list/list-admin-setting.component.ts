@@ -2,7 +2,7 @@ import { Component, DestroyRef, OnInit, computed, inject, signal, viewChild } fr
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FilterTableUtils, SearchableDatatableComponent, SearchableDatatableModule } from '@duplocloud-internal/ng-common-lib';
-import { AdminSettingService, AdminSetting } from '../admin-setting.service';
+import { AdminSettingService, AdminSetting, routeScope } from '../admin-setting.service';
 import { StatusBadgeComponent } from '../shared/status-badge.component';
 
 // List view built on the platform UI library's <searchable-datatable> (from
@@ -11,6 +11,9 @@ import { StatusBadgeComponent } from '../shared/status-badge.component';
 //
 // Standalone with no `changeDetection` line: Angular 22 components are OnPush by default, and every
 // piece of async state here is a signal, so writes mark the view dirty on their own.
+// Opened from AI DevOps (route scope 'workspace') the list is READ-ONLY: no Create, no row actions beyond
+// View, and no Value/Applied columns — the workspace endpoint does not return them.
+//
 // SearchableDatatableModule re-exports NgbModule + NgxDatatableModule, which is where ngbDropdown and
 // ngx-datatable-cell-template come from — importing it alone covers this template.
 @Component({
@@ -19,7 +22,7 @@ import { StatusBadgeComponent } from '../shared/status-badge.component';
   template: `
     <div class="card datatable-card">
       <searchable-datatable
-        [showAdd]="true"
+        [showAdd]="!readOnly"
         addLabel="Create Admin Setting"
         (add)="add()"
         [rows]="rows()"
@@ -37,12 +40,14 @@ import { StatusBadgeComponent } from '../shared/status-badge.component';
                 <a ngbDropdownItem (click)="view(row)">
                   <i data-feather="eye" class="mr-50"></i><span>View</span>
                 </a>
-                <a ngbDropdownItem (click)="edit(row)">
-                  <i data-feather="edit" class="mr-50"></i><span>Edit</span>
-                </a>
-                <a ngbDropdownItem (click)="track(row)">
-                  <i data-feather="activity" class="mr-50"></i><span>Track Provisioning</span>
-                </a>
+                @if (!readOnly) {
+                  <a ngbDropdownItem (click)="edit(row)">
+                    <i data-feather="edit" class="mr-50"></i><span>Edit</span>
+                  </a>
+                  <a ngbDropdownItem (click)="track(row)">
+                    <i data-feather="activity" class="mr-50"></i><span>Track Provisioning</span>
+                  </a>
+                }
               </div>
             </div>
           </ng-template>
@@ -58,13 +63,15 @@ import { StatusBadgeComponent } from '../shared/status-badge.component';
           <ng-template ngx-datatable-cell-template let-row="row">{{ row.spec?.settingKey || '—' }}</ng-template>
         </ngx-datatable-column>
 
-        <ngx-datatable-column name="Value" [flexGrow]="150">
-          <ng-template ngx-datatable-cell-template let-row="row">{{ row.spec?.settingValue || '—' }}</ng-template>
-        </ngx-datatable-column>
+        @if (!readOnly) {
+          <ngx-datatable-column name="Value" [flexGrow]="150">
+            <ng-template ngx-datatable-cell-template let-row="row">{{ row.spec?.settingValue || '—' }}</ng-template>
+          </ngx-datatable-column>
 
-        <ngx-datatable-column name="Applied" [flexGrow]="150">
-          <ng-template ngx-datatable-cell-template let-row="row">{{ row.result?.summary || '—' }}</ng-template>
-        </ngx-datatable-column>
+          <ngx-datatable-column name="Applied" [flexGrow]="150">
+            <ng-template ngx-datatable-cell-template let-row="row">{{ row.result?.summary || '—' }}</ng-template>
+          </ngx-datatable-column>
+        }
 
         <ngx-datatable-column name="Status" [flexGrow]="110" [maxWidth]="150">
           <ng-template ngx-datatable-cell-template let-row="row">
@@ -80,6 +87,8 @@ export class ListAdminSettingComponent implements OnInit {
   private readonly svc = inject(AdminSettingService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly scope = routeScope(this.route);
+  protected readonly readOnly = this.scope === 'workspace';
   // The host provides this under a STRING key. Functional inject() is typed for ProviderToken, so the
   // token needs a cast — unlike constructor @Inject(...), which accepts a bare string. Used only for the
   // list-refresh timer: an admin-scoped list never reads the selected tenant.
@@ -104,8 +113,8 @@ export class ListAdminSettingComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    // Re-fetch on first load and on each poll tick. Admin-scoped rows all belong to the Admin Workspace, so
-    // a workspace switch changes nothing: use the plain refresh timer, not getTenantRefreshTimer.
+    // Re-fetch on first load and on each poll tick. Admin settings are platform-wide, so a workspace switch
+    // changes nothing: use the plain refresh timer, not getTenantRefreshTimer.
     let first = true;
     this.session.getRefreshTimer(true)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -119,7 +128,7 @@ export class ListAdminSettingComponent implements OnInit {
     if (showLoading) {
       this.table()?.startLoading();
     }
-    this.svc.list().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.svc.list(this.scope).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: rows => {
         this.allRows.set(rows ?? []);
         this.table()?.refresh();
@@ -154,7 +163,7 @@ export class ListAdminSettingComponent implements OnInit {
       if (!name) {
         return;
       }
-      // Admin-scoped: the ticket lives in the hidden Admin Workspace, so it opens under AI Admin.
+      // Admin-scoped: the ticket opens under AI Admin.
       this.router.navigateByUrl(this.svc.ticketChatUrl(name));
     });
   }

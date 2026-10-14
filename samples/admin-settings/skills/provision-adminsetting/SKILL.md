@@ -22,8 +22,8 @@ read spec  ->  POST status Processing (+ progressive subStatus)  ->  do the work
   admin-scoped resource the platform grants it on THIS resource's admin routes
   (`…/admin/data/environment/*/{id}/status` and `…/{id}/results`) and nothing else.
 - `shared/admin-setting.json` — the resource's expanded spec. Read `spec.settingKey`, `spec.settingValue`, and
-  `id` for the write-back URL. `ownerWorkspaceId` is always the Admin Workspace
-  (`000000000000000000000ad1`); you do not need it.
+  `id` for the write-back URL. `ownerWorkspaceId` is always the Admin Workspace;
+  you do not need it.
 - **No scope credentials by default.** The Admin Workspace has no scopes; a skill only gets credentials for
   scopes listed in the resource's own `spec.scopeIds`.
 

@@ -1,20 +1,29 @@
 import { Injectable, inject } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
-// Host-provided string DI token (no @common-lib import). REMOTE_DuploHttpClient exposes get/post
-// returning RxJS Observables. An ADMIN-scoped resource does not need REMOTE_UserSession: it never reads
-// the selected tenant, because every row belongs to the system Admin Workspace.
+// Host-provided string DI tokens (no @common-lib import). REMOTE_DuploHttpClient exposes get/post
+// returning RxJS Observables. REMOTE_UserSession is read ONLY for the workspace (read-only) side's route
+// workspace — admin-side requests carry no workspace at all.
 export const REMOTE_DuploHttpClient = 'REMOTE_DuploHttpClient';
+export const REMOTE_UserSession = 'REMOTE_UserSession';
+
+/**
+ * Which side the page was opened from. The host stamps `scope` on the extension's lazy route, and the
+ * remote's routes are its componentless children, so they inherit it. `admin` = AI Admin (full CRUD);
+ * `workspace` = AI DevOps, where the same pages are READ-ONLY.
+ */
+export type ViewScope = 'admin' | 'workspace';
+
+export function routeScope(route: ActivatedRoute): ViewScope {
+  return route.snapshot.data['scope'] === 'admin' ? 'admin' : 'workspace';
+}
 
 // This is a TYPED resource: the extension ships its own controller, so we call its OWN REST segment.
-// originType/subType are used to look up the provisioning ticket via the origin-context endpoint.
-const ORIGIN_TYPE = 'AdminSetting';
-const SUB_TYPE = 'admin-setting';
+// Admin requests never name a workspace: the admin route is complete on its own, for CRUD and for the
+// provisioning ticket (`{id}/ticket-status`). See reference/21-admin-resources.md.
 const REST_SEGMENT = 'extensions/admin-settings';
-// Fixed id of the system Admin Workspace (Workspace.AdminWorkspaceId on the backend). Admin-scoped resources
-// and their provisioning tickets live under it. See reference/21-admin-resources.md.
-export const ADMIN_WORKSPACE_ID = '000000000000000000000ad1';
 
 // The lifecycle fields every ResourceBase serializes — the detail view's phase timeline reads them
 // (status → which phase is active; subStatus → its live beat; blockedReason → why the agent is waiting;
@@ -28,6 +37,8 @@ export interface AdminSetting {
   faults?: string[];
   createdAt?: string;
   updatedAt?: string;
+  // settingValue and result are absent on the workspace (read-only) side: AdminSettingsReadController
+  // returns AdminSettingView, which leaves out the value and the summary that embeds it.
   spec?: { settingKey?: string; settingValue?: string };
   result?: { summary?: string };
 }
@@ -36,14 +47,15 @@ export interface AdminSetting {
 export class AdminSettingService {
   // inject() with the platform's string DI tokens (use-ng22 rule — no constructor parameters).
   private readonly http = inject<any>(REMOTE_DuploHttpClient as any);
+  private readonly session = inject<any>(REMOTE_UserSession as any);
 
-  /** The workspace that owns every admin-scoped row (and its provisioning ticket). */
-  workspaceId(): string {
-    return ADMIN_WORKSPACE_ID;
-  }
-
-  // Admin route: no {workspaceId} segment — it must equal the AdminSettingsController [Route].
-  private base(): string {
+  // Admin route: no {workspaceId} segment — it must equal the AdminSettingsController [Route]. The workspace
+  // route is AdminSettingsReadController's: list + get only, for any member of the selected workspace.
+  private base(scope: ViewScope = 'admin'): string {
+    if (scope === 'workspace') {
+      const tenant = this.session?.tenant?.TenantId ?? '';
+      return `/v1/aiservicedesk/user/data/workspaces/${tenant}/environment/${REST_SEGMENT}`;
+    }
     return `/v1/aiservicedesk/admin/data/environment/${REST_SEGMENT}`;
   }
 
@@ -51,15 +63,15 @@ export class AdminSettingService {
   // return bare bodies — normalize both here.
   private unwrap = (r: any) => (r && r.data !== undefined ? r.data : r);
 
-  list(): Observable<AdminSetting[]> {
-    return this.http.get(this.base()).pipe(map((r: any) => {
+  list(scope: ViewScope = 'admin'): Observable<AdminSetting[]> {
+    return this.http.get(this.base(scope)).pipe(map((r: any) => {
       const d = this.unwrap(r);
       return (d?.items ?? d ?? []) as AdminSetting[];
     }));
   }
 
-  get(id: string): Observable<AdminSetting> {
-    return this.http.get(`${this.base()}/${id}`).pipe(map((r: any) => this.unwrap(r)));
+  get(id: string, scope: ViewScope = 'admin'): Observable<AdminSetting> {
+    return this.http.get(`${this.base(scope)}/${id}`).pipe(map((r: any) => this.unwrap(r)));
   }
 
   create(name: string, spec: { settingKey: string; settingValue: string }): Observable<AdminSetting> {
@@ -74,16 +86,18 @@ export class AdminSettingService {
     return this.http.patch(`${this.base()}/${id}`, { spec }).pipe(map((r: any) => this.unwrap(r)));
   }
 
-  /** Resolve the provisioning ticket (its `name` is the chat URL segment) via origin-context. */
+  /**
+   * Resolve the provisioning ticket's name (the chat URL segment) from the resource's own admin
+   * `{id}/ticket-status` — no workspace id needed. Null when the row has no ticket yet.
+   */
   ticketName(id: string): Observable<string | null> {
-    const url = `/v1/aiservicedesk/tickets/${this.workspaceId()}/origin-context`
-      + `?type=${ORIGIN_TYPE}&id=${id}&subType=${SUB_TYPE}`;
-    return this.http.get(url).pipe(map((r: any) => this.unwrap(r)?.name ?? null));
+    return this.http.get(`${this.base('admin')}/${id}/ticket-status`)
+      .pipe(map((r: any) => this.unwrap(r)?.ticketName ?? null));
   }
 
   /**
-   * Where a provisioning ticket opens. The ticket lives in the hidden Admin Workspace, so it opens under AI
-   * Admin — the service-desk chat route rejects workspaces outside the user's list.
+   * Where an admin resource's provisioning ticket opens: the AI Admin ticket page, which looks it up by name
+   * alone. The service-desk chat route needs a workspace from the user's list, so it cannot open these.
    */
   ticketChatUrl(name: string): string {
     return `/ai/suite/admin/tickets/chat/${encodeURIComponent(name)}`;

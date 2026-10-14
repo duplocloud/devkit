@@ -3,7 +3,7 @@ import { formatDate } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { Subscription, interval } from 'rxjs';
 import { CommonLibComponentsModule } from '@duplocloud-internal/ng-common-lib';
-import { AdminSettingService, AdminSetting } from '../admin-setting.service';
+import { AdminSettingService, AdminSetting, routeScope } from '../admin-setting.service';
 import { StatusBadgeComponent } from '../shared/status-badge.component';
 import { LifecyclePhase, LifecycleRailComponent, RailFact } from '../shared/lifecycle-rail.component';
 
@@ -17,6 +17,9 @@ import { LifecyclePhase, LifecycleRailComponent, RailFact } from '../shared/life
 // This is an AGENT-mode resource: a provisioning ticket exists, so "Ask agent" / "Track status" open it and
 // the phase ladder includes "Needs your input" (Blocked / WaitingForApproval). Worker and Passthrough
 // resources drop those (see samples/worker-compute, samples/passthrough-configmap).
+//
+// Opened from AI DevOps (route scope 'workspace') the page is READ-ONLY: no Ask agent, Edit or Track status
+// (admin-only), and no value — the workspace endpoint leaves it out.
 //
 // CommonLibComponentsModule re-exports CommonModule (date pipe), NgbModule (ngbNav, ngbDropdown) and
 // scrollable-nav-tab, so it is the only platform import this view needs.
@@ -50,21 +53,23 @@ import { LifecyclePhase, LifecycleRailComponent, RailFact } from '../shared/life
             </div>
           </div>
           <div class="g-actions">
-            <div class="seg" role="group" aria-label="View">
-              <button type="button" [class.active]="view() === 'spec'" (click)="view.set('spec')">Spec</button>
-              <button type="button" [class.active]="view() === 'result'" (click)="view.set('result')">Result</button>
-            </div>
-            <button type="button" class="btn btn-sm btn-primary" [disabled]="tracking()" (click)="track()">
-              <i data-feather="terminal" class="mr-50"></i>Ask agent
-            </button>
-            <div ngbDropdown container="body" placement="bottom-right">
-              <button type="button" class="btn btn-sm hide-arrow" aria-label="More actions" ngbDropdownToggle>
-                <i data-feather="more-vertical"></i>
-              </button>
-              <div ngbDropdownMenu>
-                <a ngbDropdownItem (click)="edit()"><i data-feather="edit" class="mr-50"></i> Edit</a>
+            @if (!readOnly) {
+              <div class="seg" role="group" aria-label="View">
+                <button type="button" [class.active]="view() === 'spec'" (click)="view.set('spec')">Spec</button>
+                <button type="button" [class.active]="view() === 'result'" (click)="view.set('result')">Result</button>
               </div>
-            </div>
+              <button type="button" class="btn btn-sm btn-primary" [disabled]="tracking()" (click)="track()">
+                <i data-feather="terminal" class="mr-50"></i>Ask agent
+              </button>
+              <div ngbDropdown container="body" placement="bottom-right">
+                <button type="button" class="btn btn-sm hide-arrow" aria-label="More actions" ngbDropdownToggle>
+                  <i data-feather="more-vertical"></i>
+                </button>
+                <div ngbDropdownMenu>
+                  <a ngbDropdownItem (click)="edit()"><i data-feather="edit" class="mr-50"></i> Edit</a>
+                </div>
+              </div>
+            }
           </div>
         </header>
 
@@ -120,7 +125,7 @@ import { LifecyclePhase, LifecycleRailComponent, RailFact } from '../shared/life
           <ext-lifecycle-rail
             [phases]="phases()"
             [attached]="attached()"
-            [trackable]="true"
+            [trackable]="!readOnly"
             [trackBusy]="tracking()"
             (track)="track()" />
         </div>
@@ -139,6 +144,8 @@ export class ViewAdminSettingComponent implements OnInit {
   private readonly svc = inject(AdminSettingService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly scope = routeScope(this.route);
+  protected readonly readOnly = this.scope === 'workspace';
   private readonly destroyRef = inject(DestroyRef);
   private readonly locale = inject(LOCALE_ID);
 
@@ -189,7 +196,7 @@ export class ViewAdminSettingComponent implements OnInit {
           : 'The agent asked a question or needs an approval',
         state: waiting ? 'now' : (ready ? 'done' : 'todo'),
         // Answer right from the timeline: the ticket is where the question lives.
-        action: waiting ? { label: 'Review', run: () => this.track() } : undefined,
+        action: waiting && !this.readOnly ? { label: 'Review', run: () => this.track() } : undefined,
       },
       {
         label: 'Ready',
@@ -203,7 +210,7 @@ export class ViewAdminSettingComponent implements OnInit {
     const it = this.item();
     return [
       { label: 'Key', value: it?.spec?.settingKey || '—' },
-      { label: 'Value', value: it?.spec?.settingValue || '—' },
+      ...(this.readOnly ? [] : [{ label: 'Value', value: it?.spec?.settingValue || '—' }]),
       { label: 'Created', value: this.fmt(it?.createdAt) },
     ];
   });
@@ -224,7 +231,7 @@ export class ViewAdminSettingComponent implements OnInit {
   /** GET + a 3s poll while the agent is working, so the active phase moves; the poll stops at a terminal status. */
   private refresh(): void {
     const id = this.route.snapshot.params['id'];
-    this.svc.get(id).subscribe(i => {
+    this.svc.get(id, this.scope).subscribe(i => {
       const first = !this.item();
       this.item.set(i);
       if (first) {
@@ -266,7 +273,7 @@ export class ViewAdminSettingComponent implements OnInit {
           return;
         }
         // Host routes can no-op from a remote — fall back to a hard navigation (reference/16 pitfalls).
-        // Admin-scoped: the ticket lives in the hidden Admin Workspace, so it opens under AI Admin.
+        // Admin-scoped: the ticket opens under AI Admin.
         const url = this.svc.ticketChatUrl(name);
         this.router.navigateByUrl(url).then(ok => { if (!ok) window.location.assign(url); })
           .catch(() => window.location.assign(url));

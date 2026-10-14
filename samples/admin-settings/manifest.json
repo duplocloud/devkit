@@ -2,11 +2,11 @@
   "manifestVersion": "1.0",
   "id": "duplo.examples.adminsettings",
   "name": "Admin Settings",
-  "version": "0.1.0",
+  "version": "0.2.1",
 
   "sdkVersion": "REPLACED_BY_SKILL_FROM_sdk-version_ENDPOINT",
   "backend": {
-    "assemblyDir": "duplo.examples.adminsettings/0.1.0/backend",
+    "assemblyDir": "duplo.examples.adminsettings/0.2.1/backend",
     "entryAssembly": "Duplo.Extension.AdminSettings.dll"
   },
 
@@ -25,7 +25,7 @@
   ],
 
   "skills": [
-    { "folder": "duplo.examples.adminsettings/0.1.0/skills/provision-adminsetting", "isBuiltIn": true }
+    { "folder": "duplo.examples.adminsettings/0.2.1/skills/provision-adminsetting", "isBuiltIn": true }
   ],
   "skillMappings": [
     { "originType": "AdminSetting", "subType": "admin-setting", "skillNames": ["provision-adminsetting"], "timeout": { "provision": 300, "deprovision": 120 } }
@@ -55,10 +55,27 @@
             "order": 40
           }
         ]
+      },
+      {
+        "id": "duplo.examples.adminsettings-platform-settings-ws",
+        "title": "Platform Settings",
+        "type": "collapsible-section",
+        "matIcon": "cog-outline",
+        "children": [
+          {
+            "id": "duplo.examples.adminsettings-platform-settings-ws-admin-settings",
+            "title": "Admin Settings",
+            "type": "item",
+            "matIcon": "tune-variant",
+            "relativeUrl": "extensions/admin-settings",
+            "order": 40
+          }
+        ]
       }
     ],
     "routes": [
-      { "path": "extensions/admin-settings", "resourceType": "AdminSetting", "subType": "admin-setting", "scope": "admin" }
+      { "path": "extensions/admin-settings", "resourceType": "AdminSetting", "subType": "admin-setting", "scope": "admin" },
+      { "path": "extensions/admin-settings", "resourceType": "AdminSetting", "subType": "admin-setting" }
     ]
   }
 }
