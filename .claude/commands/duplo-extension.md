@@ -207,7 +207,7 @@ proceed with their choice:
   …/user/data/workspaces/<ws>/environment/<restSegment>` with the spec (including the chosen `ScopeIds`) — then
   poll its status/result (and, if useful, `./logs.sh claude-code-agent`) until `Complete`/`Failed` and report.
   For an **admin** resource use `POST …/admin/data/environment/<restSegment>` (admin token), confirm the row's
-  `ownerWorkspaceId` is `000000000000000000000ad1`, and in option A the user creates it from the **AI Admin** menu.
+  `ownerWorkspaceId` is not your workspace (the platform assigns the Admin Workspace), and in option A the user creates it from the **AI Admin** menu.
 
 Either way, the chosen `scopeId`(s) become the resource spec's `ScopeIds`, and the provisioning skill reads that
 scope's credentials from `other_scopes/<name>.json`. See the skill's

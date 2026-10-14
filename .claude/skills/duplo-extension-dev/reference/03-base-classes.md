@@ -207,7 +207,7 @@ Ctor: `(IEntityService<T> service, ILogger<MyController> logger)`. Endpoints:
 ### `AdminResourcesController<T,TSpec,TResult>` (`Admin/Resource/AdminResourcesController.cs`, SDK ≥ 1.0.7)
 `: ResourcesController<T,TSpec,TResult>` for **admin-scoped** resources. Same ctor, same endpoints. Declare
 `[Route("v1/aiservicedesk/admin/data/environment/extensions/<…>")]` — no `{workspaceId}`. It overrides
-`GetWorkspaceIdFromRoute()` to return `Workspace.AdminWorkspaceId` (`000000000000000000000ad1`), so create stamps
+`GetWorkspaceIdFromRoute()` to return `Workspace.AdminWorkspaceId`, so create stamps
 that as `OwnerWorkspaceId` and every read/write checks ownership against it, and re-declares `can-deprovision`,
 `deprovision`, `reconcile`, `ticket` and `ticket-status` so they bind without a route workspace. Access is
 administrators only (the platform's tenant policy guards `/aiservicedesk/admin`), plus the resource's provisioning

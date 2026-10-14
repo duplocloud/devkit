@@ -235,8 +235,9 @@ Adapt inside `extensions/<name>/` — rename `HelloWorld`→`<Name>` consistentl
   ([19](reference/19-detail-page.md), [17](reference/17-custom-result-views.md)). The federation `shared` block stays a
   **subset** of the host's list, matching your `package.json` ([02](reference/02-authoring-guide.md#native-federation-sharing--share-the-libs-di-peer-packages-avoids-nullinjectorerror)).
   **Admin scope:** the service's `base()` is `/v1/aiservicedesk/admin/data/environment/${REST_SEGMENT}`, it
-  drops `REMOTE_UserSession`, its `workspaceId()` returns the Admin Workspace id `000000000000000000000ad1`
-  (ticket lookups), and ticket links navigate to `/ai/suite/admin/tickets/chat/<name>` — never the
+  drops `REMOTE_UserSession`, and **no admin request names a workspace** — the backend resolves the Admin
+  Workspace itself. Look the provisioning ticket up with `GET <base>/{id}/ticket-status` (`ticketName`, not
+  `tickets/<ws>/origin-context`), and link it to `/ai/suite/admin/tickets/chat/<name>` — never the
   service-desk route, which rejects the hidden Admin Workspace.
 - `manifest.json` — `id`, `version`, `backend.{assemblyDir=<id>/<version>/backend, entryAssembly}`,
   the `resources[]` entry (`archetype:"typed"`, `registrar:"DevOpsResource"`, + the five FQ type names),
@@ -360,7 +361,7 @@ backend code** ([06](reference/06-registration.md#reloading-changed-code--bump-m
   return 403/404 even though the extension loaded fine.
 - **Local (admin token):** you may confirm the live route directly: `GET …/environment/<restSegment>` → 200
   (admin scope: `GET …/admin/data/environment/<restSegment>` → 200 for an admin, 403 for a non-admin, created
-  rows have `ownerWorkspaceId` `000000000000000000000ad1`, and the menu shows only in AI Admin),
+  rows are owned by the Admin Workspace, not your workspace, and the menu shows only in AI Admin),
   and `GET …/admin/extensions` lists it. Create one → it persists to its `extension_<entity>` collection, fires a
   provisioning ticket (Agent mode), your skill runs and fills the Result. (Teardown: `DELETE …/admin/extensions/{id}`
   → route withdraws live.)

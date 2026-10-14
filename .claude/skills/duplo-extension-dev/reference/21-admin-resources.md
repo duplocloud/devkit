@@ -30,10 +30,10 @@ result, hooks and service are identical in shape, and the provisioning lifecycle
 | Controller base | `ResourcesController<T,TSpec,TResult>` | `AdminResourcesController<T,TSpec,TResult>` (`Duplo.Ai.DataManagement.Controllers.Admin.Resource`) |
 | Controller `[Route]` | `v1/aiservicedesk/user/data/workspaces/{workspaceId}/environment/extensions/<seg>` | `v1/aiservicedesk/admin/data/environment/extensions/<seg>` |
 | Access | workspace members (and admins) | **administrators only** |
-| `OwnerWorkspaceId` | the route's workspace | always `000000000000000000000ad1` (`Workspace.AdminWorkspaceId`) |
+| `OwnerWorkspaceId` | the route's workspace | the system Admin Workspace, set by the platform (never sent by the frontend or skill) |
 | FE service `base()` | `/v1/aiservicedesk/user/data/workspaces/${tenant}/environment/${REST_SEGMENT}` | `/v1/aiservicedesk/admin/data/environment/${REST_SEGMENT}` |
 | FE `REMOTE_UserSession` | needed (reads the selected tenant) | not needed |
-| Ticket / origin-context workspace | the selected tenant | the Admin Workspace id |
+| Ticket lookup | `GET /v1/aiservicedesk/tickets/${tenant}/origin-context?…` | `GET <admin base>/{id}/ticket-status` → `ticketName` (no workspace id) |
 | Manifest menu tree | no `scope` | `"scope": "admin"` on the **top-level** node |
 | Manifest `frontend.routes[]` | no `scope` | `"scope": "admin"` on each route the admin tree links to |
 | Mounted at | `/ai/suite/{tenant}/extensions/<seg>` | `/ai/suite/admin/extensions/<seg>` (behind the admin route guard) |
@@ -58,8 +58,9 @@ public class AdminSettingController : AdminResourcesController<AdminSetting, Adm
 ```
 
 - `AdminResourcesController` is a thin subclass of `ResourcesController`: it returns the Admin Workspace from
-  `GetWorkspaceIdFromRoute()`, so create stamps `OwnerWorkspaceId = 000000000000000000000ad1` and every
-  read/update/delete checks ownership against it. It re-declares the five actions that take a `workspaceId`
+  `GetWorkspaceIdFromRoute()`, so create stamps the Admin Workspace as `OwnerWorkspaceId` and every
+  read/update/delete checks ownership against it. Nothing in the extension (controller, frontend, skill) has to
+  know that workspace's id. It re-declares the five actions that take a `workspaceId`
   parameter (`can-deprovision`, `deprovision`, `reconcile`, `ticket`, `ticket-status`) so they bind without one.
   You add nothing but the `[Route]`.
 - **No access-node declaration.** A workspace controller declares
@@ -75,9 +76,23 @@ public class AdminSettingController : AdminResourcesController<AdminSetting, Adm
   applies the two overrides itself: `protected override string GetWorkspaceIdFromRoute() => Workspace.AdminWorkspaceId;`
   plus the five `[BindNever] string? workspaceId` action overrides copied from `AdminResourcesController`, on the
   route `v1/aiservicedesk/admin/data/environment/extensions/<parent-seg>/{parentId}/<child-seg>`. The build gate
-  checks all six.
+  checks all six. Worked example: `extensions/vpn/backend/OpenVpnUsersController.cs` in the vpn extension.
 - Custom endpoints ([05-custom-actions](05-custom-actions.md)) go on the same controller and inherit the admin
   route and access rule.
+
+## When code needs the Admin Workspace id
+
+Only backend code that steps outside `AdminResourcesController`, and then through the SDK constant
+`Workspace.AdminWorkspaceId`, never a literal:
+
+- **An admin child controller**, because the SDK has no admin `ChildResourceController` (above).
+- **A workspace-routed controller that reads admin-owned rows**, e.g. the read-only workspace view below, or a
+  self-service endpoint every user may call (the vpn extension's `MyVpnController` lists the caller's own OpenVPN
+  users). Its route resolves to the caller's workspace, so it must filter on
+  `OwnerWorkspaceId == Workspace.AdminWorkspaceId` explicitly.
+
+The frontend and the agent skills never need it: every admin route, `ticket-status` included, resolves the
+workspace on the server.
 
 ## Provisioning
 
@@ -104,13 +119,15 @@ unchanged ([03-base-classes](03-base-classes.md), [11-deprovisioning](11-deprovi
 ## Frontend
 
 ```ts
-// The service: no REMOTE_UserSession, admin base URL, Admin Workspace for ticket lookups.
-export const ADMIN_WORKSPACE_ID = '000000000000000000000ad1';
+// The service: no REMOTE_UserSession and no workspace id anywhere — the admin routes resolve the Admin
+// Workspace server-side (AdminResourcesController), including the provisioning ticket.
 const REST_SEGMENT = 'extensions/admin-settings';   // still == manifest restSegment (build gate)
 
 private readonly http = inject<any>(REMOTE_DuploHttpClient as any);   // use-ng22: inject(), no ctor params
-workspaceId(): string { return ADMIN_WORKSPACE_ID; }
 private base(): string { return `/v1/aiservicedesk/admin/data/environment/${REST_SEGMENT}`; }
+ticketName(id: string): Observable<string | null> {                    // ticket-status → { ticketName, … }
+  return this.http.get(`${this.base()}/${id}/ticket-status`).pipe(map((r: any) => (r?.data ?? r)?.ticketName ?? null));
+}
 ```
 
 ```jsonc
@@ -137,9 +154,51 @@ private base(): string { return `/v1/aiservicedesk/admin/data/environment/${REST
 - **Ticket links go to AI Admin:** `this.router.navigate(['/ai/suite/admin/tickets/chat', name])`. Never
   `/ai/service-desk/<workspaceId>/tickets/chat/<name>` with the Admin Workspace id: that route's
   `SubscriptionsGuard` only accepts workspaces in the user's workspace list, the Admin Workspace is hidden from
-  it, so the page fails with *"The requested workspace / tenant is not available"*. Still look the ticket up with
-  `GET /v1/aiservicedesk/tickets/000000000000000000000ad1/origin-context?type=…&id=…&subType=…` (admins may read
-  the Admin Workspace's tickets). Needs a portal with the AI Admin ticket page.
+  it, so the page fails with *"The requested workspace / tenant is not available"*. Look the ticket up with the
+  resource's own `GET <admin base>/{id}/ticket-status` (returns `ticketName`) — never `tickets/<workspaceId>/
+  origin-context`, which would make the frontend name the Admin Workspace. Admin requests never carry a
+  workspace id: the backend fills it in. Needs a portal with the AI Admin ticket page.
+
+## Read-only workspace view (optional)
+
+Admin rows are invisible to everyone else: `/aiservicedesk/admin` admits only administrators. When workspace
+members need to SEE what administrators provisioned (a VPN endpoint, a maintenance banner), add a second,
+read-only surface on the workspace side. `samples/admin-settings` ships one.
+
+**Backend — a plain read controller beside the admin one:**
+```csharp
+[ApiController]
+[Authorize]                                                   // REQUIRED — see below
+[AccessControl("workspaceId", AnchorNode = "Workspace")]      // anchor only; declare no node
+[Route("v1/aiservicedesk/user/data/workspaces/{workspaceId}/environment/extensions/admin-settings")]
+public class AdminSettingsReadController : ControllerBase
+{
+    // inject IEntityService<AdminSetting>; GET   → FindAsync(e => e.OwnerWorkspaceId == Workspace.AdminWorkspaceId)
+    //                                      GET {id} → GetByIdAsync, 404 unless owned by the Admin Workspace
+}
+```
+- Derive from **`ControllerBase`**, never `ResourcesController`: the resource base adds the write endpoints and
+  filters rows to the ROUTE workspace, while these rows all belong to the Admin Workspace.
+- **`[Authorize]` is mandatory.** The host has no fallback policy, so a controller without it is anonymous.
+  With it, the tenant policy admits only members of `{workspaceId}` (and admins). The build gate fails a
+  `ControllerBase` controller that lacks it.
+- `[AccessControl("workspaceId", AnchorNode = "Workspace")]` gates each action on the caller's grant for that
+  workspace without declaring a node (only one controller may declare an entity's node).
+- **Return a view model, not the entity.** Project only what members may see; drop secrets, faults, ticket data,
+  and any result field that echoes a hidden spec field. The sample returns name + key + status, but not the value
+  nor the summary (the skill writes it as `key = "value"`).
+- Wrap results like the platform does: `ApiResponse<PagedResponse<TView>>.SuccessResult(…)` for the list,
+  `ApiResponse<TView>.SuccessResult(…)` for one row (`Duplo.Ai.DataManagement.Models`).
+- Same `extensions/<seg>` segment as the admin route: the prefixes differ, so they do not collide.
+
+**Frontend — the same pages, read-only on the workspace side:**
+- Add a workspace menu tree (no `scope`) and a route with the same `path` and no `scope`, next to the admin ones.
+- The host stamps `scope` on each extension route, and the remote's routes inherit it:
+  `route.snapshot.data['scope']` is `'admin'` in AI Admin and `'workspace'` in AI DevOps. The service picks
+  its base URL from it per call (it is a root singleton, shared by both sides).
+- In `workspace` scope hide Create/Edit/Track/Ask agent, the hidden fields' columns and tiles, and send a direct
+  visit to `add`/`edit` back to the list. The provisioning ticket lives in the hidden Admin Workspace, so
+  non-admins cannot open it anyway.
 
 ## Manifest notes
 
@@ -169,6 +228,6 @@ curl -fsS -H "Authorization: Bearer $ADMIN_TOKEN" "$A"                          
 curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $NON_ADMIN_TOKEN" "$A" # 403
 curl -fsS -X POST "$A" -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
   -d '{"name":"<name>","spec":{…}}'
-# GET $A/<id> → ownerWorkspaceId == 000000000000000000000ad1; poll until status Complete
+# GET $A/<id> → ownerWorkspaceId is the Admin Workspace (not your workspace); poll until status Complete
 ```
 In the UI, the menu appears only in AI Admin (`/ai/suite/admin/extensions/<seg>`), never in AI DevOps.

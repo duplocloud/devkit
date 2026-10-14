@@ -126,6 +126,15 @@ while IFS=$'\t' read -r u sc; do
 done < <(jq -r '(.frontend.routes // []) as $r | .frontend.menus // [] | .[] | (.scope // "workspace") as $s
   | [.. | objects | .relativeUrl? // empty] | .[] as $u
   | select(([$r[] | select(.path == $u) | (.scope // "workspace")] | index($s)) == null) | "\($u)\t\($s)"' "$MANIFEST")
+# A plain controller (ControllerBase/Controller, e.g. a read-only workspace view of an admin resource) gets no
+# authorization unless it says so: the host has no fallback policy, and only [Authorize] runs the tenant policy
+# (workspace membership, admin-only /aiservicedesk/admin). Resource controllers inherit it from their base.
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  # Attribute lines only (also `[ApiController, Authorize]`) — a doc comment mentioning [Authorize] must not count.
+  grep -qE '^[[:space:]]*\[([^]/]*[,[:space:]])?Authorize([](,[:space:]]|$)' "$f" || {
+    echo "  ✗ $(basename "$f"): a controller deriving from ControllerBase/Controller must carry [Authorize] — without it its routes are anonymous (see reference/21-admin-resources.md)" >&2; viol=1; }
+done < <(grep -rlE ':[[:space:]]*(ControllerBase|Controller)[[:space:]]*($|\{|,)' "$DIR/backend" --include='*.cs' 2>/dev/null | grep -vE '/(bin|obj)/' || true)
 if [ "$has_admin" = 1 ] && [ "$has_ws" = 0 ]; then
   if [ -d "$DIR/frontend/src" ] && ! grep -rqF 'admin/data/environment' "$DIR/frontend/src" 2>/dev/null; then
     echo "  ✗ the backend is admin-scoped but no frontend file calls '/v1/aiservicedesk/admin/data/environment/…' — point the FE service base() at the admin route" >&2; viol=1
