@@ -26,8 +26,8 @@ FRAMEWORK_DIRS=( .agents .claude .github nginx packages samples scripts )
 # for. (It can't go in FRAMEWORK_FILES: rsync won't create the missing parent for a single file.)
 FRAMEWORK_MERGE_DIRS=( docs build )
 FRAMEWORK_FILES=( .env.example .gitignore docker-compose.yml logs.sh PRIVACY.md README.md run.sh stop.sh todo.md )
-# User-owned files that live INSIDE a FRAMEWORK_DIR. The dev-kit doesn't ship them, so the mirror's --delete
-# would reap them; they are protected from deletion (and never overwritten, since the dev-kit has no copy).
+# User-owned files that live INSIDE a FRAMEWORK_DIR. They are excluded from the mirror, so an upgrade neither
+# deletes them nor overwrites them with the dev-kit's copy (e.g. the empty extension-publishers.json allowlist).
 PRESERVE_FILES=( .github/extension-publishers.json )
 
 REF="main"; ASSUME_YES=0
@@ -73,7 +73,7 @@ sync_framework() {
     [ -d "$CACHE/$d" ] || continue
     local protect=()
     for f in "${PRESERVE_FILES[@]}"; do
-      case "$f" in "$d"/*) protect+=( --filter="P /${f#"$d"/}" ) ;; esac
+      case "$f" in "$d"/*) protect+=( --filter="- /${f#"$d"/}" ) ;; esac
     done
     rsync -a --delete ${protect[@]+"${protect[@]}"} $dryrun "$CACHE/$d/" "./$d/"
   done
