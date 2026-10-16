@@ -13,25 +13,52 @@
 # NOTE: the hot-load/deploy step is intentionally COMMENTED OUT (see below). We publish releases but do not
 # auto-install onto the portal, so the install-from-registry flow stays testable end to end. Uncomment the
 # "Deploy" step to auto-hot-load on merge.
+#
+# In Duplo's own organizations (duplocloud, duplocloud-internal) the build is also signed. scripts/extension-sign.py
+# writes extension.zip.sig from EXTENSION_SIGNING_KEY and EXTENSION_SIGNING_CERT, mapped below from the org secret
+# CONSOLE_SIGNING_KEY and the org variable CONSOLE_SIGNING_CERT, before release-extensions.sh creates the release.
+# A missing key fails the job there before anything is written. Outside those organizations the release ships the
+# zip alone, since a customer's copy of this workflow holds no Duplo signing credential.
+#
+# Two guards sit in front of the AWS role. "Check the publisher allowlist" runs only in Duplo's organizations, and
+# marks the repository listed only when .github/extension-publishers.json names it as a publisher. The
+# configure-aws-credentials step then runs only when that step reports listed=true, since EXTENSION_PUBLISHER_ROLE_ARN
+# trusts only those repositories through GitHub OIDC (id-token: write). An unlisted repository's release still ships
+# signed, but release-extensions.sh never calls publish_build for it, so the job never reaches S3 or the console and
+# never needs AWS credentials.
+
 name: Extension Release
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish each allowlisted extension's current version, including one an earlier run registered or a platform owner unpublished. Allowlist entries with "publish" true publish new builds regardless.
+        type: boolean
+        default: false
 
 permissions:
-  contents: write        # required to create GitHub Releases
+  contents: write        # create GitHub Releases
+  id-token: write        # assume the extension-publisher role through GitHub OIDC
+
+concurrency:
+  # One release run per repository at a time, never canceled between its writes.
+  group: extension-release-${{ github.repository }}
+  cancel-in-progress: false
 
 jobs:
   release:
+    # A dispatch from any other branch skips the job, so only main's code ever releases, signs or publishes.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
       DUPLO_TARGET: remote
       DUPLO_HOST: ${{ secrets.DUPLO_HOST }}
       DUPLO_TOKEN: ${{ secrets.DUPLO_TOKEN }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # Every tag and the history it points at: the publish step compares each released version's commit with
           # this one to tell an unchanged extension from one that changed without a version bump.
@@ -56,8 +83,38 @@ jobs:
       #   if: steps.guard.outputs.build == 'true'
       #   run: ./scripts/deploy-all.sh
 
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        if: steps.guard.outputs.build == 'true'
+        with:
+          python-version: '3.12'
+      - name: Install the signer
+        if: steps.guard.outputs.build == 'true'
+        run: pip install --require-hashes -r scripts/extension-sign.requirements.txt
+
+      # Upload and registration need the role. Only Duplo's organizations hold it, and only allowlisted repositories
+      # pass its trust, so the step is skipped everywhere else and release-extensions.sh never reaches S3 there.
+      - name: Check the publisher allowlist
+        id: allow
+        if: >-
+          steps.guard.outputs.build == 'true' &&
+          (github.repository_owner == 'duplocloud' || github.repository_owner == 'duplocloud-internal')
+        run: |
+          jq -e --arg r "$GITHUB_REPOSITORY" 'any(.publishers[]; .repository == $r)' .github/extension-publishers.json >/dev/null \
+            && echo "listed=true" >> "$GITHUB_OUTPUT" || echo "listed=false" >> "$GITHUB_OUTPUT"
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        if: steps.allow.outputs.listed == 'true'
+        with:
+          role-to-assume: ${{ vars.EXTENSION_PUBLISHER_ROLE_ARN }}
+          aws-region: us-west-2
+
       - name: Publish GitHub releases (one per new build)
         if: steps.guard.outputs.build == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          EXTENSION_SIGNING_KEY: ${{ secrets.CONSOLE_SIGNING_KEY }}
+          EXTENSION_SIGNING_CERT: ${{ vars.CONSOLE_SIGNING_CERT }}
+          CONSOLE_API_KEY: ${{ secrets.CONSOLE_API_KEY }}
+          EXTENSION_PUBLISH: ${{ inputs.publish }}
+          CONSOLE_URL: ${{ vars.CONSOLE_URL }}
+          BUNDLE_BUCKET: ${{ vars.BUNDLE_BUCKET }}
         run: ./scripts/release-extensions.sh

@@ -1,12 +1,12 @@
 {
   "manifestVersion": "1.0",
-  "id": "duplo.examples.helloworld",
+  "id": "com.duplocloud.helloworld",
   "name": "Hello World",
   "version": "0.1.0",
 
   "sdkVersion": "REPLACED_BY_SKILL_FROM_sdk-version_ENDPOINT",
   "backend": {
-    "assemblyDir": "duplo.examples.helloworld/0.1.0/backend",
+    "assemblyDir": "com.duplocloud.helloworld/0.1.0/backend",
     "entryAssembly": "Duplo.Extension.HelloWorld.dll"
   },
 
@@ -26,7 +26,7 @@
   ],
 
   "skills": [
-    { "folder": "duplo.examples.helloworld/0.1.0/skills/provision-helloworld", "isBuiltIn": true }
+    { "folder": "com.duplocloud.helloworld/0.1.0/skills/provision-helloworld", "isBuiltIn": true }
   ],
   "skillMappings": [
     { "originType": "HelloWorld", "subType": "hello-world", "skillNames": ["provision-helloworld"], "timeout": { "provision": 300, "deprovision": 120 } }
@@ -35,18 +35,18 @@
   "frontend": {
     "remote": {
       "remoteName": "duploExtensionHelloworld",
-      "remoteEntry": "/v1/aiservicedesk/extensions/duplo.examples.helloworld/fe/remoteEntry.json",
+      "remoteEntry": "/v1/aiservicedesk/extensions/com.duplocloud.helloworld/fe/remoteEntry.json",
       "exposedModule": "./Extension",
       "type": "module"
     },
     "menus": [
       {
-        "id": "duplo.examples.helloworld-devops",
+        "id": "com.duplocloud.helloworld-devops",
         "title": "DevOps",
         "type": "collapsible-section",
         "children": [
           {
-            "id": "duplo.examples.helloworld-hello-world",
+            "id": "com.duplocloud.helloworld-hello-world",
             "title": "Hello World",
             "type": "item",
             "matIcon": "star-outline",

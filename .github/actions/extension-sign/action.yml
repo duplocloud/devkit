@@ -1,0 +1,35 @@
+# Signs one built extension.zip into extension.zip.sig with a publisher key the DuploCloud console certifies.
+# For pipelines outside devkit's release job, which calls scripts/extension-sign.py directly.
+name: extension-sign
+description: Sign an extension bundle for DuploCloud portals that require signed extensions
+inputs:
+  bundle:
+    description: Path to the built extension.zip
+    required: true
+  signing-key:
+    description: Publisher private key PEM, from a secret
+    required: true
+  signing-cert:
+    description: Publisher certificate (compact JWS) from the console
+    required: true
+outputs:
+  signature-path:
+    description: Path of the written .sig
+    value: ${{ steps.sign.outputs.path }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      with:
+        python-version: '3.12'
+    - shell: bash
+      run: pip install --require-hashes -r "$GITHUB_ACTION_PATH/../../../scripts/extension-sign.requirements.txt"
+    - id: sign
+      shell: bash
+      env:
+        EXTENSION_SIGNING_KEY: ${{ inputs.signing-key }}
+        EXTENSION_SIGNING_CERT: ${{ inputs.signing-cert }}
+        BUNDLE: ${{ inputs.bundle }}
+      run: |
+        python3 "$GITHUB_ACTION_PATH/../../../scripts/extension-sign.py" sign "$BUNDLE"
+        echo "path=$BUNDLE.sig" >> "$GITHUB_OUTPUT"

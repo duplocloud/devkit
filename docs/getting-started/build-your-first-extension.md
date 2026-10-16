@@ -228,6 +228,11 @@ hot-loads it. Those last two steps are the same two commands you would run by ha
 ./scripts/deploy-extension.sh extensions/s3-guard/dist/extension.zip
 ```
 
+With the installer service running, the build alone is enough, since the installer loads it. A build loaded
+by `deploy-extension.sh` is not one the installer reinstalls at the same version, so after a script load,
+bump the version or remove the extension before relying on the installer for a rebuild (see
+[Installing an extension](../../README.md#installing-an-extension)).
+
 Their flags are in the [CLI reference](../cli-reference.md). If the build fails to reach the host SDK,
 that symptom is in [troubleshooting.md](../troubleshooting.md#extensions).
 

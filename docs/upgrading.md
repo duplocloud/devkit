@@ -39,7 +39,7 @@ Framework-shipped defaults — the image tags and `STUDIO_PLATFORM` — live in
 `.env.example`. An upgrade changes that file, but it never touches your `.env`. `run.sh` bridges the two on
 every run.
 
-The tracked keys are `STUDIO_TAG`, `AGENT_TAG`, `UI_TAG`, `XTERM_TAG`, and `STUDIO_PLATFORM`. Nothing
+The tracked keys are `STUDIO_TAG`, `AGENT_TAG`, `UI_TAG`, `XTERM_TAG`, `INSTALLER_TAG`, and `STUDIO_PLATFORM`. Nothing
 licensing-related is adopted or overwritten this way — `Licensing__Token` is yours, not a framework
 default, and the license server URL is a built-in rather than a shipped `.env` value.
 
@@ -101,14 +101,6 @@ registry. Refreshing it is a separate procedure with its own constraints — see
 
 The tarball is proprietary and is **not** covered by the Apache license on the rest of the kit. See
 [TERMS.md](../TERMS.md).
-
-## AI-use disclosure check for Agent-mode extensions
-
-`build-extension.sh` now checks that Agent-mode extensions (non-empty manifest `skillMappings`) render
-`<app-ai-disclosure />` (ISO 42001). It is enforced for ng-common-lib >= 0.4.0 and only warns below.
-
-To fix: vendor 0.4.0 with `scripts/refresh-common-lib.sh`, then add the component to every Add/Edit form
-(see the skill's `reference/14-forms-and-wizards.md`, "AI-use disclosure").
 
 ## After an upgrade
 

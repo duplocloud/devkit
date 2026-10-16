@@ -1,12 +1,12 @@
 {
   "manifestVersion": "1.0",
-  "id": "duplo.examples.parentchild",
+  "id": "com.duplocloud.parentchild",
   "name": "Parent / Child",
   "version": "0.1.0",
 
   "sdkVersion": "REPLACED_BY_SKILL_FROM_sdk-version_ENDPOINT",
   "backend": {
-    "assemblyDir": "duplo.examples.parentchild/0.1.0/backend",
+    "assemblyDir": "com.duplocloud.parentchild/0.1.0/backend",
     "entryAssembly": "Duplo.Extension.ParentChild.dll"
   },
 
@@ -43,8 +43,8 @@
   ],
 
   "skills": [
-    { "folder": "duplo.examples.parentchild/0.1.0/skills/provision-helloparent", "isBuiltIn": true },
-    { "folder": "duplo.examples.parentchild/0.1.0/skills/provision-hellochild", "isBuiltIn": true }
+    { "folder": "com.duplocloud.parentchild/0.1.0/skills/provision-helloparent", "isBuiltIn": true },
+    { "folder": "com.duplocloud.parentchild/0.1.0/skills/provision-hellochild", "isBuiltIn": true }
   ],
   "skillMappings": [
     { "originType": "HelloParent", "subType": "hello-parent", "skillNames": ["provision-helloparent"], "timeout": { "provision": 300, "deprovision": 120 } },
@@ -54,18 +54,18 @@
   "frontend": {
     "remote": {
       "remoteName": "duploExtensionParentChild",
-      "remoteEntry": "/v1/aiservicedesk/extensions/duplo.examples.parentchild/fe/remoteEntry.json",
+      "remoteEntry": "/v1/aiservicedesk/extensions/com.duplocloud.parentchild/fe/remoteEntry.json",
       "exposedModule": "./Extension",
       "type": "module"
     },
     "menus": [
       {
-        "id": "duplo.examples.parentchild-devops",
+        "id": "com.duplocloud.parentchild-devops",
         "title": "DevOps",
         "type": "collapsible-section",
         "children": [
           {
-            "id": "duplo.examples.parentchild-parent-child",
+            "id": "com.duplocloud.parentchild-parent-child",
             "title": "Parent / Child",
             "type": "item",
             "matIcon": "account-tree",

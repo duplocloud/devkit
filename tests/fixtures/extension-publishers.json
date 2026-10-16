@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "publishers": [
+    { "manifestId": "com.duplocloud.alpha", "repository": "duplocloud/alpha",
+      "consoleExtension": "00000000-0000-4000-8000-000000000001" },
+    { "manifestId": "com.duplocloud.beta", "repository": "duplocloud/beta",
+      "consoleExtension": "00000000-0000-4000-8000-000000000002" }
+  ]
+}

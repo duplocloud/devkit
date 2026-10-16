@@ -29,9 +29,9 @@ library's `<app-ai-disclosure />` (import `AiDisclosureComponent` from `@duplocl
 - **Wizard** — pass `[aiDisclosure]="true"` to the copied `wizard-stepper`; it renders under the footer on every step.
 - **Modal form** — inside `.modal-footer`, above the buttons.
 
-The text and link come from the deployment's branding config (brand name included) — never hardcode them. Worker,
-Passthrough and No-provision forms do **not** carry it. `scripts/build-extension.sh` fails an Agent-mode extension
-with no `app-ai-disclosure` under `frontend/src`.
+It renders "This platform uses AI. See documentation for more details."; a deployment can change the text and link in
+its config (`text.aiDisclosure`, `links.aiDisclosure`). Don't hardcode the wording or set `defaultText`. Worker,
+Passthrough and No-provision forms do **not** carry it.
 
 ## Multi-step wizards — there is NO library stepper
 

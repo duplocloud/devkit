@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Unload + delete a loaded extension by its manifest id.
-# Usage: ./scripts/remove-extension.sh duplo.examples.helloworld
+# Usage: ./scripts/remove-extension.sh com.duplocloud.helloworld
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

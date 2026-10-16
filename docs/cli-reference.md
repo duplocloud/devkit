@@ -107,7 +107,7 @@ extensions, Mongo, the file store, and the Knowledge Base vectors are lost.
 ```
 
 A thin wrapper around `docker compose logs -f`; every argument is passed straight through. Services are
-`duplo-ai-studio`, `claude-code-agent`, `dind`, `duplo-ui`, `mongo`, `qdrant`, and `xterm`.
+`duplo-ai-studio`, `claude-code-agent`, `dind`, `duplo-ui`, `installer`, `mongo`, `qdrant`, and `xterm`.
 
 ## What each command destroys
 
@@ -164,7 +164,7 @@ Your `extensions/` directory is **never** touched by any of these — it is only
 | `build-all.sh` | Build every `extensions/<name>/manifest.json` in the repo. What CI runs. |
 | `deploy-extension.sh <path-to-extension.zip>` | Hot-load one bundle onto the platform — no restart. |
 | `deploy-all.sh` | Hot-load every built bundle. Run after `build-all.sh`. |
-| `remove-extension.sh <extension-id>` | Unload and delete a loaded extension by its manifest id, e.g. `duplo.examples.helloworld`. |
+| `remove-extension.sh <extension-id>` | Unload and delete a loaded extension by its manifest id, e.g. `com.duplocloud.helloworld`. |
 
 `build-extension.sh` refuses to build an extension whose naming is wrong — REST segments must start with
 `extensions/`, Mongo collections must be prefixed `extension_`, and template `Hello`/`hw-` identifiers must

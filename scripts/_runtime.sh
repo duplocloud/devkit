@@ -403,7 +403,7 @@ The podman machine is too small to build in.
   memory:    $((mib / 1024)) GiB ($mib MiB)
   required:  $((min_mem / 1024)) GiB ($min_mem MiB) minimum, $((rec_mem / 1024)) GiB recommended
 
-That ceiling is shared by this stack's six containers and by every extension build. The Angular
+That ceiling is shared by this stack's containers and by every extension build. The Angular
 frontend build is what runs out first, and when it does the only clue is 'exit status 137' at the
 end of a Go stack trace — so this stops here instead.
 

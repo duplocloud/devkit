@@ -10,6 +10,7 @@ reader takes.
 | [architecture.md](architecture.md) | How the studio, agent, UI, xterm, and Mongo fit together, and how the hot-load loop works |
 | [configuration.md](configuration.md) | Every `.env` variable — default, effect, and which are managed for you |
 | [cli-reference.md](cli-reference.md) | `run.sh`, `stop.sh`, `logs.sh`, and every script in `scripts/` — flags and behavior |
+| [releasing-extensions.md](releasing-extensions.md) | What `release.yml` publishes, signing, and the extra steps inside DuploCloud's own organizations |
 | [upgrading.md](upgrading.md) | Taking framework updates, and how image-tag pinning works |
 | [troubleshooting.md](troubleshooting.md) | Symptoms, causes, fixes |
 | [faq.md](faq.md) | Licensing, data, platform support, and what happens on upgrade |

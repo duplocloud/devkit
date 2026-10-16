@@ -1,12 +1,12 @@
 {
   "manifestVersion": "1.0",
-  "id": "duplo.examples.worker-compute",
+  "id": "com.duplocloud.worker-compute",
   "name": "Worker Compute (Calculator)",
   "version": "0.1.0",
 
   "sdkVersion": "REPLACED_BY_SKILL_FROM_sdk-version_ENDPOINT",
   "backend": {
-    "assemblyDir": "duplo.examples.worker-compute/0.1.0/backend",
+    "assemblyDir": "com.duplocloud.worker-compute/0.1.0/backend",
     "entryAssembly": "Duplo.Extension.Calculator.dll"
   },
 
@@ -28,17 +28,17 @@
   "frontend": {
     "remote": {
       "remoteName": "duploExtensionCalcWorker",
-      "remoteEntry": "/v1/aiservicedesk/extensions/duplo.examples.worker-compute/fe/remoteEntry.json",
+      "remoteEntry": "/v1/aiservicedesk/extensions/com.duplocloud.worker-compute/fe/remoteEntry.json",
       "exposedModule": "./Extension",
       "type": "module"
     },
     "menus": [
       {
-        "id": "duplo.examples.worker-compute-devops",
+        "id": "com.duplocloud.worker-compute-devops",
         "title": "DevOps",
         "type": "collapsible-section",
         "children": [
-          { "id": "duplo.examples.worker-compute-cw", "title": "Calc Worker", "type": "item", "matIcon": "calculate", "relativeUrl": "extensions/calcworkers", "order": 45 }
+          { "id": "com.duplocloud.worker-compute-cw", "title": "Calc Worker", "type": "item", "matIcon": "calculate", "relativeUrl": "extensions/calcworkers", "order": 45 }
         ]
       }
     ],

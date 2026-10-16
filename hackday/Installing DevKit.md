@@ -12,7 +12,7 @@ image pulls over conference wifi.
 
 ## What you're setting up
 
-The whole DuploCloud platform — six containers — running on your laptop via Docker. On top of it you
+The whole DuploCloud platform, seven containers, running on your laptop via Docker. On top of it you
 build an **Agent**: your own backend, your own UI, your own provisioning workflow, hot-loaded into the
 running platform with no restart. You describe what you want in plain language and Claude Code builds it.
 

@@ -14,6 +14,8 @@
 *.zip
 !packages/*.tgz
 !.claude/skills/duplo-extension-dev/templates/helloworld/frontend/vendor/*.tgz
+# The console's cross-language signing vectors (tests/extension_sign_vectors.py), not a build artifact.
+!tests/vectors/*.zip
 
 # The Terraform extension's source, vendored by run.sh (scripts/fetch-terraform-extension.sh).
 # It is fetched, not authored here, so it does not belong in this repo's history — and without this

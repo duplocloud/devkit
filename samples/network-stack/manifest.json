@@ -1,12 +1,12 @@
 {
   "manifestVersion": "1.0",
-  "id": "duplo.examples.networkstack",
+  "id": "com.duplocloud.networkstack",
   "name": "Network Stack",
   "version": "0.1.0",
 
   "sdkVersion": "REPLACED_BY_SKILL_FROM_sdk-version_ENDPOINT",
   "backend": {
-    "assemblyDir": "duplo.examples.networkstack/0.1.0/backend",
+    "assemblyDir": "com.duplocloud.networkstack/0.1.0/backend",
     "entryAssembly": "Duplo.Extension.NetworkStack.dll"
   },
 
@@ -26,7 +26,7 @@
   ],
 
   "skills": [
-    { "folder": "duplo.examples.networkstack/0.1.0/skills/provision-network-stack", "isBuiltIn": true }
+    { "folder": "com.duplocloud.networkstack/0.1.0/skills/provision-network-stack", "isBuiltIn": true }
   ],
   "skillMappings": [
     { "originType": "NetworkStack", "subType": "network-stack", "skillNames": ["provision-network-stack"], "timeout": { "provision": 1800, "deprovision": 900 } }
@@ -35,18 +35,18 @@
   "frontend": {
     "remote": {
       "remoteName": "duploExtensionNetworkStack",
-      "remoteEntry": "/v1/aiservicedesk/extensions/duplo.examples.networkstack/fe/remoteEntry.json",
+      "remoteEntry": "/v1/aiservicedesk/extensions/com.duplocloud.networkstack/fe/remoteEntry.json",
       "exposedModule": "./Extension",
       "type": "module"
     },
     "menus": [
       {
-        "id": "duplo.examples.networkstack-devops",
+        "id": "com.duplocloud.networkstack-devops",
         "title": "DevOps",
         "type": "collapsible-section",
         "children": [
           {
-            "id": "duplo.examples.networkstack-network-stack",
+            "id": "com.duplocloud.networkstack-network-stack",
             "title": "Network Stacks",
             "type": "item",
             "matIcon": "lan",

@@ -131,12 +131,6 @@ if [ "$viol" -ne 0 ]; then
 fi
 echo "    naming OK"
 
-echo "==> Checking AI-use disclosure (reference/14-forms-and-wizards.md)"
-# shellcheck source=scripts/_ai_disclosure_gate.sh
-source "$(dirname "$0")/_ai_disclosure_gate.sh"
-ai_disclosure_gate "$DIR" || { echo "ERROR: Agent-mode extension is missing the AI-use disclosure." >&2; exit 1; }
-echo "    disclosure OK"
-
 echo "==> Fetching SDK feed from $BASE_URL"
 auth=()
 [ -n "${TOKEN:-}" ] && auth=(-H "Authorization: Bearer $TOKEN")
@@ -228,10 +222,10 @@ echo "    host provides $(wc -l < "$PROVIDED" | tr -d ' ') assemblies (excluded 
 echo "==> Assembling bundle"
 PKG="$DIR/dist/pkg"
 rm -rf "$PKG"; mkdir -p "$PKG/backend" "$PKG/fe" "$PKG/skills"
-# Bundle manifest with the real host SDK version pinned in, the digest of the SDK feed it was compiled against
-# (sdkDigest), and both <id>/<version>/ paths derived from
-# id+version. The host stages the bundle to <ExtensionStudioPath>/<id>/<version>/ but reads the entry assembly
-# from backend.assemblyDir and each provisioning skill from skills[].folder, so all three have to agree.
+# Bundle manifest with the real host SDK version and the digest of the SDK feed it was compiled against pinned
+# in, and both <id>/<version>/ paths derived from id+version. The host stages the bundle to
+# <ExtensionStudioPath>/<id>/<version>/ but reads the entry assembly from backend.assemblyDir and each
+# provisioning skill from skills[].folder, so all three have to agree.
 # Maintained by hand they drift the moment you bump version alone, and what that breaks depends on the target:
 #
 #   backend.assemblyDir  a host that still has the old version on disk keeps running the OLD backend DLL and

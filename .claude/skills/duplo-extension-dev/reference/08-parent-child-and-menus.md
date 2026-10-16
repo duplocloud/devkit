@@ -138,12 +138,12 @@ title** and recurses (`mergeExtensionMenuItems`/`upsertMenuNodeByTitle` in `src/
 ```jsonc
 // manifest.json → frontend.menus : one tree per top-level title (here a new "Hello" group)
 "menus": [
-  { "id": "duplo.examples.helloworld-hello", "title": "Hello", "type": "collapsible-section",
+  { "id": "com.duplocloud.helloworld-hello", "title": "Hello", "type": "collapsible-section",
     "matIcon": "package-variant", "order": 60,
     "children": [
-      { "id": "duplo.examples.helloworld-hello-parents", "title": "Parents", "type": "item",
+      { "id": "com.duplocloud.helloworld-hello-parents", "title": "Parents", "type": "item",
         "matIcon": "folder-outline", "relativeUrl": "extensions/hello-parents", "order": 1 },
-      { "id": "duplo.examples.helloworld-hello-children", "title": "All Children", "type": "item",
+      { "id": "com.duplocloud.helloworld-hello-children", "title": "All Children", "type": "item",
         "matIcon": "file-outline", "relativeUrl": "extensions/hello-children", "order": 2 }
     ]
   }

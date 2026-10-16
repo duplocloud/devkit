@@ -45,8 +45,8 @@ usually a report nobody can act on.
 
 Useful to attach, once redacted: `./logs.sh --no-follow` (or one service, e.g.
 `./logs.sh --no-follow duplo-ai-studio`), `docker compose ps`, `docker compose version`, your OS and
-architecture, and the `STUDIO_TAG` / `UI_TAG` / `AGENT_TAG` / `XTERM_TAG` lines from `.env` — those
-tags are not secret and they pin down exactly which build you are on.
+architecture, and the `STUDIO_TAG` / `UI_TAG` / `AGENT_TAG` / `XTERM_TAG` / `INSTALLER_TAG` lines from `.env`.
+Those tags are not secret and they pin down exactly which build you are on.
 
 ## Never paste
 

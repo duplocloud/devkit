@@ -60,9 +60,9 @@ Ties the bundle together. For a typed extension (see the hello-world manifest):
 ```jsonc
 {
   "manifestVersion": "1.0",
-  "id": "duplo.examples.helloworld", "name": "Hello World", "version": "0.1.0",
+  "id": "com.duplocloud.helloworld", "name": "Hello World", "version": "0.1.0",
   "sdkVersion": "<from GET …/extensions/sdk-version>",
-  "backend": { "assemblyDir": "duplo.examples.helloworld/0.1.0/backend",
+  "backend": { "assemblyDir": "com.duplocloud.helloworld/0.1.0/backend",
                "entryAssembly": "Duplo.Extension.HelloWorld.dll" },
   "resources": [{
     "ticketOriginType": "HelloWorld", "restSegment": "extensions/helloworlds", "subType": "hello-world",
@@ -73,7 +73,7 @@ Ties the bundle together. For a typed extension (see the hello-world manifest):
     "hooksType":  "Duplo.Extension.HelloWorld.HelloWorldHooks",
     "serviceType":"Duplo.Extension.HelloWorld.HelloWorldService"
   }],
-  "skills": [{ "folder": "duplo.examples.helloworld/0.1.0/skills/provision-helloworld", "isBuiltIn": true }],
+  "skills": [{ "folder": "com.duplocloud.helloworld/0.1.0/skills/provision-helloworld", "isBuiltIn": true }],
   "skillMappings": [{ "originType": "HelloWorld", "subType": "hello-world",
                       "skillNames": ["provision-helloworld"], "timeout": { "provision": 300, "deprovision": 120 } }],
   "frontend": { "remote": { … }, "menus": [ … ], "routes": [ … ] }

@@ -277,7 +277,9 @@ builder_resolve_image() {
   fi
 
   local tag; tag="$(builder_clean_value "$(_envv BUILDER_TAG)")"
-  if [ -z "$tag" ]; then
+  # `latest` was the default before the pin, so older .env files still carry it. Reading it as unset keeps those
+  # repos on the pinned toolchain. BUILDER_IMAGE=...:latest still selects the moving tag on purpose.
+  if [ -z "$tag" ] || [ "$tag" = latest ]; then
     BUILDER_IMAGE="$_BUILDER_PINNED_IMAGE"
   else
     # OCI tag grammar: [A-Za-z0-9_][A-Za-z0-9._-]{0,127}. Checked here because the alternative is
