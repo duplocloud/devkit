@@ -18,6 +18,7 @@ pointing at the next.
 | # | Page | What you get |
 | --- | --- | --- |
 | 0 | [Prerequisites](prerequisites.md) | Confirmation that you have everything this kit needs |
+| 0a | [Windows: set up WSL](windows-wsl.md) | *Windows only.* A WSL 2 Ubuntu shell with Docker and Compose v2 |
 | 1 | [Install and sign in](install.md) | The platform running locally, and you signed in to it |
 | 2 | [Connect AWS](connect-aws.md) | The agent answering questions about your AWS account |
 | 3 | [Connect Kubernetes](connect-kubernetes.md) | The agent answering questions about your EKS cluster |

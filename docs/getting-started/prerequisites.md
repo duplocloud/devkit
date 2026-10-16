@@ -164,4 +164,6 @@ If something on your machine already holds one of them, you do not need to free 
 `*_PORT` in `.env` on the next page instead. The variables, and the trap in *blanking* one rather than
 changing it, are in [configuration.md](../configuration.md#host-ports).
 
+> **On Windows?** Set up WSL 2 and Docker first: [Windows: set up WSL](windows-wsl.md).
+
 **Next:** [1. Install and sign in](install.md)
