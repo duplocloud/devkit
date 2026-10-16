@@ -12,7 +12,11 @@ Import `SharedFormsModule` and use:
   `#fge showDetailsWhen="submitted"` on the container.
 - **`<ng-select>`** — re-exported by `SharedFormsModule` (single, `[multiple]`, `[items]`). No separate import.
 - `<password-field>`, `<key-val-field>` (name/value pairs), and `FormElementsCollapsableGroupComponent` (collapsible
-  section) for richer inputs.
+  section) for richer inputs. `<password-field>` masks the *display* only — if the Spec field is
+  `[SecretValue(ExcludeFromResponse = true)]` ([21-secrets](21-secrets.md)), the GET response never carries
+  a value to begin with, so an **edit** form must not try to pre-populate it: placeholder
+  `"•••• — leave blank to keep"`, start the model value `undefined`, and only send the key in the PATCH
+  body when the user actually typed something.
 - Toggle/switch: there is no dedicated lib toggle — use a Bootstrap 4 `custom-control custom-switch` + `ngModel`
   (the host ships the Vuexy theme CSS).
 

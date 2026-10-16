@@ -131,6 +131,81 @@ if [ "$viol" -ne 0 ]; then
 fi
 echo "    naming OK"
 
+# Secret-field gate — heuristic, NOT exhaustive (see reference/21-secrets.md). A `string`/`string?`
+# property whose name looks like a password/token/key and carries no [SecretValue] (or [AgentSecretValue])
+# attribute within the few lines above it fails the build. This catches the common case — a field added
+# without ever reading 21-secrets.md — not every shape a secret can take: it does not see fields renamed
+# away from these keywords, secrets stuffed into AdditionalCustomSpec/ExtraConfigs (untyped — no attribute
+# is possible there regardless), or non-string secret types. A false positive (e.g. a non-secret field that
+# happens to contain "secret", like a resource ARN) is silenced with a same-block comment:
+#   // secret-field-exception: <reason this field is not actually sensitive>
+echo "==> Checking for un-attributed secret-looking fields (reference/21-secrets.md)"
+if [ -d "$DIR/backend" ]; then
+  cs_files=$(find "$DIR/backend" -name '*.cs' -not -path '*/obj/*' -not -path '*/bin/*' -not -path '*/sdk-packages/*' -not -path '*/_sdkbaseline/*')
+  if [ -n "$cs_files" ]; then
+    secret_lint_out=$(awk '
+      { lines[FILENAME, FNR] = $0 }
+      /^[[:space:]]*public[[:space:]]+string\??[[:space:]]+[A-Za-z0-9_]+[[:space:]]*\{[[:space:]]*get;[[:space:]]*set;/ {
+        name = $0
+        sub(/.*public[[:space:]]+string\??[[:space:]]+/, "", name)
+        sub(/[[:space:]]*\{.*/, "", name)
+        lname = tolower(name)
+        if (lname ~ /password|secret|token|apikey|api_key|credential|passphrase|privatekey|accesskey/) {
+          covered = 0
+          start = (FNR - 6 < 1 ? 1 : FNR - 6)
+          for (i = start; i <= FNR; i++) {
+            if (lines[FILENAME, i] ~ /\[SecretValue/ || lines[FILENAME, i] ~ /secret-field-exception:/) { covered = 1; break }
+          }
+          if (!covered) {
+            printf "  ✗ %s:%d: property \"%s\" looks like a secret but has no [SecretValue] attribute (or a // secret-field-exception: comment) nearby\n", FILENAME, FNR, name
+            viol = 1
+          }
+        }
+      }
+      END { exit (viol ? 1 : 0) }
+    ' $cs_files) || { echo "$secret_lint_out" >&2; echo "ERROR: un-attributed secret-looking field(s) — fix with [SecretValue] (reference/21-secrets.md) or a // secret-field-exception: comment." >&2; exit 1; }
+  fi
+fi
+echo "    secret-field check OK"
+
+# Agent-spec-decrypt gate (reference/21-secrets.md) — same heuristic spirit as the check above, but for a
+# different failure mode: a [AgentSecretValue] property whose backend ALSO does its own at-rest encryption
+# (calls .EncryptAsync( anywhere) needs a GetExpandedSpecForAgentAsync override that decrypts BEFORE the
+# host's generic [AgentSecretValue] redaction runs — otherwise the sibling shared/<subtype>.secrets.json
+# file a skill reads with jq ends up holding the same useless ciphertext Mongo has. This is not
+# hypothetical: it's the exact bug samples/secret-field shipped with before this check existed (and, by
+# the same absence of such an override, is suspected to affect the first-party AWSRdsInstance/
+# AWSRdsCluster/AWSElastiCache DevOps resources too — out of scope for this gate, which only covers
+# extensions). This check can only confirm the override EXISTS, not that it's implemented correctly
+# (e.g. that it restores the ciphertext in a `finally`) — see 21-secrets.md's verification checklist for
+# the rest. A false positive is silenced the same way as the check above:
+#   // agent-secret-spec-exception: <reason this resource doesn't need the override>
+#
+# NOTE for later: if the host's RedactAgentSpecSecrets is ever changed to auto-decrypt generically (using
+# the now-bridged IMongoEncryptionProvider), this override becomes optional rather than required — loosen
+# or retire this check at that point instead of forcing a now-redundant override on every extension.
+echo "==> Checking AgentSecretValue + at-rest encryption has a decrypting GetExpandedSpecForAgentAsync override (reference/21-secrets.md)"
+if [ -n "${cs_files:-}" ]; then
+  # `|| true`: under `set -o pipefail`, `grep -l ... | head -1` reports grep's own exit status (1) when
+  # nothing matches — the ordinary, expected case for most extensions (no AgentSecretValue at all). Without
+  # the guard, `set -e` kills the whole build right here, silently, before this check ever gets to decide
+  # whether anything is actually wrong.
+  has_agent_secret=$(grep -l '\[AgentSecretValue\]' $cs_files 2>/dev/null | head -1 || true)
+  has_own_encryption=$(grep -l '\.EncryptAsync(' $cs_files 2>/dev/null | head -1 || true)
+  if [ -n "$has_agent_secret" ] && [ -n "$has_own_encryption" ]; then
+    has_override=$(grep -l 'override.*GetExpandedSpecForAgentAsync\|agent-secret-spec-exception:' $cs_files 2>/dev/null | head -1 || true)
+    if [ -z "$has_override" ]; then
+      echo "  ✗ $has_agent_secret: [AgentSecretValue] + at-rest encryption (EncryptAsync in $has_own_encryption)," >&2
+      echo "    but no GetExpandedSpecForAgentAsync override found anywhere in the backend." >&2
+      echo "    The sibling shared/<subtype>.secrets.json file would contain ciphertext, not a usable value." >&2
+      echo "ERROR: see reference/21-secrets.md's 'agent-spec serializer override' section, or add a" >&2
+      echo "       // agent-secret-spec-exception: <reason> comment if this resource genuinely doesn't need it." >&2
+      exit 1
+    fi
+  fi
+fi
+echo "    agent-spec decrypt check OK"
+
 echo "==> Fetching SDK feed from $BASE_URL"
 auth=()
 [ -n "${TOKEN:-}" ] && auth=(-H "Authorization: Bearer $TOKEN")
