@@ -4,11 +4,8 @@
 // spacing and shapes. `@use` this from a component stylesheet — never globally (the remote ships no global
 // CSS, and the host loads the remote's JS, not a stylesheet). See reference/19-detail-page.md.
 //
-// Tokens carry a fallback because the remote may render before the host theme's custom properties are
-// resolvable (standalone `ng serve`, storybook-style previews) and because `--primary-50` / `--neutral-*`
-// are emitted by the portal build, not declared in the vendored `_theme-vars.scss`. Fallbacks are the Vuexy
-// defaults the portal ships, so a missing var degrades to the same look rather than to transparent.
-$g-white:       var(--white, #fff);
+// Older tokens keep their Vuexy fallbacks. The theme tokens below need none: ng-common-lib >= 0.5.1
+// injects light/dark defaults for portals that lack them. See reference/21-theming.md.
 $g-border:      var(--border-color, #ebe9f1);
 $g-headings:    var(--headings-color, #5e5873);
 $g-body:        var(--body-color, #6e6b7b);
@@ -22,13 +19,29 @@ $g-success:     var(--success, #28c76f);
 $g-warning:     var(--warning, #ff9f43);
 $g-danger:      var(--danger, #ea5455);
 
+// Theme tokens: follow the portal's Light/Dark mode.
+$g-surface:        var(--surface);
+$g-surface-raised: var(--surface-raised);
+$g-surface-subtle: var(--surface-subtle);
+$g-input-bg:       var(--input-bg);
+$g-primary-text:   var(--primary-text);
+$g-info-text:      var(--info-text);
+$g-success-text:   var(--success-text);
+$g-warning-text:   var(--warning-text);
+$g-danger-text:    var(--danger-text);
+$g-secondary-text: var(--secondary-text);
+$g-on-primary:     var(--on-primary);
+$g-border-raised:  var(--border-raised);
+$g-shadow-raised:  var(--shadow-raised);
+$g-code-surface:   var(--code-surface);
+
 // Bootstrap's --font-family-monospace resolves to a PROPORTIONAL stack in the portal theme, so anything
 // that needs column alignment (ids, SHAs, CIDRs) names a real monospace stack literally.
 $g-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
 
 // Flat bordered card — G has no card shadows.
 %g-card {
-  background: $g-white;
+  background: $g-surface;
   border: 1px solid $g-border;
   border-radius: 12px;
 }
@@ -112,7 +125,7 @@ $g-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace
 
 // G ghost button: white, hairline border, quiet text — the default control everywhere but the CTA.
 %g-btn-ghost {
-  background: $g-white;
+  background: $g-surface;
   border: 1px solid $g-border;
   border-radius: 8px;
   height: 32px;

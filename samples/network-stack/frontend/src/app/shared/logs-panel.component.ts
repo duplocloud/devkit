@@ -14,12 +14,12 @@ import { AutoScrollBottomDirective } from './auto-scroll-bottom.directive';
   selector: 'ns-logs-panel',
   imports: [CommonLibComponentsModule, AnsiStripPipe, AutoScrollBottomDirective],
   styles: [`
-    /* min-height keeps the console from collapsing between live-tail fetches. */
-    .console { background: #161d31; color: #d0d2d6; border-radius: 6px; padding: .75rem;
+    /* min-height keeps the console from collapsing between live-tail fetches; --code-surface is dark in both modes. */
+    .console { background: var(--code-surface); color: color-mix(in srgb, var(--white) 85%, transparent); border-radius: 6px; padding: .75rem;
       min-height: 160px; max-height: 420px; overflow: auto; font-size: .8rem; white-space: pre-wrap; }
     .run-row { cursor: pointer; }
-    .run-row.active { background: rgba(115, 103, 240, .08); }
-    .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #28c76f; display: inline-block;
+    .run-row.active { background: color-mix(in srgb, var(--primary) 8%, transparent); }
+    .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); display: inline-block;
       margin-right: .35rem; animation: ns-pulse 1.2s ease-in-out infinite; }
     @keyframes ns-pulse { 50% { opacity: .35; } }
   `],
