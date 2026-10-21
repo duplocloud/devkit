@@ -120,6 +120,25 @@ new_repo; set_manifest 'v1.0.0' '["duplo.demo/v1.0.0/skills/provision-demo"]'; c
 OUT="$(GITHUB_REPOSITORY_OWNER=duplocloud run)"; RC=$?
 if [ "$RC" = 0 ] && grep -q "::warning.*not strict semver" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
 
+# frontend_lib <dependency spec>: the extension's frontend depends on ng-common-lib at that spec.
+frontend_lib() {
+  mkdir -p "$D/frontend"
+  jq -n --arg v "$1" '{dependencies:{"@duplocloud-internal/ng-common-lib":$v}}' > "$D/frontend/package.json"
+  git -C "$REPO" add -A; git -C "$REPO" commit -qm lib
+}
+
+t "warns about an ng-common-lib older than 0.5.1, naming the theme migration skill"
+new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'
+frontend_lib 'file:vendor/duplocloud-internal-ng-common-lib-0.4.0.tgz'
+OUT="$(run)"; RC=$?
+if [ "$RC" = 0 ] && grep -q "::warning.*0.4.0.*duplo-extension-theme-migration" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
+
+t "is quiet about ng-common-lib 0.5.1 and later"
+new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'
+frontend_lib 'file:vendor/duplocloud-internal-ng-common-lib-0.5.1.tgz'
+OUT1="$(run)"; frontend_lib '^0.10.0'; OUT2="$(run)"; RC=$?
+if [ "$RC" = 0 ] && ! grep -q "::warning" <<<"$OUT1$OUT2"; then ok; else bad "rc=$RC out=$OUT1$OUT2"; fi
+
 echo
 echo "passed $PASS, failed $FAIL"
 [ "$FAIL" -eq 0 ]
