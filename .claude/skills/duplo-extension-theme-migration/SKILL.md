@@ -21,11 +21,11 @@ upgrade path for an extension that predates them. Work in the extension's `front
 0.5.1 carries the dark-theme components **and** zero-specificity token defaults, so the migrated extension also
 keeps its look on portals that predate the dark theme.
 
-- Get the tarball: `npm pack @duplocloud-internal/ng-common-lib@0.5.1` (GitHub Packages; needs a token with
+- Get the tarball: `npm pack @duplocloud-internal/ng-common-lib@0.5.2` (GitHub Packages; needs a token with
   `read:packages` in `~/.npmrc`), or copy it from this repo's `packages/`.
 - Inside devkit, `scripts/refresh-common-lib.sh <tgz>` does the next two steps for every frontend.
 - Move it into `frontend/vendor/`, delete the old `duplocloud-internal-ng-common-lib-*.tgz` there, and point the
-  dependency at it: `"@duplocloud-internal/ng-common-lib": "file:vendor/duplocloud-internal-ng-common-lib-0.5.1.tgz"`.
+  dependency at it: `"@duplocloud-internal/ng-common-lib": "file:vendor/duplocloud-internal-ng-common-lib-0.5.2.tgz"`.
 - `npm install` to refresh the lockfile.
 
 ## 2. Bring in the `$g-*` theme names

@@ -13,8 +13,9 @@ themes). An extension follows both automatically **if every colour it paints com
 - **ng-common-lib ≥ 0.5.1** injects zero-specificity defaults for the tokens the dark theme added
   (`:where(:root)` light, `:where(:root[data-theme='dark'])` dark). A portal that defines a token always wins;
   on a portal that predates the dark theme the defaults fill the gap, so the extension still looks as before.
-  They load with the library, so the extension must import at least one ng-common-lib export in code that loads
-  with its pages (the scaffold does). A bare `import '@duplocloud-internal/ng-common-lib'` is tree-shaken away.
+  They load with the library, so the library must be imported in code that loads with the extension's pages (the
+  scaffold does). On 0.5.1 that import must use an export: a bare `import '@duplocloud-internal/ng-common-lib'`
+  is tree-shaken away. 0.5.2 keeps it.
 - Every extension bundles its **own** copy of ng-common-lib, and some of its components inject global CSS.
   **Rebuild against the portal's current ng-common-lib**: a stale bundled copy repaints the portal's own tables
   in old (light-only) colours while the extension's page is open.

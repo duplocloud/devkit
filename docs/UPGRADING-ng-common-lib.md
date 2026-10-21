@@ -1,7 +1,7 @@
 # Upgrading an extension's UI library: the vendored `@duplocloud-internal/ng-common-lib` tarball
 
 For extensions built from this dev-kit (or from the `duplo-extension-dev` skill template) that vendor the UI
-library as a tarball. The current line is 0.5.1 (Angular 22); [What changed in 0.5.1](#what-changed-in-051) covers
+library as a tarball. The current line is 0.5.2 (Angular 22); [What changed in 0.5.1](#what-changed-in-051) covers
 the dark theme, and the notes after it contrast the 0.2.x line with 0.1.x.
 
 > **This is not a drop-in upgrade.** 0.2.0 is compiled against **Angular 22** and ships as ESM
@@ -21,6 +21,11 @@ and no `frontend/webpack.config.js`), the steps below are all you need.
 
 ---
 
+## What changed in 0.5.2
+
+- `"sideEffects"` now names the library file, so a bundler cannot drop the token-defaults call even when
+  an extension imports nothing from the library. Nothing to change in the extension.
+
 ## What changed in 0.5.1
 
 - **Dark theme.** Components follow the portal's Light / Dark switch through theme tokens (`--surface`,
@@ -33,7 +38,7 @@ and no `frontend/webpack.config.js`), the steps below are all you need.
 - **Why upgrade:** an older bundled copy repaints the portal's tables white in dark mode while the extension's page
   is open, because its datatable styles are global.
 - Extension styles move to the `$g-*` theme names — see [theming.md](theming.md) and the
-  `duplo-extension-theme-migration` skill. Steps 1–5 below apply unchanged with the 0.5.1 tarball.
+  `duplo-extension-theme-migration` skill. Steps 1–5 below apply unchanged with the 0.5.2 tarball.
 
 ## What changed in 0.2.0
 

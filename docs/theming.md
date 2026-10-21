@@ -9,7 +9,7 @@ portal's theme tokens instead of fixed colours.
 - **The scaffold and samples are theme-aware.** Their styles use the `$g-*` names in
   `src/app/shared/_g-structure.scss` (`$g-surface`, `$g-primary-text`, `$g-border`, …), which map to the
   portal's tokens and change with the mode.
-- **ng-common-lib 0.5.1** (vendored in `packages/` and the template's `vendor/`) has the dark-theme versions of
+- **ng-common-lib 0.5.2** (vendored in `packages/` and the template's `vendor/`) has the dark-theme versions of
   its components, plus token defaults so an extension built with it still looks as before on a portal that
   predates the dark theme. The portal's own values always take precedence.
 
@@ -25,7 +25,7 @@ command follows it.
 
 An extension built before this change shows white panels or white tables in dark mode. The
 [`duplo-extension-theme-migration`](../.claude/skills/duplo-extension-theme-migration/SKILL.md) skill walks
-through it: vendor ng-common-lib 0.5.1, bring in the `$g-*` names, replace the fixed colours, rebuild, and check
+through it: vendor ng-common-lib 0.5.2, bring in the `$g-*` names, replace the fixed colours, rebuild, and check
 both modes.
 
 ## Checking
