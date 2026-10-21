@@ -7,8 +7,10 @@ description: Migrate an existing DuploCloud platform extension's frontend to the
 
 The portal switches **Light / Dark / System** by setting `<html data-theme>` and changing the values of its
 theme tokens. An extension renders in the portal's DOM, so it follows the switch for free — **except** where it
-paints a literal colour (hex, `var(--white)`, `$g-white`), or bundles an ng-common-lib older than 0.5.1, whose
-globally injected datatable styles repaint the portal's tables white while the extension's page is open.
+paints a literal colour (hex, `var(--white)`, `$g-white`), or bundles an older ng-common-lib. Below 0.5.0 the
+library is light-only, and its globally injected datatable styles repaint the portal's tables white while the
+extension's page is open. 0.5.0 follows dark mode but lacks the token defaults, so on a portal without the dark
+theme its components lose their backgrounds.
 
 The rules for writing theme-aware styles are in
 [duplo-extension-dev/reference/21-theming.md](../duplo-extension-dev/reference/21-theming.md). This skill is the
@@ -21,8 +23,9 @@ keeps its look on portals that predate the dark theme.
 
 - Get the tarball: `npm pack @duplocloud-internal/ng-common-lib@0.5.1` (GitHub Packages; needs a token with
   `read:packages` in `~/.npmrc`), or copy it from this repo's `packages/`.
-- Point the dependency at it: `"@duplocloud-internal/ng-common-lib": "file:vendor/duplocloud-internal-ng-common-lib-0.5.1.tgz"`
-  (inside devkit, `scripts/refresh-common-lib.sh <tgz>` does this for every frontend).
+- Inside devkit, `scripts/refresh-common-lib.sh <tgz>` does the next two steps for every frontend.
+- Move it into `frontend/vendor/`, delete the old `duplocloud-internal-ng-common-lib-*.tgz` there, and point the
+  dependency at it: `"@duplocloud-internal/ng-common-lib": "file:vendor/duplocloud-internal-ng-common-lib-0.5.1.tgz"`.
 - `npm install` to refresh the lockfile.
 
 ## 2. Bring in the `$g-*` theme names
@@ -33,13 +36,14 @@ and remove `$g-white` if the extension changed the file). Components keep `@use`
 ## 3. Find the light-only colours
 
 ```bash
-grep -rnE '\$g-white|background[a-z-]*: *var\(--(white|light)\)|rgba?\(|(^|[^-])color: *(\$g-|var\(--)(primary|warning|danger|success|secondary|dark)[;) ]|#[0-9a-fA-F]{3,8}\b' \
+grep -rnoE '\$g-white|background[a-z-]*: *(var\(--(white|light)\)|white\b)|rgba?\([^)]*\)|(^|[^-])color: *(\$g-|var\(--)(primary|info|warning|danger|success|secondary|dark)([;) }]|$)|#[0-9a-fA-F]{3,8}\b' \
   src --include='*.scss' --include='*.ts' --include='*.html' \
-  | grep -v _g-structure.scss | grep -vE 'rgba?\( *(0, *0, *0|255, *255, *255)'
+  | grep -v _g-structure.scss | grep -vE ':rgba?\( *(0, *0, *0|255, *255, *255) *,'
 ```
 
-The last filter keeps black/white with alpha (shadows, overlays), which may stay. Everything else it lists —
-hex, `rgb()`/`rgba()` of a colour, white/light backgrounds, fill colours used as text — needs a token.
+It prints each match, not each line, so one line can appear several times. The last filter drops black/white
+with alpha (shadows, overlays), which may stay. Everything else it lists — hex, `rgb()`/`rgba()` of a colour,
+white/light backgrounds, fill colours used as text — needs a token.
 
 ## 4. Map each hit
 
@@ -71,7 +75,8 @@ npm run build && grep -rl duplo-theme-defaults dist
 ```
 
 At least one file must match: that is ng-common-lib's token-defaults block, which keeps the extension looking as
-before on older portals. Then run devkit's `node scripts/verify-remote-federation.js extensions/<name>` as usual.
+before on older portals. Then, from the repository root, run `node scripts/verify-remote-federation.js
+extensions/<name>` as usual.
 
 ## 6. Verify in the portal
 
