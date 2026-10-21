@@ -6,13 +6,15 @@ themes). An extension follows both automatically **if every colour it paints com
 ## How the theme reaches a remote
 
 - The remote renders in the portal's own DOM (no iframe, no shadow DOM), so the portal's tokens on `:root` and
-  `<html data-theme="light|dark">` already apply to its elements. The remote ships **no global CSS**.
+  `<html data-theme="light|dark">` already apply to its elements. The remote ships no global stylesheet of its
+  own; only ng-common-lib injects a few global styles (below).
 - Tokens change value per mode: `--surface` is white in light and near-black in dark. Paint with tokens and the
   extension switches with the portal; paint with a literal and it doesn't.
 - **ng-common-lib ≥ 0.5.1** injects zero-specificity defaults for the tokens the dark theme added
   (`:where(:root)` light, `:where(:root[data-theme='dark'])` dark). A portal that defines a token always wins;
   on a portal that predates the dark theme the defaults fill the gap, so the extension still looks as before.
-  Nothing to do in the extension beyond vendoring ≥ 0.5.1.
+  They load with the library, so the extension must import at least one ng-common-lib export in code that loads
+  with its pages (the scaffold does). A bare `import '@duplocloud-internal/ng-common-lib'` is tree-shaken away.
 - Every extension bundles its **own** copy of ng-common-lib, and some of its components inject global CSS.
   **Rebuild against the portal's current ng-common-lib**: a stale bundled copy repaints the portal's own tables
   in old (light-only) colours while the extension's page is open.
