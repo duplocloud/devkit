@@ -133,6 +133,12 @@ frontend_lib 'file:vendor/duplocloud-internal-ng-common-lib-0.4.0.tgz'
 OUT="$(run)"; RC=$?
 if [ "$RC" = 0 ] && grep -q "::warning.*0.4.0.*duplo-extension-theme-migration" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
 
+t "warns about ng-common-lib 0.5.0 for its missing token defaults, not as light-only"
+new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'
+frontend_lib 'file:vendor/duplocloud-internal-ng-common-lib-0.5.0.tgz'
+OUT="$(run)"; RC=$?
+if [ "$RC" = 0 ] && grep -q "::warning.*0.5.0.*defaults" <<<"$OUT" && ! grep -q "stays light" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
+
 t "is quiet about ng-common-lib 0.5.1 and later"
 new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'
 frontend_lib 'file:vendor/duplocloud-internal-ng-common-lib-0.5.1.tgz'
