@@ -22,6 +22,8 @@ signatures are in the installed package — see [Checking an exact API](#checkin
    and renders wrong. Match the types in the [Recipes](#recipes), or read them from the `.d.ts`.
 7. **The detail-page shell and result tiles are not chosen here** — [19-detail-page](19-detail-page.md) and
    [17-custom-result-views](17-custom-result-views.md) rule those.
+8. **Editors and charts follow Light/Dark only through the theme adapters** — `withMonacoTheme`,
+   `CodeMirrorThemeService`, `EchartsThemeService`, `xtermTheme`; colours and rules in [21-theming](21-theming.md).
 
 ## Pick a component
 

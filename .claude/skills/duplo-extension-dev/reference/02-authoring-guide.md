@@ -364,7 +364,8 @@ It checks that `dist/remoteEntry.json` exists and is flat (no `dist/browser/`), 
 manifest's `remoteName`, that the exposed module is present, and — when given the host entry — that every shared
 package the remote declares is published by the host at the same major.
 
-Bootstrap 4 + the Vuexy theme are served globally by the host, so the remote ships no CSS. Build with a strict
+Bootstrap 4 + the Vuexy theme are served globally by the host, so the remote ships no CSS. Colours come only from
+the `$g-*` theme names so the extension follows Light/Dark — [21-theming](21-theming.md). Build with a strict
 `npm ci` / `npm install` — never npm's legacy peer-dependency flag.
 
 ### Viewing the result
