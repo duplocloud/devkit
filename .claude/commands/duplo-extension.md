@@ -174,6 +174,8 @@ Now follow the `duplo-extension-dev` skill — read `.claude/skills/duplo-extens
 - author backend + frontend + provision skill(s) + `manifest.json` to match the agreed requirements. **Rename every
   `HelloWorld`/`HelloService`/`hw-` identifier (backend AND frontend) to your resource, and set the FE service's
   `REST_SEGMENT` to the full `extensions/<…>` path — the build fails otherwise.**
+- style with the `$g-*` theme names only (no hex, no `var(--white)` backgrounds) so the extension follows the portal's
+  Light/Dark switch — `reference/21-theming.md`,
 - build + deploy (the scripts resolve the target from `.env`/env via `scripts/_target.sh`):
   ```bash
   ./scripts/build-extension.sh  extensions/<name>

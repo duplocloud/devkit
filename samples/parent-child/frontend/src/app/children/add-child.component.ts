@@ -12,7 +12,7 @@ import { HelloChild, ParentChildService } from '../parentchild.service';
   imports: [SharedFormsModule, AiDisclosureComponent],
   styles: [`
     :host { display: block; }
-    .panel-form-accordion { background: #fff; padding: 1.25rem 0 1rem 1.5rem; }
+    .panel-form-accordion { background: var(--surface); padding: 1.25rem 0 1rem 1.5rem; }
     .panel-content-title { width: 265px; min-width: 265px; }
     .panel-content-title-sub-text { max-width: 220px; }
     .panel-content-form { max-width: 768px; flex: 1 1 auto; margin: 0 1rem; padding: 0 1rem; }

@@ -16,8 +16,9 @@
 # registry access. Or download it from GitHub Packages with
 # `npm pack @duplocloud-internal/ng-common-lib@<ver>`.
 #
-# Then point this script at the produced tgz; it drops it into packages/ and the template's vendor/,
-# removes the old lib tarball from both, and rewrites the `file:` dependency in each package.json.
+# Then point this script at the produced tgz; it drops it into packages/, the template's vendor/ and the
+# vendor/ of any frontend copied from the template, removes the old lib tarball from each, and rewrites
+# the `file:` dependency in each package.json.
 # Commit the result.
 #
 # Usage: ./scripts/refresh-common-lib.sh /path/to/duplocloud-internal-ng-common-lib-<ver>.tgz
@@ -50,6 +51,13 @@ while IFS= read -r pkg; do
   # (either .../packages/ for samples or vendor/ for the self-contained skill template)
   perl -pi -e 's{"\@duplocloud-internal/ng-common-lib":\s*"([^"]*?(?:packages|vendor)/)duplocloud-internal-ng-common-lib-[^"]+"}{"\@duplocloud-internal/ng-common-lib": "${1}'"$NAME"'"}g' "$pkg"
   if [ "$before" != "$(cat "$pkg")" ]; then
+    # Frontends copied out of the template keep their own vendor/; put the tarball where the dependency points.
+    rel="$(jq -r '.dependencies["@duplocloud-internal/ng-common-lib"]' "$pkg")"
+    lib_dir="$(dirname "$pkg")/$(dirname "${rel#file:}")"
+    if [ -d "$lib_dir" ]; then
+      find "$lib_dir" -maxdepth 1 -name 'duplocloud-internal-ng-common-lib-*.tgz' ! -name "$NAME" -delete
+      [ -f "$lib_dir/$NAME" ] || cp "$TGZ" "$lib_dir/$NAME"
+    fi
     count=$((count + 1))
     echo "  refreshed $(dirname "$pkg")"
   fi
