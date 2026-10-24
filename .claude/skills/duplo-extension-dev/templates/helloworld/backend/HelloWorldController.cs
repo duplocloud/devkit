@@ -14,6 +14,13 @@ namespace Duplo.Extension.HelloWorld;
 /// endpoints every first-class resource exposes. The loader adds this assembly as an
 /// ApplicationPart and refreshes routes, so this becomes live at
 /// <c>.../environment/extensions/helloworlds</c> with no host restart.
+/// <para>
+/// Admin-scoped resource (platform-wide, administrators only)? Derive from
+/// <c>AdminResourcesController&lt;HelloWorld, HelloWorldSpec, HelloWorldResult&gt;</c>
+/// (<c>using Duplo.Ai.DataManagement.Controllers.Admin.Resource;</c>, SDK 1.0.7+) and route it at
+/// <c>v1/aiservicedesk/admin/data/environment/extensions/helloworlds</c> — no <c>{workspaceId}</c>.
+/// See reference/21-admin-resources.md and samples/admin-settings.
+/// </para>
 /// </summary>
 [ApiController]
 [Route("v1/aiservicedesk/user/data/workspaces/{workspaceId}/environment/extensions/helloworlds")]

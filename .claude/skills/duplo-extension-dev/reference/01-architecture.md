@@ -10,6 +10,9 @@ A resource is a typed entity with a **spec** (desired inputs) and a **result** (
 through a lifecycle by a **provisioner**. The platform gives you, for free:
 
 - **Workspace (tenant) multitenancy** — every resource has `OwnerWorkspaceId`; routes are workspace-scoped.
+  An **admin-scoped** resource (`AdminResourcesController`) instead lives on an admin-only route with no workspace,
+  and its `OwnerWorkspaceId` is always the system Admin Workspace — same pipeline otherwise
+  ([21-admin-resources.md](21-admin-resources.md)).
 - **Persistence** — its own Mongo collection (`[BsonCollection]`), optimistic concurrency (`Version`).
 - **A REST surface** — full CRUD + `status`/`results`/`deprovision` (inherited).
 - **A status state machine** + **fault reconciliation** (a background worker raises faults for stuck rows).
@@ -52,7 +55,8 @@ hello-world example is agent-based: a skill (`provision-helloworld`) reads the s
    - resolves the skill(s) from `originType/subType`,
    - writes the expanded spec to the ticket at `shared/<subtype>.json`,
    - mints a **resource-scoped JWT** (48 h) good for `…/{id}/status`, `…/{id}/results` and the agent-callback
-     path (and for Extension resources, additionally `…/{id}/load-bundle` — `{id}/load` stays admin-only),
+     path (and for Extension resources, additionally `…/{id}/load-bundle` — `{id}/load` stays admin-only) — on the workspace route, or on the admin route
+     (`…/admin/data/environment/*/{id}/…`) for a resource owned by the Admin Workspace,
    - streams an initial message carrying only `duplo_base_url` + `duplo_token`; the backend then stamps
      `platform_context` (scopes, skills, secrets, user email) onto **every** message — it is wire-only,
      never a file.
