@@ -155,10 +155,11 @@ Settle before building (derive, else ask — **after** listening):
   item — derive the icon from the extension's purpose, per the Left-nav icon bullet above.
 - **Agent** — ask which agent this extension is filed under: DevOps, Compliance, Observability, Release
   Management, or a typed custom name. Write it verbatim as the **manifest-root** `agent` field (sibling of `id` /
-  `name` / `version`; never on a menu node; one agent per extension). The manifest `agent` decides the **default**
-  heading, and every extension sets it; an admin can override the section and position from the Marketplace, and that
-  override wins and survives upgrades. Only if the author wants to position the heading, also ask for an integer order
-  and write `"agent": { "name": "…", "order": N }`; otherwise the plain string. The name must be non-empty, at most 64
+  `name` / `version`; never on a menu node; one agent per extension). Every extension's default heading
+  comes from its own manifest `agent` (DuploCloud's own extensions included); an admin can override the section and
+  position from the Marketplace, and that override wins and survives upgrades. Only if the author wants to
+  position the heading, also ask for an integer order and write `"agent": { "name": "…", "order": N }`; otherwise
+  the plain string. The name must be non-empty, at most 64
   characters, with no control characters, and `order` an integer — an invalid value is rejected at upload (HTTP 400)
   and fails the provisioning when deployed through a resource.
   Every top-level `menus[]` node then renders as a child of the agent's heading, so don't wrap menus

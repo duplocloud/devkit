@@ -186,8 +186,9 @@ Use the plain string unless the author gives an order.
 
 **The manifest `agent` decides the default heading; an admin can override it.**
 
-- **Every extension sets `agent`** in its manifest (string or `{ "name": …, "order": <integer> }`). It decides the
-  extension's default left-nav heading. Extensions sharing a name (trimmed, case-insensitive) share one heading.
+- **Every extension's heading comes from its own manifest `agent`** (string or `{ "name": …, "order": <integer> }`);
+  DuploCloud's own extensions are no different. It decides the default left-nav heading. Extensions sharing a name
+  (trimmed, case-insensitive) share one heading.
 - **Admin override** — an admin can change an extension's section and position from the Marketplace (the placement
   picker). The override **wins over the manifest** and **survives upgrades**, so the manifest value is only the default.
 

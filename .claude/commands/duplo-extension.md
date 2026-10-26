@@ -158,9 +158,9 @@ backend + Angular remote + provisioning skill) — never ask the user to choose 
   rather than plain CRUD (restart, console/exec, credential-minting shapes — see reference/18-access-control.md)?
 - **menu** placement (a top-level `collapsible-section` with `item` children renders nested correctly);
 - **agent** — which agent (DevOps / Compliance / Observability / Release Management / custom) this
-  extension files under, written as the manifest-root `agent` field (never on a menu node). It decides the default
-  heading and every extension sets it; an admin can override section and position from the Marketplace, and that
-  override wins and survives upgrades. Optionally an integer heading order
+  extension files under, written as the manifest-root `agent` field (never on a menu node). Every extension's default
+  heading comes from its own manifest `agent` (DuploCloud's own included); an admin can override section and
+  position from the Marketplace, and that override wins and survives upgrades. Optionally an integer heading order
   (`{ "name": …, "order": N }`) only if the author wants one; the name must be non-empty, at most 64 characters, no
   control characters, or the upload is rejected (HTTP 400) and a deploy through a resource fails its provisioning;
   omit the field if the author doesn't pick one;
