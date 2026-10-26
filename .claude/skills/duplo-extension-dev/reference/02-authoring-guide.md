@@ -120,6 +120,12 @@ no nav entry. The author supplies titles; you fill each node's `id`, `relativeUr
     "shortcut": "Mod+Shift+Period"
   },
   {
+    "id": "view-reports",
+    "label": "Reports",
+    "matIcon": "file-chart-outline",
+    "expose": "./HeaderActions"
+  },
+  {
     "id": "cost",
     "label": "Cost",
     "matIcon": "chart-line",
@@ -130,6 +136,8 @@ no nav entry. The author supplies titles; you fill each node's `id`, `relativeUr
   }
 ]
 ```
+
+The samples below assume the extension id is `my-ext`, so the full ids are `my-ext.report-issue` and `my-ext.view-reports`.
 
 The host uses the same `frontend.remote` entry for the exposes. Add `"./HeaderActions"` to the remote's `exposes`.
 
@@ -143,7 +151,7 @@ The host uses the same `frontend.remote` entry for the exposes. Add `"./HeaderAc
 | `placement` | `"inline"` or `"menu"` | `"menu"` | top-level only | Where the button goes (see Placement). |
 | `order` | number | last | all | Sort key, ascending. |
 | `showInAdmin` | boolean | `false` | top-level only | Also show on AI Admin pages. |
-| `roles` | string[] | all users | all | Only these roles see it. Administrator always passes. |
+| `roles` | string[] | every signed-in user with at least one role | all | Only these roles see it. Administrator always passes. |
 | `visibilityUrl` | string | none | actions only | Per-page visibility check (see below). |
 | `expose` | string | required | actions only | Module that exports `run(ctx)`, e.g. `./HeaderActions`. |
 | `shortcut` | string | none | actions only | Keyboard shortcut (see grammar). |
@@ -184,7 +192,7 @@ Use it to show an action only on pages where your backend says yes.
 
 - It must be a path starting with `/v1/aiservicedesk/`.
 - It must not contain `//`, `\`, a scheme, or a `.` or `..` segment (raw or `%2e`-encoded). The portal sends the bearer token on this request, so it must stay on our API.
-- Request: `GET <visibilityUrl>?workspaceId=<id>`. `<id>` is the page's workspace id, or `''` on pages without one.
+- Request: `GET <visibilityUrl>?workspaceId=<id>`. `<id>` is the page's workspace id, or `''` on pages without one. It is URL-encoded, and appended with `&` when `visibilityUrl` already has a `?`.
 - Response (bare or wrapped in `ApiResponse`):
 
 ```ts
@@ -205,7 +213,7 @@ Each `expose` module exports `run`. One `run` serves all of the extension's acti
 
 ```ts
 export interface HeaderActionRunContext {
-  actionId: string;               // full id, e.g. "my-ext.open-help"
+  actionId: string;               // full id, e.g. "my-ext.report-issue"
   injector: EnvironmentInjector;  // host injector
   trigger?: HTMLElement;          // clicked element; omitted when preserveFocus is on
   workspaceId: string | null;
@@ -219,33 +227,30 @@ Keep a **verbatim local copy** of `HeaderActionRunContext` in your extension (fo
 
 Resolve services through `ctx.injector.get(...)`. Do not use `inject()` in `run`; it is not in an injection context.
 
-Example: open a modal.
+Example: one `run` for two actions, with full ids. One action opens a modal, the other navigates.
 
 ```ts
 // src/app/header-actions/index.ts  (exposed as ./HeaderActions)
+import { Router } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import type { HeaderActionRunContext } from '../contract/header-action-run';
-import { HelpModalComponent } from './help-modal.component';
-
-export function run(ctx: HeaderActionRunContext): void {
-  if (ctx.actionId !== 'my-ext.open-help') {
-    console.warn(`unknown header action: ${ctx.actionId}`);
-    return;
-  }
-  const modal = ctx.injector.get(NgbModal);
-  modal.open(HelpModalComponent, { size: 'lg' });
-}
-```
-
-Example: navigate.
-
-```ts
-import { Router } from '@angular/router';
-import type { HeaderActionRunContext } from '../contract/header-action-run';
+import { ReportIssueModalComponent } from './report-issue-modal.component';
 
 export async function run(ctx: HeaderActionRunContext): Promise<void> {
-  const router = ctx.injector.get(Router);
-  await router.navigateByUrl(`/ai/suite/${ctx.workspaceId}/my-ext/reports`);
+  switch (ctx.actionId) {
+    case 'my-ext.report-issue':
+      ctx.injector.get(NgbModal).open(ReportIssueModalComponent, { size: 'lg' });
+      return;
+    case 'my-ext.view-reports':
+      // workspaceId is null on pages without a workspace; there is no URL to build.
+      if (!ctx.workspaceId) {
+        return;
+      }
+      await ctx.injector.get(Router).navigateByUrl(`/ai/suite/${ctx.workspaceId}/my-ext/reports`);
+      return;
+    default:
+      console.warn(`unknown header action: ${ctx.actionId}`);
+  }
 }
 ```
 
@@ -253,14 +258,16 @@ Click flow:
 
 1. The host loads your remote module. Only this load shows the busy state. A modal your `run` opens does not block the button.
 2. It clears the busy state, then calls `run(ctx)`. It awaits a returned promise.
-3. If the user left `/ai/`, the action became hidden, or the session changed during the load, `run` is not called.
-4. If the load or `run` fails (a rejected promise too), the host shows the toast `<label> could not be opened. Please try again.`
+3. `run` is not called if the user left `/ai/`, the action became hidden, the session changed, or the resolved workspace changed during the load.
+4. Repeat clicks while the action is loading are ignored. A group id has no `run`; only its children run.
+5. If the load or `run` fails (a rejected promise too), the host shows the toast `<label> could not be opened. Please try again.`
 
 #### Shortcut grammar
 
 `Modifier+...+Key`, joined by `+`.
 
-- One or more **unique** modifiers from `Mod`, `Ctrl`, `Shift`, `Alt`. `Mod` is Ctrl on Windows and Linux, Cmd on Mac. Never use `Mod` with `Ctrl`.
+- One or more **unique** modifiers from `Mod`, `Ctrl`, `Shift`, `Alt`. `Mod` matches Ctrl or Cmd; the tooltip shows the platform's symbol. Never use `Mod` with `Ctrl`.
+- A bare key (no modifier) is rejected. A modifier used as the key (for example `Ctrl+Shift`) is rejected too.
 - Then exactly one `KeyboardEvent.code` that matches `^(Key[A-Z]|Digit[0-9]|[A-Z][A-Za-z0-9]+)$`, for example `Period`, `KeyK`, `Digit1`.
 - Examples: `Mod+Shift+Period`, `Alt+KeyK`.
 - A shortcut works only while its action is visible and not loading. If two visible actions share a shortcut, the first in view order wins and the portal warns once. View order is inline, overflow, menu, with a group's children right after the group.
@@ -272,7 +279,7 @@ Click flow:
 | `isolatePointer` | The page has "click outside" handlers that would close your UI (a picker, a popover). | The host stops pointer events on the button at window capture, so the page never sees the click. |
 | `preserveFocus` | Your action needs the user's current focus or selection (a text field, a screenshot). | `mousedown` is cancelled so focus stays put. `trigger` is omitted. The tooltip and menus close before `run`. |
 
-A group or the ⋮ toggle behaves as if a flag is on when any item inside has it on.
+A group behaves as if a flag is on when any of its visible children has it on. The ⋮ toggle does the same for its visible overflow and menu items. Hidden items do not count.
 
 #### Build check
 
