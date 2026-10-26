@@ -137,21 +137,23 @@ no nav entry. The author supplies titles; you fill each node's `id`, `relativeUr
 ]
 ```
 
-The samples below assume the extension id is `my-ext`, so the full ids are `my-ext.report-issue` and `my-ext.view-reports`.
+The samples below assume the extension id is `my-ext`, so the full ids are `my-ext.report-issue`, `my-ext.view-reports`,
+`my-ext.cost`, `my-ext.daily` and `my-ext.monthly`.
 
 The host uses the same `frontend.remote` entry for the exposes. Add `"./HeaderActions"` to the remote's `exposes`.
+A non-empty `headerActions` needs a non-blank `frontend.remote.remoteEntry`: without it the portal drops every action and the build fails.
 
 #### Fields
 
 | Field | Type | Default | Applies to | Meaning |
 |---|---|---|---|---|
-| `id` | string | required | all | Unique in the extension. Full id is `<extensionId>.<id>` (the host adds the prefix). |
+| `id` | string | required | all | Unique in the extension, no `.` (use `-`). Full id is `<extensionId>.<id>` (the host adds the prefix). |
 | `label` | string | required | all | Tooltip, menu text and aria-label. |
 | `matIcon` | string | none | top-level entries (required); optional on children | Icon name already registered in the host. |
 | `placement` | `"inline"` or `"menu"` | `"menu"` | top-level only | Where the button goes (see Placement). |
 | `order` | number | last | all | Sort key, ascending. |
 | `showInAdmin` | boolean | `false` | top-level only | Also show on AI Admin pages. |
-| `roles` | string[] | every signed-in user with at least one role | all | Only these roles see it. Administrator always passes. |
+| `roles` | string[] | every signed-in user with at least one role | all | Only these roles see it. Administrator always passes. See Roles. |
 | `visibilityUrl` | string | none | actions only | Per-page visibility check (see below). |
 | `expose` | string | required | actions only | Module that exports `run(ctx)`, e.g. `./HeaderActions`. |
 | `shortcut` | string | none | actions only | Keyboard shortcut (see grammar). |
@@ -161,13 +163,20 @@ The host uses the same `frontend.remote` entry for the exposes. Add `"./HeaderAc
 
 Rules. The portal drops a bad entry with a `console.warn`. The build fails on the same entry.
 
-- `id` and `label` are non-blank strings. `order` is a finite number. `roles` is an array of strings. Flags are booleans.
+- `id` and `label` are non-blank strings. `id` must not contain `.`, so full ids cannot collide across extensions.
+- `order` is a finite number. `roles` is an array of strings. Flags are booleans.
 - Top-level entries (action or group) need `matIcon`.
 - A group must not set `expose`, `shortcut`, `visibilityUrl`, `isolatePointer` or `preserveFocus`.
 - A child must not set `children`, `placement` or `showInAdmin`. The group's `showInAdmin` applies.
 - An action (no `children`) needs `expose`.
 - Full ids must be unique, children included.
 - An unparseable `shortcut` fails the build. The portal keeps the action and drops the shortcut, with a warning.
+- A non-empty `headerActions` without a non-blank `frontend.remote.remoteEntry` fails the build. The portal drops them all.
+
+#### Roles
+
+- Valid names: `User`, `Administrator`, `SecurityAdmin`, `AIStudioAdmin`. The `UserRole` keys (`Admin`, `Security`, `AiStudioAdmin`) work too.
+- An unknown name matches nobody, so only Administrators see the entry.
 
 #### Placement and order
 
@@ -203,7 +212,8 @@ interface HeaderActionVisibility {
 }
 ```
 
-- The action shows only when `visible === true`. The check times out after 5000 ms. Errors and timeouts are not cached, so the next navigation asks again.
+- The action shows only when `visible === true`. The check times out after 5000 ms.
+- A successful answer is cached per (action, workspace) until the page reloads or the user/roles change. Errors and timeouts are not cached, so the next navigation asks again.
 - `ctx.workspaceId` is `answer.workspaceId || page workspace || null`.
 - Without `visibilityUrl`, the action shows once the static rules pass, and `ctx.workspaceId` is the page's workspace (or `null`).
 
@@ -227,7 +237,7 @@ Keep a **verbatim local copy** of `HeaderActionRunContext` in your extension (fo
 
 Resolve services through `ctx.injector.get(...)`. Do not use `inject()` in `run`; it is not in an injection context.
 
-Example: one `run` for two actions, with full ids. One action opens a modal, the other navigates.
+Example: one `run` for every action above, with full ids. One action opens a modal, the others navigate. The group `my-ext.cost` has no case: only its children run.
 
 ```ts
 // src/app/header-actions/index.ts  (exposed as ./HeaderActions)
@@ -248,6 +258,15 @@ export async function run(ctx: HeaderActionRunContext): Promise<void> {
       }
       await ctx.injector.get(Router).navigateByUrl(`/ai/suite/${ctx.workspaceId}/my-ext/reports`);
       return;
+    case 'my-ext.daily':
+    case 'my-ext.monthly': {
+      if (!ctx.workspaceId) {
+        return;
+      }
+      const period = ctx.actionId === 'my-ext.daily' ? 'daily' : 'monthly';
+      await ctx.injector.get(Router).navigateByUrl(`/ai/suite/${ctx.workspaceId}/my-ext/cost/${period}`);
+      return;
+    }
     default:
       console.warn(`unknown header action: ${ctx.actionId}`);
   }
@@ -267,9 +286,11 @@ Click flow:
 `Modifier+...+Key`, joined by `+`.
 
 - One or more **unique** modifiers from `Mod`, `Ctrl`, `Shift`, `Alt`. `Mod` matches Ctrl or Cmd; the tooltip shows the platform's symbol. Never use `Mod` with `Ctrl`.
-- A bare key (no modifier) is rejected. A modifier used as the key (for example `Ctrl+Shift`) is rejected too.
+- `Mod` or `Ctrl` is required. `Shift` and `Alt` only add to it, so `Shift+KeyK`, `Alt+KeyK` and `Alt+Shift+KeyK` are rejected (they would swallow typing).
+- All modifiers come before the key (`KeyK+Shift` is rejected). A bare key, or a modifier used as the key (`Ctrl+Shift`), is rejected too.
 - Then exactly one `KeyboardEvent.code` that matches `^(Key[A-Z]|Digit[0-9]|[A-Z][A-Za-z0-9]+)$`, for example `Period`, `KeyK`, `Digit1`.
-- Examples: `Mod+Shift+Period`, `Alt+KeyK`.
+- Examples: `Mod+Shift+Period`, `Mod+Alt+KeyK`, `Ctrl+Shift+KeyK`.
+- The tooltip and the ⋮ / group menu rows show the shortcut in the platform's form.
 - A shortcut works only while its action is visible and not loading. If two visible actions share a shortcut, the first in view order wins and the portal warns once. View order is inline, overflow, menu, with a group's children right after the group.
 
 #### Flags
@@ -280,6 +301,10 @@ Click flow:
 | `preserveFocus` | Your action needs the user's current focus or selection (a text field, a screenshot). | `mousedown` is cancelled so focus stays put. `trigger` is omitted. The tooltip and menus close before `run`. |
 
 A group behaves as if a flag is on when any of its visible children has it on. The ⋮ toggle does the same for its visible overflow and menu items. Hidden items do not count.
+
+#### Known limits
+
+- After an extension upgrade, the remote code already loaded in a tab keeps running until the page reloads.
 
 #### Build check
 
