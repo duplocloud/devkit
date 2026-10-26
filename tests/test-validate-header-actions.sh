@@ -63,6 +63,9 @@ expect_fail "rejects a child with children" "[$(grp '[{"id":"c","label":"C","chi
 expect_fail "rejects a child with placement" "[$(grp '[{"id":"c","label":"C","expose":"./C","placement":"menu"}]')]" "placement"
 expect_fail "rejects a child with showInAdmin" "[$(grp '[{"id":"c","label":"C","expose":"./C","showInAdmin":true}]')]" "showInAdmin"
 expect_fail "rejects non-array headerActions" '{"id":"a"}' "array"
+for v in false 0 '""'; do
+  expect_fail "rejects headerActions $v" "$v" "array"
+done
 expect_fail "rejects a null entry"          '[null]' "object"
 expect_fail "rejects a string order"        "[$(act '{"order":"1"}')]" "order"
 expect_fail "rejects non-array roles"       "[$(act '{"roles":"admin"}')]" "roles"
@@ -73,7 +76,7 @@ expect_fail "rejects a duplicate id (top-level vs child)" "[$(act '{"id":"g"}'),
 expect_fail "rejects a child reusing its group id" "[$(grp '[{"id":"g","label":"C","expose":"./C"}]')]" "duplicate"
 
 # ── shortcut ─────────────────────────────────────────────────────────────────────────────────────
-for s in "Shift+" "Shift+Shift+KeyK" "Mod+Ctrl+KeyK" "KeyK" "Mod+k" "Mod+KeyK+KeyL"; do
+for s in "Ctrl+Shift" "Alt+Mod" "Shift+Shift" 'Mod+KeyK\n' "Shift+" "Shift+Shift+KeyK" "Mod+Ctrl+KeyK" "KeyK" "Mod+k" "Mod+KeyK+KeyL"; do
   expect_fail "rejects shortcut '$s'" "[$(act "{\"shortcut\":\"$s\"}")]" "shortcut"
 done
 expect_fail "rejects a non-string shortcut" "[$(act '{"shortcut":5}')]" "shortcut"

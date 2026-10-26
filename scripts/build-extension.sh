@@ -23,13 +23,13 @@ for a in "$@"; do shift; case "$a" in --native) DUPLO_BUILD_NATIVE=1 ;; --valida
 DIR="${1:?usage: build-extension.sh [--native] [--validate-only] <extension-dir>}"
 DIR="${DIR%/}"
 if [ "$VALIDATE_ONLY" != 1 ]; then
-# shellcheck source=scripts/_target.sh
-source "$(dirname "$0")/_target.sh"   # → BASE_URL (+ TOKEN) from .env / env per DUPLO_TARGET
-# shellcheck source=scripts/_builder.sh
-source "$(dirname "$0")/_builder.sh"  # → native, or re-launch this build in the builder container
-# shellcheck source=scripts/_sdk_digest.sh
-source "$(dirname "$0")/_sdk_digest.sh"  # → sdk_digest, stamped into the bundle manifest beside sdkVersion
-BASE_URL="${BASE_URL%/}"               # tolerate a trailing slash in DUPLO_HOST (avoids // in URLs)
+  # shellcheck source=scripts/_target.sh
+  source "$(dirname "$0")/_target.sh"   # → BASE_URL (+ TOKEN) from .env / env per DUPLO_TARGET
+  # shellcheck source=scripts/_builder.sh
+  source "$(dirname "$0")/_builder.sh"  # → native, or re-launch this build in the builder container
+  # shellcheck source=scripts/_sdk_digest.sh
+  source "$(dirname "$0")/_sdk_digest.sh"  # → sdk_digest, stamped into the bundle manifest beside sdkVersion
+  BASE_URL="${BASE_URL%/}"               # tolerate a trailing slash in DUPLO_HOST (avoids // in URLs)
 fi
 [ -f "$DIR/manifest.json" ] || { echo "No manifest.json in $DIR" >&2; exit 1; }
 
