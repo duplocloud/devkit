@@ -171,28 +171,25 @@ resolver recovers `:parentId` by walking `ActivatedRoute.params`.
 the agent this extension is filed under. It describes the **extension**, so it never goes on a `menus[]` node.
 **One agent per extension.**
 
-It is either a plain string or `{ "name": …, "order": <integer> }`. The object form is only for a customer
-extension whose author wants to set its heading order; a Duplo-managed extension uses the plain string (its pack's
-name), since the console decides its heading order:
+It is either a plain string or `{ "name": …, "order": <integer> }`. The object form is for any extension whose
+author wants to set its heading order:
 
 ```jsonc
 // manifest.json (root) — the usual form
 "agent": "Release Management",
 
-// …or, for a customer extension whose author gives a heading order
+// …or, when the author gives a heading order
 "agent": { "name": "Release Management", "order": 3 },
 ```
 
 Use the plain string unless the author gives an order.
 
-**The manifest `agent` is the fallback; the console decides when it can.**
+**The manifest `agent` decides the default heading; an admin can override it.**
 
-- **Duplo-managed extensions** — the console's pack membership decides the agent, the heading's position (the pack's
-  sort order, used as given) and the extension's position under the heading (its place in the pack). The console wins
-  over the manifest. Duplo-managed extensions **still set `"agent": "<their pack's name>"`** as a backup, for
-  deployments without console data (air-gapped, or before the first sync).
-- **Customer extensions** — set `agent` as a string or `{ "name": …, "order": <integer> }`. A name matching a console
-  agent (trimmed, case-insensitive) joins that agent's heading. Otherwise the extension gets its own heading.
+- **Every extension sets `agent`** in its manifest (string or `{ "name": …, "order": <integer> }`). It decides the
+  extension's default left-nav heading. Extensions sharing a name (trimmed, case-insensitive) share one heading.
+- **Admin override** — an admin can change an extension's section and position from the Marketplace (the placement
+  picker). The override **wins over the manifest** and **survives upgrades**, so the manifest value is only the default.
 
 Ask the author to pick one (the starter list), or to type their own:
 
@@ -227,10 +224,8 @@ How the portal places it:
 - **Menu `order` vs agent `order`.** A menu node's `order` only positions it among the heading's children. A manifest
   agent's `order` is the heading's nav position, used **exactly as given**, in the same number space as the built-in
   headings (HelpDesk 10, Projects 20, DevOps 30, … Settings 90). A missing order is `0`; ties go by title. If several
-  extensions of one manifest agent disagree on `order`, the lowest wins. Console agents take their position from the
-  console, not from the manifest.
+  extensions of one manifest agent disagree on `order`, the lowest wins.
 - The deployment's `config.json` → `ai-menu.order`, keyed by the heading id, **overrides** the heading's position:
-  - `ai-suite-agent-<pack uuid>` for console agents;
   - `ai-suite-agent-<slug(name)>` for manifest agents, where the slug keeps runs of `[a-z0-9]` joined by `-`, e.g.
     `ai-suite-agent-release-management`. A name with no ASCII letters or digits gets a hashed id instead.
   - An agent named like a built-in heading (`DevOps`) sits under that heading, so it moves by the built-in's id
