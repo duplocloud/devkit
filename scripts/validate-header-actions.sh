@@ -11,7 +11,8 @@ def safeurl:
        | ($p | contains("//") | not) and ($p | contains("\\") | not)
        and ($p | split("/") | map(gsub("%2e"; "."; "i")) | any(. == "." or . == "..") | not));
 def goodshortcut:
-  type == "string"
+  type == "string" and (contains("\n") | not)
+  and (split("+")[-1] | IN("Mod", "Ctrl", "Shift", "Alt") | not)
   and test("^((Mod|Ctrl|Shift|Alt)\\+)+([A-Z][A-Za-z0-9]+)$")
   and (split("+")[:-1] as $m
        | (($m | unique | length) == ($m | length)) and (($m | index("Mod")) != null and ($m | index("Ctrl")) != null | not));
@@ -51,7 +52,7 @@ validate_header_actions() {
     echo "  ✗ frontend.headerActions: manifest is not valid JSON" >&2; return 1
   fi
   out=$(jq -r "$_HA_JQ"'
-    (.frontend.headerActions // null) as $h
+    (if (.frontend | type) == "object" and (.frontend | has("headerActions")) then .frontend.headerActions else null end) as $h
     | if $h == null then empty
       elif ($h | type) != "array" then "frontend.headerActions: must be an array"
       else
