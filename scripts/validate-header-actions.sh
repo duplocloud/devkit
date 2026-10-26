@@ -15,13 +15,15 @@ def goodshortcut:
   and (split("+")[-1] | IN("Mod", "Ctrl", "Shift", "Alt") | not)
   and test("^((Mod|Ctrl|Shift|Alt)\\+)+([A-Z][A-Za-z0-9]+)$")
   and (split("+")[:-1] as $m
-       | (($m | unique | length) == ($m | length)) and (($m | index("Mod")) != null and ($m | index("Ctrl")) != null | not));
+       | (($m | unique | length) == ($m | length)) and (($m | index("Mod")) != null and ($m | index("Ctrl")) != null | not)
+       and ($m | any(. == "Mod" or . == "Ctrl")));
 
 def entry($p; $child):
   if type != "object" then "\($p): entry is not an object"
   else
     . as $e
     | (if (.id | isnb | not) then "\($p).id: must be a non-blank string" else empty end),
+      (if (.id | isnb) and (.id | contains(".")) then "\($p).id: must not contain a dot" else empty end),
       (if (.label | isnb | not) then "\($p).label: must be a non-blank string" else empty end),
       (if has("order") and (.order | (type == "number") | not) then "\($p).order: must be a finite number" else empty end),
       (if has("roles") and ((.roles | type) != "array" or (.roles | all(type == "string") | not)) then "\($p).roles: must be an array of strings" else empty end),
@@ -40,7 +42,7 @@ def entry($p; $child):
        else
          ((if (.expose | isnb | not) then "\($p).expose: action needs an expose" else empty end),
           (if has("visibilityUrl") and (.visibilityUrl | safeurl | not) then "\($p).visibilityUrl: must be a /v1/aiservicedesk/ path without //, \\, scheme or dot segments" else empty end),
-          (if has("shortcut") and (.shortcut | goodshortcut | not) then "\($p).shortcut: unparseable (use e.g. Mod+Shift+Period)" else empty end),
+          (if has("shortcut") and (.shortcut | goodshortcut | not) then "\($p).shortcut: unparseable, needs Mod or Ctrl before the key (e.g. Mod+Shift+Period)" else empty end),
           (if ($child | not) and (.matIcon | isnb | not) then "\($p).matIcon: top-level entry needs matIcon" else empty end))
        end)
   end;
@@ -55,6 +57,8 @@ validate_header_actions() {
     (if (.frontend | type) == "object" and (.frontend | has("headerActions")) then .frontend.headerActions else null end) as $h
     | if $h == null then empty
       elif ($h | type) != "array" then "frontend.headerActions: must be an array"
+      elif ($h | length) > 0 and (.frontend.remote | if type == "object" then .remoteEntry | isnb else false end | not)
+        then "frontend.headerActions: needs a non-blank frontend.remote.remoteEntry (the portal drops them all without it)"
       else
         ($h | to_entries[] | . as $t | $t.value | entry("frontend.headerActions[\($t.key)]"; false)),
         ([ $h[] | select(type == "object") | (.id, ((.children // []) | if type == "array" then .[] | select(type == "object") | .id else empty end)) | select(isnb) ]

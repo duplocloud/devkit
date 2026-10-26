@@ -20,22 +20,25 @@ echo "header actions validation:"
 
 ACT='{"id":"a","label":"A","matIcon":"x","expose":"./A"}'
 mk() { mkdir -p "$TMP/ext"; printf '%s' "$1" > "$TMP/ext/manifest.json"; }
-wrap() { printf '{"id":"e","frontend":{"headerActions":%s}}' "$1"; }
+wrap() { printf '{"id":"e","frontend":{"remote":{"remoteEntry":"/fe/remoteEntry.json"},"headerActions":%s}}' "$1"; }
 
-# expect_pass <name> <headerActions-json> / expect_fail <name> <headerActions-json> <message substring>
-expect_pass() {
-  t "$1"; mk "$(wrap "$2")"
+# manifest_pass <name> <manifest-json> / manifest_fail <name> <manifest-json> <message substring>
+manifest_pass() {
+  t "$1"; mk "$2"
   local err; err="$(validate_header_actions "$TMP/ext/manifest.json" 2>&1)"; local rc=$?
   [ "$rc" = 0 ] && ok || bad "rc=$rc: $err"
 }
-expect_fail() {
-  t "$1"; mk "$(wrap "$2")"
+manifest_fail() {
+  t "$1"; mk "$2"
   local err; err="$(validate_header_actions "$TMP/ext/manifest.json" 2>&1 >/dev/null)"; local rc=$?
   if [ "$rc" != 1 ]; then bad "rc=$rc (want 1)"
   elif [[ "$err" != *"✗ frontend.headerActions"* ]]; then bad "no ✗ line: $err"
   elif [[ "$err" != *"$3"* ]]; then bad "missing '$3' in: $err"
   else ok; fi
 }
+# expect_pass <name> <headerActions-json> / expect_fail <name> <headerActions-json> <message substring>
+expect_pass() { manifest_pass "$1" "$(wrap "$2")"; }
+expect_fail() { manifest_fail "$1" "$(wrap "$2")" "$3"; }
 # act '<json overrides merged into ACT>'
 act() { jq -c ". + $1" <<<"$ACT"; }
 grp() { printf '{"id":"g","label":"G","matIcon":"x","children":%s}' "$1"; }
@@ -44,7 +47,7 @@ grp() { printf '{"id":"g","label":"G","matIcon":"x","children":%s}' "$1"; }
 t "passes when frontend.headerActions is absent"; mk '{"id":"e","frontend":{}}'
 validate_header_actions "$TMP/ext/manifest.json" 2>/dev/null && ok || bad "rc!=0"
 expect_pass "passes the issue reporter entry" '[{"id":"report-issue","label":"Report an issue","matIcon":"bug-outline","placement":"inline","order":10,"showInAdmin":true,"visibilityUrl":"/v1/aiservicedesk/extensions/duploai-issue-reporter/launcher","expose":"./HeaderActions","shortcut":"Mod+Shift+Period","isolatePointer":true,"preserveFocus":true}]'
-expect_pass "passes a group with two children" "[$(grp '[{"id":"c1","label":"C1","expose":"./C1"},{"id":"c2","label":"C2","expose":"./C2","shortcut":"Alt+KeyK","roles":["admin"]}]')]"
+expect_pass "passes a group with two children" "[$(grp '[{"id":"c1","label":"C1","expose":"./C1"},{"id":"c2","label":"C2","expose":"./C2","shortcut":"Mod+Alt+KeyK","roles":["admin"]}]')]"
 
 # ── entry rules ──────────────────────────────────────────────────────────────────────────────────
 expect_fail "rejects a blank id"            "[$(act '{"id":"  "}')]" "id"
@@ -74,13 +77,23 @@ for f in showInAdmin isolatePointer preserveFocus; do
 done
 expect_fail "rejects a duplicate id (top-level vs child)" "[$(act '{"id":"g"}'),$(grp '[{"id":"c","label":"C","expose":"./C"}]')]" "duplicate"
 expect_fail "rejects a child reusing its group id" "[$(grp '[{"id":"g","label":"C","expose":"./C"}]')]" "duplicate"
+expect_fail "rejects an id with a dot"      "[$(act '{"id":"a.b"}')]" "must not contain a dot"
+expect_fail "rejects a child id with a dot" "[$(grp '[{"id":"c.d","label":"C","expose":"./C"}]')]" "must not contain a dot"
+
+# ── remote entry ─────────────────────────────────────────────────────────────────────────────────
+manifest_fail "rejects headerActions without frontend.remote" "{\"id\":\"e\",\"frontend\":{\"headerActions\":[$ACT]}}" "remoteEntry"
+manifest_fail "rejects headerActions with a blank remoteEntry" "{\"id\":\"e\",\"frontend\":{\"remote\":{\"remoteEntry\":\" \"},\"headerActions\":[$ACT]}}" "remoteEntry"
+manifest_pass "passes empty headerActions without a remote" '{"id":"e","frontend":{"headerActions":[]}}'
 
 # ── shortcut ─────────────────────────────────────────────────────────────────────────────────────
-for s in "Ctrl+Shift" "Alt+Mod" "Shift+Shift" 'Mod+KeyK\n' "Shift+" "Shift+Shift+KeyK" "Mod+Ctrl+KeyK" "KeyK" "Mod+k" "Mod+KeyK+KeyL"; do
+for s in "Ctrl+Shift" "Alt+Mod" "Shift+Shift" 'Mod+KeyK\n' "Shift+" "Shift+Shift+KeyK" "Mod+Ctrl+KeyK" "KeyK" "Mod+k" "Mod+KeyK+KeyL" \
+         "Shift+KeyK" "Alt+KeyK" "Alt+Shift+KeyK" "KeyK+Shift" "Mod+KeyK+Shift"; do
   expect_fail "rejects shortcut '$s'" "[$(act "{\"shortcut\":\"$s\"}")]" "shortcut"
 done
 expect_fail "rejects a non-string shortcut" "[$(act '{"shortcut":5}')]" "shortcut"
 expect_pass "accepts shortcut Ctrl+Alt+Digit1" "[$(act '{"shortcut":"Ctrl+Alt+Digit1"}')]"
+expect_pass "accepts shortcut Mod+Alt+KeyK" "[$(act '{"shortcut":"Mod+Alt+KeyK"}')]"
+expect_pass "accepts shortcut Shift+Mod+KeyK" "[$(act '{"shortcut":"Shift+Mod+KeyK"}')]"
 
 # ── visibilityUrl ────────────────────────────────────────────────────────────────────────────────
 for u in "https://evil.example/x" "//evil.example/x" "/v1/other/launcher" "/v1/aiservicedesk/../x" "/v1/aiservicedesk/%2E%2e/x" "/v1/aiservicedesk//x" '/v1/aiservicedesk/a\\b' "/v1/aiservicedesk/./x"; do
