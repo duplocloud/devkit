@@ -11,15 +11,18 @@
 # into the build container, so anything outside it does not exist in there. `--native` has no such limit
 # and takes a path anywhere on disk.
 #
-# Usage: ./scripts/build-extension.sh [--native] <extension-dir>   # e.g. ./extension or samples/helloworld
+# Usage: ./scripts/build-extension.sh [--native] [--validate-only] <extension-dir>   # e.g. ./extension or samples/helloworld
+# --validate-only runs just the manifest/naming gate (no SDK fetch, no builder, no build) and exits.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # Strip --native before the positional arg is read, so it works in either order.
-for a in "$@"; do shift; case "$a" in --native) DUPLO_BUILD_NATIVE=1 ;; *) set -- "$@" "$a" ;; esac; done
+VALIDATE_ONLY=0
+for a in "$@"; do shift; case "$a" in --native) DUPLO_BUILD_NATIVE=1 ;; --validate-only) VALIDATE_ONLY=1 ;; *) set -- "$@" "$a" ;; esac; done
 
-DIR="${1:?usage: build-extension.sh [--native] <extension-dir>}"
+DIR="${1:?usage: build-extension.sh [--native] [--validate-only] <extension-dir>}"
 DIR="${DIR%/}"
+if [ "$VALIDATE_ONLY" != 1 ]; then
 # shellcheck source=scripts/_target.sh
 source "$(dirname "$0")/_target.sh"   # → BASE_URL (+ TOKEN) from .env / env per DUPLO_TARGET
 # shellcheck source=scripts/_builder.sh
@@ -27,11 +30,12 @@ source "$(dirname "$0")/_builder.sh"  # → native, or re-launch this build in t
 # shellcheck source=scripts/_sdk_digest.sh
 source "$(dirname "$0")/_sdk_digest.sh"  # → sdk_digest, stamped into the bundle manifest beside sdkVersion
 BASE_URL="${BASE_URL%/}"               # tolerate a trailing slash in DUPLO_HOST (avoids // in URLs)
+fi
 [ -f "$DIR/manifest.json" ] || { echo "No manifest.json in $DIR" >&2; exit 1; }
 
 # Delegates to the builder container unless we're already native (see the header). Never returns in
 # the container case.
-builder_dispatch scripts/build-extension.sh "$DIR"
+[ "$VALIDATE_ONLY" = 1 ] || builder_dispatch scripts/build-extension.sh "$DIR"
 
 # From here down we are native and the toolchain is present — builder_dispatch guarantees it.
 
@@ -69,6 +73,9 @@ done < <(jq -r '.frontend.menus // [] | .. | objects | .relativeUrl? // empty' "
 if jq -e '.frontend.menu' "$MANIFEST" >/dev/null 2>&1; then
   echo "  ✗ legacy 'frontend.menu' is deprecated — use the 'frontend.menus' array" >&2; viol=1
 fi
+# shellcheck source=scripts/validate-header-actions.sh
+source "$(dirname "$0")/validate-header-actions.sh"
+validate_header_actions "$MANIFEST" || viol=1
 while IFS= read -r m; do
   name=$(printf '%s' "$m" | sed -E 's/.*BsonCollection\("([^"]*)".*/\1/')
   case "$name" in extension_*) ;; *)
@@ -130,6 +137,7 @@ if [ "$viol" -ne 0 ]; then
   exit 1
 fi
 echo "    naming OK"
+[ "$VALIDATE_ONLY" != 1 ] || exit 0
 
 echo "==> Fetching SDK feed from $BASE_URL"
 auth=()
