@@ -235,6 +235,8 @@ echo "==> Building frontend"
 ( cd "$DIR/frontend" \
   && if [ -f package-lock.json ]; then npm ci; else npm install; fi \
   && npm run build )
+validate_header_action_exposes "$MANIFEST" "$DIR/frontend/dist/remoteEntry.json" \
+  || { echo "ERROR: a frontend.headerActions expose is missing from the built remoteEntry.json." >&2; exit 1; }
 
 # --- Obfuscation setup: once, SDK-independent (it depends only on ARMDOT_LICENSE_FILE_PATH). -----------------
 # The baseline (built per version inside build_one) lives under backend/, inside the compile root. A copy left by
