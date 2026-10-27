@@ -214,7 +214,7 @@ interface HeaderActionVisibility {
 ```
 
 - The action shows only when `visible === true`. The check times out after 5000 ms.
-- A successful answer is cached per (action, workspace) until the page reloads or the user/roles change. Errors and timeouts are not cached, so the next navigation asks again.
+- A successful answer is cached per (visibilityUrl, workspace) until the page reloads or the user/roles change. Actions sharing one `visibilityUrl` share one request and one answer. Errors and timeouts are not cached, so the next navigation asks again.
 - `ctx.workspaceId` is `answer.workspaceId || page workspace || null`.
 - An omitted, `null` or empty `workspaceId` in the answer means "use the page's workspace".
 - Without `visibilityUrl`, the action shows once the static rules pass, and `ctx.workspaceId` is the page's workspace (or `null`).
