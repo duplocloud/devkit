@@ -101,6 +101,42 @@ for u in "https://evil.example/x" "//evil.example/x" "/v1/other/launcher" "/v1/a
 done
 expect_pass "accepts visibilityUrl with a query" "[$(act '{"visibilityUrl":"/v1/aiservicedesk/x/launcher?a=b//c"}')]"
 
+for u in '/v1/aiservicedesk/x y' '/v1/aiservicedesk/x?a=b c' $'/v1/aiservicedesk/x\ty' $'/v1/aiservicedesk/x\u0000' '/v1/aiservicedesk/x#frag' '/v1/aiservicedesk/x?a=b#frag' \
+         '/v1/aiservicedesk/a%2fb' '/v1/aiservicedesk/a%2Fb' '/v1/aiservicedesk/a%5cb' '/v1/aiservicedesk/a%5Cb' $'/v1/aiservicedesk/a\u00a0b' ' /v1/aiservicedesk/x'; do
+  expect_fail "rejects visibilityUrl $(printf '%q' "$u")" "[$(jq -c --arg u "$u" '. + {visibilityUrl: $u}' <<<"$ACT")]" "visibilityUrl"
+done
+expect_pass "accepts %2f in the query only" "[$(act '{"visibilityUrl":"/v1/aiservicedesk/x?next=a%2fb"}')]"
+expect_pass "accepts an encoded space in the path" "[$(act '{"visibilityUrl":"/v1/aiservicedesk/a%20b"}')]"
+
+# ── blank strings, order, extension id ───────────────────────────────────────────────────────────
+expect_fail "rejects a BOM-only label"      "[$(jq -c '. + {label: "\ufeff"}' <<<"$ACT")]" "label"
+expect_fail "rejects a BOM/space expose"    "[$(jq -c '. + {expose: " \ufeff"}' <<<"$ACT")]" "expose"
+expect_fail "rejects a non-breaking-space id" "[$(jq -c '. + {id: "\u00a0"}' <<<"$ACT")]" "id"
+expect_fail "rejects order 1e400"           "[$(act '{"order":1e400}')]" "order"
+expect_fail "rejects order -1e400"          "[$(act '{"order":-1e400}')]" "order"
+expect_pass "accepts a negative finite order" "[$(act '{"order":-5.5}')]"
+manifest_fail "rejects a missing extension id"   "{\"frontend\":{\"remote\":{\"remoteEntry\":\"/r\"},\"headerActions\":[$ACT]}}" "extension needs a non-blank"
+manifest_fail "rejects a blank extension id"     "{\"id\":\" \",\"frontend\":{\"remote\":{\"remoteEntry\":\"/r\"},\"headerActions\":[$ACT]}}" "extension needs a non-blank"
+manifest_fail "rejects a BOM extension id"       "{\"id\":\"\ufeff\",\"frontend\":{\"remote\":{\"remoteEntry\":\"/r\"},\"headerActions\":[$ACT]}}" "extension needs a non-blank"
+manifest_fail "rejects a numeric extension id"   "{\"id\":5,\"frontend\":{\"remote\":{\"remoteEntry\":\"/r\"},\"headerActions\":[$ACT]}}" "extension needs a non-blank"
+manifest_pass "passes empty headerActions without an extension id" '{"frontend":{"headerActions":[]}}'
+manifest_pass "passes a dotted extension id (the portal accepts it)" "{\"id\":\"my.ext\",\"frontend\":{\"remote\":{\"remoteEntry\":\"/r\"},\"headerActions\":[$ACT]}}"
+
+# ── expose check against remoteEntry.json ────────────────────────────────────────────────────────
+RE="$TMP/remoteEntry.json"
+printf '{"name":"e","exposes":[{"key":"./A","outFileName":"a.js"},{"key":"./C1","outFileName":"c1.js"}]}' > "$RE"
+expose_pass() { t "$1"; mk "$2"; local err; err="$(validate_header_action_exposes "$TMP/ext/manifest.json" "${3:-$RE}" 2>&1)"; local rc=$?; [ "$rc" = 0 ] && ok || bad "rc=$rc: $err"; }
+expose_fail() { t "$1"; mk "$2"; local err; err="$(validate_header_action_exposes "$TMP/ext/manifest.json" "${4:-$RE}" 2>&1 >/dev/null)"; local rc=$?
+  if [ "$rc" = 0 ]; then bad "rc=0"; elif [[ "$err" != *"✗ "*"$3"* ]]; then bad "missing '$3' in: $err"; else ok; fi; }
+expose_pass "expose check passes when the expose is present" "$(wrap "[$ACT]")"
+expose_fail "expose check fails when the expose is missing" "$(wrap "[$(act '{"expose":"./Nope"}')]")" "./Nope"
+expose_pass "expose check passes a group whose children are present" "$(wrap "[$(grp '[{"id":"c1","label":"C1","expose":"./C1"},{"id":"c2","label":"C2","expose":"./A"}]')]")"
+expose_fail "expose check fails when a child expose is missing" "$(wrap "[$(grp '[{"id":"c1","label":"C1","expose":"./C1"},{"id":"c2","label":"C2","expose":"./Gone"}]')]")" "children[1].expose"
+expose_pass "expose check passes without headerActions" '{"id":"e","frontend":{}}'
+expose_fail "expose check fails on a missing remoteEntry.json" "$(wrap "[$ACT]")" "none.json" "$TMP/none.json"
+t "expose check prints one line per missing expose"; mk "$(wrap "[$(act '{"expose":"./X"}'),$(act '{"id":"b","expose":"./Y"}')]")"
+[ "$(validate_header_action_exposes "$TMP/ext/manifest.json" "$RE" 2>&1 | grep -c '✗')" = 2 ] && ok || bad "want 2 lines"
+
 # ── build-extension.sh --validate-only wiring ────────────────────────────────────────────────────
 # Failing shims prepended to PATH: any call to the real toolchain or network marks and exits 99.
 SHIMS="$TMP/shims"; MARK="$TMP/marker"; mkdir -p "$SHIMS"

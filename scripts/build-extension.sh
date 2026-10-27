@@ -197,6 +197,9 @@ echo "==> Building frontend"
 # (if/else, NOT `npm ci || npm install`: a FAILING npm ci must fail the build, never silently fall back
 #  to npm install and rewrite the lock.)
 
+validate_header_action_exposes "$MANIFEST" "$DIR/frontend/dist/remoteEntry.json" \
+  || { echo "ERROR: a frontend.headerActions expose is missing from the built remoteEntry.json." >&2; exit 1; }
+
 # The extension is hot-loaded into a child AssemblyLoadContext whose Resolving hook serves any assembly the
 # host already has (the WHOLE SDK closure — Duplo.Ai.*, Mongo, AWS, AspNetCore, …) from the host's Default
 # context, for shared type identity. Those DLLs in the publish output are therefore never loaded from the
