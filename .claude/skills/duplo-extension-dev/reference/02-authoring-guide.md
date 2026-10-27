@@ -172,6 +172,7 @@ Rules. The portal drops a bad entry with a `console.warn`. The build fails on th
 - Full ids must be unique, children included.
 - An unparseable `shortcut` fails the build. The portal keeps the action and drops the shortcut, with a warning.
 - A non-empty `headerActions` without a non-blank `frontend.remote.remoteEntry` fails the build. The portal drops them all.
+- After the frontend builds, `build-extension.sh` checks that every action's and child's `expose` is listed in `frontend/dist/remoteEntry.json` `exposes[].key`. A missing one fails the build. `--validate-only` skips this check.
 
 #### Roles
 
@@ -200,7 +201,7 @@ Rules. The portal drops a bad entry with a `console.warn`. The build fails on th
 Use it to show an action only on pages where your backend says yes.
 
 - It must be a path starting with `/v1/aiservicedesk/`.
-- It must not contain `//`, `\`, a scheme, or a `.` or `..` segment (raw or `%2e`-encoded). The portal sends the bearer token on this request, so it must stay on our API.
+- It must not contain whitespace or control characters, `#`, `//`, `\`, a scheme, a `%2f` or `%5c` (any case) in the path, or a `.` or `..` segment (raw or `%2e`-encoded). The portal sends the bearer token on this request, so it must stay on our API.
 - Request: `GET <visibilityUrl>?workspaceId=<id>`. `<id>` is the page's workspace id, or `''` on pages without one. It is URL-encoded, and appended with `&` when `visibilityUrl` already has a `?`.
 - Response (bare or wrapped in `ApiResponse`):
 
@@ -215,6 +216,7 @@ interface HeaderActionVisibility {
 - The action shows only when `visible === true`. The check times out after 5000 ms.
 - A successful answer is cached per (action, workspace) until the page reloads or the user/roles change. Errors and timeouts are not cached, so the next navigation asks again.
 - `ctx.workspaceId` is `answer.workspaceId || page workspace || null`.
+- An omitted, `null` or empty `workspaceId` in the answer means "use the page's workspace".
 - Without `visibilityUrl`, the action shows once the static rules pass, and `ctx.workspaceId` is the page's workspace (or `null`).
 
 #### The `run(ctx)` contract
