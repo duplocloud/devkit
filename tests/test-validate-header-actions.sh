@@ -101,8 +101,8 @@ for u in "https://evil.example/x" "//evil.example/x" "/v1/other/launcher" "/v1/a
 done
 expect_pass "accepts visibilityUrl with a query" "[$(act '{"visibilityUrl":"/v1/aiservicedesk/x/launcher?a=b//c"}')]"
 
-for u in '/v1/aiservicedesk/x y' '/v1/aiservicedesk/x?a=b c' $'/v1/aiservicedesk/x\ty' $'/v1/aiservicedesk/x\u0000' '/v1/aiservicedesk/x#frag' '/v1/aiservicedesk/x?a=b#frag' \
-         '/v1/aiservicedesk/a%2fb' '/v1/aiservicedesk/a%2Fb' '/v1/aiservicedesk/a%5cb' '/v1/aiservicedesk/a%5Cb' $'/v1/aiservicedesk/a\u00a0b' ' /v1/aiservicedesk/x'; do
+for u in '/v1/aiservicedesk/x y' '/v1/aiservicedesk/x?a=b c' $'/v1/aiservicedesk/x\ty' $'/v1/aiservicedesk/x\x01y' $'/v1/aiservicedesk/x\x7fy' $'/v1/aiservicedesk/a\xef\xbb\xbf' '/v1/aiservicedesk/x#frag' '/v1/aiservicedesk/x?a=b#frag' \
+         '/v1/aiservicedesk/a%2fb' '/v1/aiservicedesk/a%2Fb' '/v1/aiservicedesk/a%5cb' '/v1/aiservicedesk/a%5Cb' $'/v1/aiservicedesk/a\xc2\xa0b' ' /v1/aiservicedesk/x'; do
   expect_fail "rejects visibilityUrl $(printf '%q' "$u")" "[$(jq -c --arg u "$u" '. + {visibilityUrl: $u}' <<<"$ACT")]" "visibilityUrl"
 done
 expect_pass "accepts %2f in the query only" "[$(act '{"visibilityUrl":"/v1/aiservicedesk/x?next=a%2fb"}')]"
@@ -114,6 +114,8 @@ expect_fail "rejects a BOM/space expose"    "[$(jq -c '. + {expose: " \ufeff"}' 
 expect_fail "rejects a non-breaking-space id" "[$(jq -c '. + {id: "\u00a0"}' <<<"$ACT")]" "id"
 expect_fail "rejects order 1e400"           "[$(act '{"order":1e400}')]" "order"
 expect_fail "rejects order -1e400"          "[$(act '{"order":-1e400}')]" "order"
+expect_pass "accepts a NEL-only label (JS trim keeps U+0085)" "[$(jq -c '. + {label: "\u0085"}' <<<"$ACT")]"
+expect_pass "accepts a NEL in the visibilityUrl query (not JS whitespace)" "[$(jq -c '. + {visibilityUrl: "/v1/aiservicedesk/x\u0085"}' <<<"$ACT")]"
 expect_pass "accepts a negative finite order" "[$(act '{"order":-5.5}')]"
 manifest_fail "rejects a missing extension id"   "{\"frontend\":{\"remote\":{\"remoteEntry\":\"/r\"},\"headerActions\":[$ACT]}}" "extension needs a non-blank"
 manifest_fail "rejects a blank extension id"     "{\"id\":\" \",\"frontend\":{\"remote\":{\"remoteEntry\":\"/r\"},\"headerActions\":[$ACT]}}" "extension needs a non-blank"

@@ -3,11 +3,11 @@
 # Source it and call `validate_header_actions <manifest.json>`, or run it with a manifest path.
 
 _HA_JQ='
-def isnb: type == "string" and (gsub("^[\\s\\x{feff}]+|[\\s\\x{feff}]+$"; "") | length > 0);
+def isnb: type == "string" and (gsub("^[\\t\\n\\x{b}\\x{c}\\r \\x{a0}\\x{1680}\\x{2000}-\\x{200a}\\x{2028}\\x{2029}\\x{202f}\\x{205f}\\x{3000}\\x{feff}]+|[\\t\\n\\x{b}\\x{c}\\r \\x{a0}\\x{1680}\\x{2000}-\\x{200a}\\x{2028}\\x{2029}\\x{202f}\\x{205f}\\x{3000}\\x{feff}]+$"; "") | length > 0);
 def isflag: type == "boolean";
 def safeurl:
   type == "string" and startswith("/v1/aiservicedesk/")
-  and (test("[\\s\\x00-\\x1f\\x7f]") | not) and (contains("#") | not)
+  and (test("[\\t\\n\\x{b}\\x{c}\\r \\x{a0}\\x{1680}\\x{2000}-\\x{200a}\\x{2028}\\x{2029}\\x{202f}\\x{205f}\\x{3000}\\x{feff}\\x00-\\x1f\\x7f]") | not) and (contains("#") | not)
   and (split("?")[0] as $p
        | ($p | contains("//") | not) and ($p | contains("\\") | not)
        and ($p | test("%2f|%5c"; "i") | not)
