@@ -112,8 +112,9 @@ cat <<'EOF'
 ✔ Google auth ready for the dev kit.
 
 Next steps:
-  1. ./run.sh                    (docker-compose.override.yml auto-mounts your ~/.config/gcloud)
-  2. In the UI, create a Provider: Type=gcp, AccountId=<project-id>, with a credential whose ONLY
-     data field is  cloudRoleToAssume=<sa-email>  (no keys anywhere).
-  3. Create a Scope for it and attach the scope to your resource (Spec.ScopeIds).
+  1. ./run.sh                    (creates the cloud credential store the studio reads)
+  2. ./scripts/connect-cloud.sh gcp --name <name> --project <project-id> --service-account <sa-email>
+     It copies this ADC into the store under <name>, proves the impersonation, and creates the
+     Provider (type gcp) → Credential (cloudRoleToAssume + adcRef, no keys) → Scope, attached to the
+     extension-dev workspace. Re-run the same command after a new ADC login.
 EOF
