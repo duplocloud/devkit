@@ -188,7 +188,7 @@ Rules. The portal drops a bad entry with a `console.warn`. The build fails on th
 - Hiding never moves an item. A hidden inline button leaves its slot empty; ⋮ items do not take it.
 - A group with no visible child is hidden.
 - When a new extension loads mid-session, existing items keep their slot and position. New items go to the end of their bucket.
-- A different user or a role change reassigns slots from scratch.
+- A different user, a role change, or logging out and back in reassigns slots from scratch and asks every `visibilityUrl` again.
 
 #### Where buttons show
 
@@ -300,7 +300,7 @@ Click flow:
 | Flag | Use when | Effect |
 |---|---|---|
 | `isolatePointer` | The page has "click outside" handlers that would close your UI (a picker, a popover). | The host stops pointer events on the button at window capture, so the page never sees the click. |
-| `preserveFocus` | Your action needs the user's current focus or selection (a text field, a screenshot). | `mousedown` is cancelled so focus stays put. `trigger` is omitted. The tooltip and menus close before `run`. |
+| `preserveFocus` | Your action needs the user's current focus or selection (a text field, a screenshot). | `mousedown` is cancelled so focus stays put. `trigger` is omitted. The tooltip and menus close before `run`. Run from a menu row by keyboard, focus moves to that menu's toggle (⋮ or the group button) first, so `document.activeElement` is the toggle. |
 
 A group behaves as if a flag is on when any of its visible children has it on. The ⋮ toggle does the same for its visible overflow and menu items. Hidden items do not count.
 
