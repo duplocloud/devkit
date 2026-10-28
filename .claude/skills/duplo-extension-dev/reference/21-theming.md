@@ -15,7 +15,7 @@ themes). An extension follows both automatically **if every colour it paints com
   on a portal that predates the dark theme the defaults fill the gap, so the extension still looks as before.
   They load with the library, so the library must be imported in code that loads with the extension's pages (the
   scaffold does). On 0.5.1 that import must use an export: a bare `import '@duplocloud-internal/ng-common-lib'`
-  is tree-shaken away. 0.5.2 keeps it.
+  is tree-shaken away. 0.5.2 keeps it. 0.5.3 adds defaults for the terminal tokens.
 - Every extension bundles its **own** copy of ng-common-lib, and some of its components inject global CSS.
   **Rebuild against the portal's current ng-common-lib**: a stale bundled copy repaints the portal's own tables
   in old (light-only) colours while the extension's page is open.
@@ -39,7 +39,8 @@ with a fallback, never a hex value.
 | Text on an accent fill | `$g-on-primary` | `--on-primary` |
 | Hairline divider / outline | `$g-border` | `--border-color` |
 | Popover edge / elevation | `$g-border-raised` / `$g-shadow-raised` | `--border-raised` / `--shadow-raised` |
-| Terminal / console ground | `$g-code-surface` | `--code-surface` |
+| Command output / log console | `$g-terminal-bg`, text `$g-terminal-fg` | `--terminal-bg` / `--terminal-fg` |
+| Code block ground | `$g-code-surface` | `--code-surface` |
 | Tinted surface or hover | `color-mix(in srgb, $g-primary 8%, transparent)` | — |
 
 Inline `styles: [...]` in a `.ts` file can't `@use` Sass: write the token directly, `var(--surface)`.
@@ -63,7 +64,8 @@ They paint through JavaScript, so tokens alone don't reach them. Use ng-common-l
 ([20-ui-library](20-ui-library.md)):
 
 - Monaco: `editorOptions = withMonacoTheme({ language: 'yaml' })` — never a fixed `theme: 'vs-dark'`.
-- CodeMirror: `CodeMirrorThemeService`; ECharts: `EchartsThemeService`; xterm: `xtermTheme(mode, theme)`.
+- CodeMirror: `CodeMirrorThemeService`; ECharts: `EchartsThemeService`; xterm: `xtermTheme(mode, theme)`, or
+  `commandBlockTheme()` for command output (the terminal tokens, same in both modes).
 
 ## Check it
 

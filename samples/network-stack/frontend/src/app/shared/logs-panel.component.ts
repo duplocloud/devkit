@@ -14,8 +14,8 @@ import { AutoScrollBottomDirective } from './auto-scroll-bottom.directive';
   selector: 'ns-logs-panel',
   imports: [CommonLibComponentsModule, AnsiStripPipe, AutoScrollBottomDirective],
   styles: [`
-    /* min-height keeps the console from collapsing between live-tail fetches; --code-surface is dark in both modes. */
-    .console { background: var(--code-surface); color: color-mix(in srgb, var(--white) 85%, transparent); border-radius: 6px; padding: .75rem;
+    /* min-height keeps the console from collapsing between live-tail fetches; the terminal tokens are the same in both modes. */
+    .console { background: var(--terminal-bg); color: var(--terminal-fg); border-radius: 6px; padding: .75rem;
       min-height: 160px; max-height: 420px; overflow: auto; font-size: .8rem; white-space: pre-wrap; }
     .run-row { cursor: pointer; }
     .run-row.active { background: color-mix(in srgb, var(--primary) 8%, transparent); }

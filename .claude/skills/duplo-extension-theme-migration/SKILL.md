@@ -21,11 +21,11 @@ upgrade path for an extension that predates them. Work in the extension's `front
 0.5.1 carries the dark-theme components **and** zero-specificity token defaults, so the migrated extension also
 keeps its look on portals that predate the dark theme.
 
-- Get the tarball: `npm pack @duplocloud-internal/ng-common-lib@0.5.2` (GitHub Packages; needs a token with
+- Get the tarball: `npm pack @duplocloud-internal/ng-common-lib@0.5.3` (GitHub Packages; needs a token with
   `read:packages` in `~/.npmrc`), or copy it from this repo's `packages/`.
 - Inside devkit, `scripts/refresh-common-lib.sh <tgz>` does the next two steps for every frontend.
 - Move it into `frontend/vendor/`, delete the old `duplocloud-internal-ng-common-lib-*.tgz` there, and point the
-  dependency at it: `"@duplocloud-internal/ng-common-lib": "file:vendor/duplocloud-internal-ng-common-lib-0.5.2.tgz"`.
+  dependency at it: `"@duplocloud-internal/ng-common-lib": "file:vendor/duplocloud-internal-ng-common-lib-0.5.3.tgz"`.
 - `npm install` to refresh the lockfile.
 
 ## 2. Bring in the `$g-*` theme names
@@ -57,7 +57,7 @@ white/light backgrounds, fill colours used as text — needs a token.
 | `#ebe9f1` (line) / `#d8d6de` (control edge) | `$g-border` / `var(--control-border)` |
 | `#b9b9c3` / `#6e6b7b` / `#5e5873` (text) | `$g-muted` / `$g-body` / `$g-headings` |
 | `#7367f0` / `#28c76f` / `#ff9f43` / `#ea5455` fill | `$g-primary` / `$g-success` / `$g-warning` / `$g-danger` |
-| Console / terminal ground (`#161d31`, …) | `$g-code-surface`, text `color-mix(in srgb, var(--white) 85%, transparent)` |
+| Console / terminal ground (`#161d31`, …) | `$g-terminal-bg`, text `$g-terminal-fg` |
 | Card shadow `0 4px 24px rgba(…)` | `$g-shadow-raised` |
 | `rgba(<accent>, .08)` tint | `color-mix(in srgb, $g-primary 8%, transparent)` |
 

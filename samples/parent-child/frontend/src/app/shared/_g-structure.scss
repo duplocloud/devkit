@@ -34,6 +34,9 @@ $g-on-primary:     var(--on-primary);
 $g-border-raised:  var(--border-raised);
 $g-shadow-raised:  var(--shadow-raised);
 $g-code-surface:   var(--code-surface);
+// Command output and log consoles: near-black with light grey text in both modes (ng-common-lib >= 0.5.3).
+$g-terminal-bg:    var(--terminal-bg);
+$g-terminal-fg:    var(--terminal-fg);
 
 // Bootstrap's --font-family-monospace resolves to a PROPORTIONAL stack in the portal theme, so anything
 // that needs column alignment (ids, SHAs, CIDRs) names a real monospace stack literally.
