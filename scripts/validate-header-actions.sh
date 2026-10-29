@@ -5,6 +5,8 @@
 _HA_JQ='
 def isnb: type == "string" and (gsub("^[\\t\\n\\x{b}\\x{c}\\r \\x{a0}\\x{1680}\\x{2000}-\\x{200a}\\x{2028}\\x{2029}\\x{202f}\\x{205f}\\x{3000}\\x{feff}]+|[\\t\\n\\x{b}\\x{c}\\r \\x{a0}\\x{1680}\\x{2000}-\\x{200a}\\x{2028}\\x{2029}\\x{202f}\\x{205f}\\x{3000}\\x{feff}]+$"; "") | length > 0);
 def isflag: type == "boolean";
+# jq 1.6 (builder image) parses 1e400 as the largest double, not infinity, so isinfinite alone misses it.
+def isfinitenum: type == "number" and (isinfinite | not) and . < 1.7976931348623157e308 and . > -1.7976931348623157e308;
 def safeurl:
   type == "string" and startswith("/v1/aiservicedesk/")
   and (test("[\\t\\n\\x{b}\\x{c}\\r \\x{a0}\\x{1680}\\x{2000}-\\x{200a}\\x{2028}\\x{2029}\\x{202f}\\x{205f}\\x{3000}\\x{feff}\\x00-\\x1f\\x7f]") | not) and (contains("#") | not)
@@ -14,7 +16,7 @@ def safeurl:
        and ($p | split("/") | map(gsub("%2e"; "."; "i")) | any(. == "." or . == "..") | not));
 def goodshortcut:
   type == "string" and (contains("\n") | not)
-  and (split("+")[-1] | IN("Mod", "Ctrl", "Shift", "Alt") | not)
+  and (split("+")[-1] as $last | ["Mod", "Ctrl", "Shift", "Alt"] | index($last) == null)
   and test("^((Mod|Ctrl|Shift|Alt)\\+)+([A-Z][A-Za-z0-9]+)$")
   and (split("+")[:-1] as $m
        | (($m | unique | length) == ($m | length)) and (($m | index("Mod")) != null and ($m | index("Ctrl")) != null | not)
@@ -27,7 +29,7 @@ def entry($p; $child):
     | (if (.id | isnb | not) then "\($p).id: must be a non-blank string" else empty end),
       (if (.id | isnb) and (.id | contains(".")) then "\($p).id: must not contain a dot" else empty end),
       (if (.label | isnb | not) then "\($p).label: must be a non-blank string" else empty end),
-      (if has("order") and (.order | (type == "number" and (isinfinite | not)) | not) then "\($p).order: must be a finite number" else empty end),
+      (if has("order") and (.order | isfinitenum | not) then "\($p).order: must be a finite number" else empty end),
       (if has("roles") and ((.roles | type) != "array" or (.roles | all(type == "string") | not)) then "\($p).roles: must be an array of strings" else empty end),
       (("showInAdmin", "isolatePointer", "preserveFocus") as $f
         | if ($e | has($f)) and ($e[$f] | isflag | not) then "\($p).\($f): must be a boolean" else empty end),
