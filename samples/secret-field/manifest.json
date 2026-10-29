@@ -1,0 +1,68 @@
+{
+  "manifestVersion": "1.0",
+  "id": "com.duplocloud.secretfield",
+  "name": "Secret Field Sample",
+  "version": "0.1.4",
+
+  "sdkVersion": "REPLACED_BY_SKILL_FROM_sdk-version_ENDPOINT",
+  "backend": {
+    "assemblyDir": "com.duplocloud.secretfield/0.1.4/backend",
+    "entryAssembly": "Duplo.Extension.SecretField.dll"
+  },
+
+  "resources": [
+    {
+      "ticketOriginType": "SecretFieldServiceAccount",
+      "restSegment": "extensions/secret-field-service-accounts",
+      "subType": "secret-field-service-account",
+      "archetype": "typed",
+      "registrar": "DevOpsResource",
+      "entityType": "Duplo.Extension.SecretField.SecretFieldServiceAccount",
+      "specType": "Duplo.Extension.SecretField.SecretFieldServiceAccountSpec",
+      "resultType": "Duplo.Extension.SecretField.SecretFieldServiceAccountResult",
+      "hooksType": "Duplo.Extension.SecretField.SecretFieldServiceAccountHooks",
+      "serviceType": "Duplo.Extension.SecretField.SecretFieldServiceAccountService"
+    }
+  ],
+
+  "skills": [
+    { "folder": "com.duplocloud.secretfield/0.1.4/skills/provision-secret-field-service-account", "isBuiltIn": true }
+  ],
+  "skillMappings": [
+    {
+      "originType": "SecretFieldServiceAccount",
+      "subType": "secret-field-service-account",
+      "skillNames": ["provision-secret-field-service-account"],
+      "timeout": { "provision": 300, "deprovision": 120 }
+    }
+  ],
+
+  "frontend": {
+    "remote": {
+      "remoteName": "duploExtensionSecretField",
+      "remoteEntry": "/v1/aiservicedesk/extensions/com.duplocloud.secretfield/fe/remoteEntry.json",
+      "exposedModule": "./Extension",
+      "type": "module"
+    },
+    "menus": [
+      {
+        "id": "com.duplocloud.secretfield-devops",
+        "title": "DevOps",
+        "type": "collapsible-section",
+        "children": [
+          {
+            "id": "com.duplocloud.secretfield-service-accounts",
+            "title": "Service Accounts (secrets sample)",
+            "type": "item",
+            "matIcon": "key",
+            "relativeUrl": "extensions/secret-field-service-accounts",
+            "order": 41
+          }
+        ]
+      }
+    ],
+    "routes": [
+      { "path": "extensions/secret-field-service-accounts", "resourceType": "SecretFieldServiceAccount", "subType": "secret-field-service-account" }
+    ]
+  }
+}
