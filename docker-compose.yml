@@ -333,6 +333,9 @@ services:
       # change if a cache path is ever added, and it explains the per-uid volume names below).
       - nuget_cache:/cache/nuget
       - npm_cache:/cache/npm
+      # The ArmDot license file. /dev/null stands in when none is set, so the mount is always valid and the
+      # variable below stays empty, which build-extension.sh reads as "do not obfuscate".
+      - ${ARMDOT_LICENSE_FILE_PATH:-/dev/null}:/run/armdot/license.key:ro
     environment:
       - DUPLO_BUILD_NATIVE=1
       - DUPLO_TARGET=${DUPLO_TARGET:-local}
@@ -345,6 +348,7 @@ services:
       - DUPLO_HOST=${DUPLO_HOST:-}
       - DUPLO_TOKEN=${DUPLO_TOKEN:-}
       - DUPLO_ADMIN_TOKEN=${DUPLO_ADMIN_TOKEN:-}
+      - ARMDOT_LICENSE_FILE_PATH=${ARMDOT_LICENSE_FILE_PATH:+/run/armdot/license.key}
 
 volumes:
   nginx_conf:

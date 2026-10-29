@@ -174,6 +174,10 @@ be renamed. Each violation prints a `✗` line, then:
 ERROR: extension naming validation failed — fix the ✗ items above (reference/00-naming.md).
 ```
 
+With `ARMDOT_LICENSE_FILE_PATH` set to an ArmDot license file, `build-extension.sh` also obfuscates the
+extension's own assembly and stamps the bundle's manifest with `obfuscation`. See "Obfuscating a build" in
+[releasing-extensions.md](releasing-extensions.md).
+
 ### Platform registration
 
 | Script | What it does |

@@ -1,0 +1,18 @@
+<Project>
+  <Import Project="$(MSBuildThisFileDirectory)ArmDot.Obfuscation.props" />
+  <!-- Warnings stay errors unless ArmDotTreatWarningsAsErrors is set to false. Treating warnings as errors guards
+       the license: a build that cannot apply the license fails rather than ship unprotected. -->
+  <Target Name="ArmDotProtect" AfterTargets="AfterCompile" BeforeTargets="BeforePublish" Condition="'$(ShouldObfuscate)' == 'true'">
+    <ItemGroup>
+      <ArmDotInputs Include="$(ProjectDir)$(IntermediateOutputPath)$(TargetFileName)" />
+    </ItemGroup>
+    <Message Importance="high" Text="[ArmDot] Obfuscating @(ArmDotInputs) (license file: '$(ArmDotLicenseFile)')" />
+    <ArmDot.Engine.MSBuildTasks.ObfuscateTask
+      Inputs="@(ArmDotInputs)"
+      ReferencePaths="@(_ResolveAssemblyReferenceResolvedFiles->'%(RootDir)%(Directory)')"
+      LicenseFile="$(ArmDotLicenseFile)"
+      TreatAllWarningsAsErrors="$(ArmDotTreatWarningsAsErrors)"
+      NoWarn="3,5"
+      SkipAlreadyObfuscatedAssemblies="true" />
+  </Target>
+</Project>

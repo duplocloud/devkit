@@ -61,6 +61,27 @@ and the namespace. By default it fetches root keys from the console's public `ro
 needs no credential. A `--root-key` flag substitutes a local key for testing and says so in its output, so
 that run is never mistaken for a check against the console's real roots.
 
+## Obfuscating a build
+
+DuploCloud's own extensions ship with their backend assembly obfuscated by ArmDot, the same protection the
+platform's assemblies carry. Only the extension's own assembly is processed. The SDK assemblies the host
+provides never ship in the bundle, so they are never touched. ArmDot runs with control-flow obfuscation and
+code virtualization only. Renaming and string hiding stay off, because both break the reflection the host
+uses to load an extension.
+
+Obfuscation runs when `ARMDOT_LICENSE_FILE_PATH` names an ArmDot license file, and only for Release builds.
+`build-extension.sh` passes the license into the builder container and drops a temporary
+`Directory.Build.targets` beside the extension's csproj, so the extension's own project file never changes. An
+extension that already has its own `Directory.Build.targets` in its `backend/` directory is refused, since the
+build would overwrite it. A relative license path is taken relative to the directory you run the script from.
+
+A license problem fails the build rather than ship an unprotected or expiring assembly. A path that does not name
+a non-empty file is refused before anything compiles. A license file ArmDot rejects fails the build too.
+
+An obfuscated bundle's `manifest.json` carries `"obfuscation": {"tool": "armdot", "version": "<engine
+version>"}`, and a plain bundle carries no `obfuscation` key, so a release step can tell the two apart. The
+license is DuploCloud's, so a customer's build is plain and needs nothing.
+
 ## In DuploCloud's organizations
 
 Signing is mandatory in `duplocloud` and `duplocloud-internal`. A repository there sets two secrets and two

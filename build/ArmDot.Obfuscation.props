@@ -1,0 +1,18 @@
+<Project>
+  <!-- Imported by the devkit build (through Directory.Build.targets) only when DuploObfuscate is true, so an
+       extension build that does not opt in never sees ArmDot. PrivateAssets="all" keeps the ArmDot packages out
+       of the extension's own dependency graph. Only control-flow obfuscation and virtualization are enabled,
+       because the other transforms break the reflection-heavy extension host at startup. -->
+  <PropertyGroup>
+    <ArmDotEngineVersion>2026.6.0</ArmDotEngineVersion>
+    <ArmDotClientVersion>2026.6.0</ArmDotClientVersion>
+    <ArmDotTreatWarningsAsErrors Condition="'$(ArmDotTreatWarningsAsErrors)' == ''">true</ArmDotTreatWarningsAsErrors>
+    <ShouldObfuscate Condition="'$(Configuration)' == 'Release' and '$(DuploObfuscate)' == 'true'">true</ShouldObfuscate>
+    <ShouldObfuscate Condition="'$(ShouldObfuscate)' == ''">false</ShouldObfuscate>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="ArmDot.Engine.MSBuildTasks" Version="$(ArmDotEngineVersion)" PrivateAssets="all" />
+    <PackageReference Include="ArmDot.Client" Version="$(ArmDotClientVersion)" PrivateAssets="all" />
+    <Compile Include="$(MSBuildThisFileDirectory)ArmDotObfuscationAssemblyInfo.cs" Link="Properties/ArmDotObfuscationAssemblyInfo.cs" />
+  </ItemGroup>
+</Project>
