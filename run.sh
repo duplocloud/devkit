@@ -655,8 +655,11 @@ fi
 # address. Clearing it here would only mean re-fetching the identical string a moment later — and dead-ending
 # whenever that fetch failed. --reset-license (below) is how you ask for it to actually go away.
 if [ "$RESET" = 1 ]; then
-  echo "==> --reset: tearing down stack + volumes (DB, extensions, file store)…"
-  "$RUNTIME" compose down -v 2>/dev/null || true
+  echo "==> --reset: tearing down stack + volumes (DB, extensions, file store, cloud credential store)…"
+  runtime_compose down -v 2>/dev/null || true
+  # The cloud-connection records (scripts/connect-cloud.sh) point at the DB and credential volume just
+  # removed; they hold no secrets, so dropping them is only housekeeping.
+  rm -rf .devkit-cloud
   for k in Authentication__LocalAdminEmail Authentication__LocalAdminPassword Authentication__SuperUsers \
            DEVKIT_MODEL ANTHROPIC_API_KEY AWS_REGION AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
            CLAUDE_MODEL CLAUDE_EXTRA_MODELS "${GATEWAY_KEYS[@]}" "${SUBSCRIPTION_KEYS[@]}" \
@@ -1117,11 +1120,13 @@ done
 # Name the runtime here, not only when something breaks: auto-detect is presence-based and docker-first,
 # so on a box with both installed the choice is otherwise invisible until it goes wrong.
 echo "==> Using $(runtime_label)"
-echo "==> Pulling images…"; "$RUNTIME" compose pull
+# runtime_compose, not a bare `compose`: it drops an LLM key exported in this shell so .env stays the
+# source of truth for the agent's provider (see scripts/_runtime.sh).
+echo "==> Pulling images…"; runtime_compose pull
 # The installer mounts extensions/. A bind source the runtime has to create comes out root-owned under rootful docker
 # on Linux, which neither fetch-terraform-extension.sh below nor a build could then write.
 mkdir -p extensions
-echo "==> Starting…"; "$RUNTIME" compose up -d
+echo "==> Starting…"; runtime_compose up -d
 
 STUDIO_PORT="$(getenv STUDIO_PORT)"; [ -z "$STUDIO_PORT" ] && STUDIO_PORT=60021
 UI_PORT="$(getenv UI_PORT)"; [ -z "$UI_PORT" ] && UI_PORT=4200

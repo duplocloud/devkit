@@ -204,6 +204,35 @@ runtime_resolve() {
   return 0
 }
 
+# runtime_compose <args…> -> `$RUNTIME compose <args…>` with the agent's LLM-credential keys removed
+# from the calling environment.
+#
+# WHY: compose resolves the `${ANTHROPIC_API_KEY:-}` style references in docker-compose.yml from the
+# calling shell FIRST and only then from .env. A key exported in the shell — a developer's own
+# `export ANTHROPIC_API_KEY=…` — therefore lands in the agent in place of the provider run.sh
+# configured, silently, because the agent picks its provider by precedence and a bare key wins it.
+# scripts/_provider_subscription.sh already unsets two of these for its own arm; this is the one place
+# for the whole set, so every start/recreate path (run.sh, switch-llm.sh) sees .env as the source of
+# truth. Deliberately ONLY the LLM-provider keys the agent service interpolates: nothing else about
+# the environment (RUNTIME, COMPOSE_PROJECT_NAME, DUPLO_*, AWS_PROFILE, …) is touched, so remote-target
+# and AWS CLI semantics elsewhere are unchanged.
+#
+# An EXPORTED-BUT-EMPTY key is removed too: compose treats `ANTHROPIC_API_KEY=` in the shell as a set
+# value and resolves `${ANTHROPIC_API_KEY:-}` to the empty string, masking the key .env configured —
+# the agent then silently falls through to the next provider. Hence the `+x` (is-set) test, not `-n`.
+_RUNTIME_COMPOSE_SHADOW_KEYS=(ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN)
+runtime_compose() {
+  local k args=()
+  for k in "${_RUNTIME_COMPOSE_SHADOW_KEYS[@]}"; do
+    [ -n "${!k+x}" ] && args+=(-u "$k")
+  done
+  if [ ${#args[@]} -gt 0 ]; then
+    env "${args[@]}" "${RUNTIME:?}" compose "$@"
+  else
+    "${RUNTIME:?}" compose "$@"
+  fi
+}
+
 # runtime_is_rootless_podman -> 1 or 0.
 #
 # Only podman can answer yes: docker's rootless mode still presents a daemon that owns the uid mapping,
@@ -250,9 +279,12 @@ runtime_builder_ids() {
 # runtime_compose_project -> the compose project name these scripts' containers are labelled with.
 #
 # Compose's own default rule: the base directory name, lowercased, with everything outside [a-z0-9_-]
-# dropped. COMPOSE_PROJECT_NAME overrides it, for both implementations.
+# dropped. COMPOSE_PROJECT_NAME overrides it, for both implementations — from the environment first,
+# then from the project .env, which compose reads for this key exactly like the environment (a name set
+# only in .env is what a second, isolated checkout typically does). Cleaned of quotes/CR like RUNTIME.
 runtime_compose_project() {
-  if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then printf '%s' "$COMPOSE_PROJECT_NAME"; return; fi
+  local p; p="$(_runtime_clean "${COMPOSE_PROJECT_NAME:-$(_runtime_envv COMPOSE_PROJECT_NAME)}")"
+  if [ -n "$p" ]; then printf '%s' "$p"; return; fi
   basename "$PWD" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]//g'
 }
 

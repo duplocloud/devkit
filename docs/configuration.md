@@ -17,6 +17,7 @@ Everything the dev kit reads comes from `.env` in the repo root. Copy it from `.
 - [Authentication and platform](#authentication-and-platform)
 - [LLM provider](#llm-provider)
 - [Created by `run.sh`](#created-by-runsh)
+- [Cloud credential store](#cloud-credential-store)
 
 ## How `.env` is maintained
 
@@ -287,6 +288,29 @@ Written on first run. You should not need to set these by hand.
 The permission set and group exist because the UI's accessible-workspace list is permission-set based with
 no superuser bypass. Without them, login lands on `/app/auth/no-tenant-access` even though the admin token
 works against the API.
+
+## Cloud credential store
+
+Cloud connections made with `scripts/connect-cloud.sh` (see [cli-reference.md](cli-reference.md#platform-registration))
+keep their bootstrap material in the compose volume `cloud_auth`, not in `.env` and not in a host
+directory. It is created and chowned to the studio's uid 1001 by `init-perms` on every start, mounted
+**read-only** into `duplo-ai-studio` at `/devkit-auth` from the first start, and written only through a
+short-lived helper container that runs as uid 1001 with `umask 077` and takes the secret on stdin. The
+helper never guesses the volume's name: it reads it from the running studio container's `/devkit-auth`
+mount, so a checkout that sets `COMPOSE_PROJECT_NAME` in `.env` works unchanged, and a stack that is not
+running (or runs an older compose file without the mount) is a hard error. Nothing in the stack is
+recreated when a connection is added or rotated. A second checkout gets its own volume
+(`<project>_cloud_auth`); `run.sh --reset` and `stop.sh --wipe` remove it with the rest.
+
+| Setting | Where | Effect |
+| --- | --- | --- |
+| `AIStudio__GcpAdcRoot=/devkit-auth/gcp` | `docker-compose.yml` (studio environment) | Enables the per-connection GCP path: a GCP credential whose `dataEx` has `adcRef=<name>` makes the studio load `/devkit-auth/gcp/<name>.json` — an `authorized_user` ADC file and nothing else — on every scope expansion and impersonate `cloudRoleToAssume` with it. Unset on production images, where such a credential fails with a clear error instead of falling back to process ADC. |
+| `.devkit-cloud/connections.json` | repo root, gitignored | The non-secret records `connect-cloud.sh` keeps per connection: names, ids, account/project, region, AWS credential expiry. Dropped by `--reset`. |
+
+AWS connections store the resolved (temporary) keys on the provider credential itself — the same
+shape the UI's **Access Key** credential type uses — so they need no file in the store; GCP
+connections store only `cloudRoleToAssume` and `adcRef` on the credential, and the refresh token stays
+in the volume.
 
 ## Usage metrics
 

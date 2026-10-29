@@ -47,17 +47,21 @@ services:
   # `run.sh --reset` or `stop.sh --wipe` removes them, so this runs every startup (see the services' depends_on).
   # Both processes writing as 1001 keeps ticket/skill/extension dirs interoperable.
   # The installer's state volume goes to 65532 instead, the distroless nonroot user its image runs as.
+  # The cloud credential store (cloud_auth) is chowned NON-recursively: the directory and its gcp/
+  # subdirectory become 1001-owned, mode 0700, and the files inside are written as 1001 by
+  # scripts/_cloud_auth.sh, so nothing here ever loosens a credential file's mode.
   init-perms:
     image: busybox:1.36
     command:
       - sh
       - -c
-      - chown -R 1001:1001 /data /extstudio /csessions && chown -R 65532:65532 /installer && echo 'volumes chowned'
+      - chown -R 1001:1001 /data /extstudio /csessions && chown -R 65532:65532 /installer && mkdir -p /cloudauth/gcp && chown 1001:1001 /cloudauth /cloudauth/gcp && chmod 0700 /cloudauth /cloudauth/gcp && echo 'volumes chowned'
     volumes:
       - platform_data:/data
       - extension_studio_data:/extstudio
       - claude_sessions:/csessions
       - installer_state:/installer
+      - cloud_auth:/cloudauth
 
   duplo-ai-studio:
     image: quay.io/duplocloud/backend:${STUDIO_TAG}
@@ -81,6 +85,11 @@ services:
       - AIStudio__XtermHost=http://localhost:${XTERM_PORT:-6060}
       - LocalFileStorage__RootPath=/data
       - Extensions__InstallerUrl=http://installer:8080
+      # Per-connection GCP bootstrap credentials: a GCP credential whose dataEx carries adcRef=<name>
+      # makes the studio load /devkit-auth/gcp/<name>.json (an authorized_user ADC file) on every scope
+      # expansion — no process-global ADC, so two connections can carry two identities and a replaced
+      # file takes effect on the next ticket message. Unset in production images; dev-kit only.
+      - AIStudio__GcpAdcRoot=/devkit-auth/gcp
     volumes:
       # Shared /data file store (skills + loaded-extension skill files). Shared with the agent so it can
       # read the seeded skills. Survives restart.
@@ -88,6 +97,12 @@ services:
       # Hot-loaded extension bundles unpack to AIStudio:ExtensionStudioPath. Named volume → extensions survive a
       # container recreate; ExtensionReplayHostedService re-registers the Active records on boot.
       - extension_studio_data:/app/extension-studio
+      # The cloud credential store, mounted read-only from the FIRST start so later connections need no
+      # container recreate: scripts/connect-cloud.sh writes into the same named volume through a
+      # short-lived helper container (scripts/_cloud_auth.sh) that runs as uid 1001 with umask 077.
+      # A named volume rather than a host directory: a 0700 host directory owned by you is unreadable
+      # by the studio's uid 1001 on Linux, and loosening it would expose the credentials on the host.
+      - cloud_auth:/devkit-auth:ro
     depends_on:
       mongo:
         condition: service_started
@@ -355,6 +370,9 @@ volumes:
   qdrant_data:
   installer_state:
   dind_storage:
+  # Cloud credential store (see duplo-ai-studio's /devkit-auth mount). Project-scoped like the others, so a
+  # second checkout gets its own; removed with the rest by `run.sh --reset` / `stop.sh --wipe`.
+  cloud_auth:
   # Keyed by uid on purpose: these are written as the calling user (see the service's `user:`), and one
   # uid's runtime-created cache subdirectories are not writable by another, so sharing a single pair
   # would break the second uid to build. build/Dockerfile.builder has the full reasoning, including why
