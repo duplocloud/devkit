@@ -1,7 +1,8 @@
 # Upgrading an extension's UI library: the vendored `@duplocloud-internal/ng-common-lib` tarball
 
 For extensions built from this dev-kit (or from the `duplo-extension-dev` skill template) that vendor the UI
-library as a tarball. The current line is 0.4.0 (Angular 22); the notes below contrast it with the 0.1.x line.
+library as a tarball. The current line is 0.5.3 (Angular 22); [What changed in 0.5.1](#what-changed-in-051) covers
+the dark theme, and the notes after it contrast the 0.2.x line with 0.1.x.
 
 > **This is not a drop-in upgrade.** 0.2.0 is compiled against **Angular 22** and ships as ESM
 > (`fesm2022`, `"type": "module"`); its peer range is `@angular/core@^22.1.0`. It is meant to be consumed by
@@ -19,6 +20,33 @@ If your extension is already an Angular 22 Native-Federation remote (it has `fro
 and no `frontend/webpack.config.js`), the steps below are all you need.
 
 ---
+
+## What changed in 0.5.3
+
+- **Terminal tokens.** The token defaults add `--terminal-bg` / `--terminal-fg` (near-black with light grey text in
+  both modes, matching the portal's chat command blocks), so they now cover 22 tokens. Use them through
+  `$g-terminal-bg` / `$g-terminal-fg`, or `commandBlockTheme()` for an xterm.
+- The dark `--success-text`, `--danger-text` and `--warning-text` defaults now match the portal's values.
+- Nothing to change in an existing extension.
+
+## What changed in 0.5.2
+
+- `"sideEffects"` now names the library file, so a bundler cannot drop the token-defaults call even when
+  an extension imports nothing from the library. Nothing to change in the extension.
+
+## What changed in 0.5.1
+
+- **Dark theme.** Components follow the portal's Light / Dark switch through theme tokens (`--surface`,
+  `--primary-text`, `--border-color`, …) instead of fixed white backgrounds. Editors and charts follow it through
+  `withMonacoTheme`, `CodeMirrorThemeService`, `EchartsThemeService` and `xtermTheme`.
+- **Token defaults.** When the library loads it adds one `<style id="duplo-theme-defaults">` with
+  zero-specificity defaults (`:where(:root)` and `:where(:root[data-theme='dark'])`) for the 20 tokens the dark
+  theme added. The portal's own values always win; on a portal that predates the dark theme the defaults keep the
+  extension's look unchanged. Check a build with `grep -rl duplo-theme-defaults dist`.
+- **Why upgrade:** an older bundled copy repaints the portal's tables white in dark mode while the extension's page
+  is open, because its datatable styles are global.
+- Extension styles move to the `$g-*` theme names — see [theming.md](theming.md) and the
+  `duplo-extension-theme-migration` skill. Steps 1–5 below apply unchanged with the 0.5.3 tarball.
 
 ## What changed in 0.2.0
 

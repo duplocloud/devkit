@@ -259,12 +259,12 @@ a plain `npm install` just works from a fresh clone. Two schemes coexist:
 
 - **The samples** share one copy at repo-root `packages/`, since they never leave this repo:
   ```json
-  "@duplocloud-internal/ng-common-lib": "file:../../../packages/duplocloud-internal-ng-common-lib-0.4.0.tgz",
+  "@duplocloud-internal/ng-common-lib": "file:../../../packages/duplocloud-internal-ng-common-lib-0.5.3.tgz",
   ```
 - **The skill template** (`templates/helloworld/frontend/`) keeps its **own** copy under `vendor/`, because it
   gets copied out to `extensions/<name>/` or a provisioning workdir and must stay self-contained:
   ```json
-  "@duplocloud-internal/ng-common-lib": "file:vendor/duplocloud-internal-ng-common-lib-0.4.0.tgz",
+  "@duplocloud-internal/ng-common-lib": "file:vendor/duplocloud-internal-ng-common-lib-0.5.3.tgz",
   ```
 
 Scaffolding from the template carries the tarball and the specifier with it — keep both when you copy.
@@ -364,7 +364,8 @@ It checks that `dist/remoteEntry.json` exists and is flat (no `dist/browser/`), 
 manifest's `remoteName`, that the exposed module is present, and — when given the host entry — that every shared
 package the remote declares is published by the host at the same major.
 
-Bootstrap 4 + the Vuexy theme are served globally by the host, so the remote ships no CSS. Build with a strict
+Bootstrap 4 + the Vuexy theme are served globally by the host, so the remote ships no CSS. Colours come only from
+the `$g-*` theme names so the extension follows Light/Dark — [21-theming](21-theming.md). Build with a strict
 `npm ci` / `npm install` — never npm's legacy peer-dependency flag.
 
 ### Viewing the result

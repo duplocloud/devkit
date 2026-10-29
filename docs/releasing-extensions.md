@@ -22,8 +22,9 @@ Two checks run before any of that, for every build in every organization. A mani
 entry is refused, since the host would refuse the bundle anyway, and so is a zip over 268435456 bytes (256
 MiB). A pull request that touches an extension sees the same checks ahead of time, as a warning rather than
 a failure, from `scripts/check-extension-pr.sh`. That script also warns when `manifest.version` has not
-moved, when a `skills/` folder has no matching `skills[].folder` entry in the manifest, and when a webpack
-frontend bundle ships without the file that Native Federation hosts need.
+moved, when a `skills/` folder has no matching `skills[].folder` entry in the manifest, when a webpack
+frontend bundle ships without the file that Native Federation hosts need, and when the frontend uses an
+ng-common-lib older than 0.5.1 (see the `duplo-extension-theme-migration` skill).
 
 In `duplocloud` and `duplocloud-internal`, the release also carries `extension.zip.sig`, and, for an id the
 allowlist maps to this repository, the build is uploaded to the channels bucket and registered as a new,
