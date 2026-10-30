@@ -237,6 +237,40 @@ values, and there it is load-bearing rather than hygiene: `bedrock-instance-role
 `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` (anything left in those wins the chain and the instance role
 would never be consulted), and `gateway` blanks `ANTHROPIC_API_KEY` (see the table).
 
+### Secrets from the environment
+
+`ANTHROPIC_API_KEY` (`anthropic`) and `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN`
+(`bedrock`) can come from the calling shell instead of `.env`. A value taken from the environment is used
+for that run and **never written to `.env`**; `docker-compose.yml` interpolates the same variables from the
+environment, so the agent still receives it. Precedence is flag → `.env` → environment → prompt, so a
+value already in `.env` still wins and existing setups are unchanged. For `bedrock`, both keys must come
+from the environment for this to apply; a `--aws-session-token` passed alongside them is used the same way,
+not saved.
+
+Only the keys the chosen provider takes this way reach the agent. Compose would otherwise pass **any**
+exported provider variable to the agent ahead of `.env` — an exported `ANTHROPIC_API_KEY` would beat Bedrock,
+or be sent to a gateway's URL. So right before starting the stack, `run.sh` and `switch-llm.sh` drop every
+other provider variable (`ANTHROPIC_*`, `AWS_*` keys and `AWS_REGION`, `CLAUDE_CODE_OAUTH_TOKEN`, `AZURE_*`) from their own
+process, naming any they ignore; compose then reads `.env` for those. Your shell is not changed. The studio
+container loads `.env` through `env_file` and never sees environment-only values; it uses AWS credentials
+only for its own host identity, not for the LLM.
+
+Any secret manager works, since the contract is just an environment variable:
+
+```bash
+# 1Password
+ANTHROPIC_API_KEY=op://<vault>/<item>/credential op run -- ./run.sh
+# macOS Keychain
+ANTHROPIC_API_KEY="$(security find-generic-password -s anthropic -w)" ./run.sh
+# CI
+ANTHROPIC_API_KEY="$SECRET_FROM_CI" ./run.sh --non-interactive
+```
+
+Because nothing is stored, every later start needs the variable set again: restart with `./run.sh` (or
+`scripts/switch-llm.sh`) from a shell where it is set. Prefer that over a manual `docker compose up`, which
+has no isolation step: it passes every exported provider variable to the agent unfiltered, and without the
+variable it starts the agent with no key.
+
 `run.sh` also runs `scripts/register-llm.sh` on every provider. The studio ships no LLM model records of
 its own, so on a fresh DB the ticket LLM picker has nothing to offer; this registers whatever `CLAUDE_MODEL`
 resolved to and makes it the sole System default.
