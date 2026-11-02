@@ -20,6 +20,12 @@ money, so it runs only when an operator asks for it. It PASSES only when all of 
 A correct final answer in prose with no matching raw tool output FAILS. Standard library only.
 
   --base URL --token-env VAR     studio URL; the admin token is read from the named env var
+  --callback-token-env VAR       env var holding the interactive session JWT (or a ticket-scoped callback
+                                 credential) the UI normally sends as platform_context.duplo_token; the
+                                 agent needs it to raise approval callbacks. Required, must be non-empty,
+                                 never derived from --token-env, never written anywhere.
+  --callback-base URL            the studio URL the AGENT container can reach (platform_context.duplo_base_url);
+                                 chosen explicitly — --base is a host loopback the container cannot use.
   --workspace ID --scope-id ID   the scope connect-cloud registered (see .devkit-cloud/connections.json)
   --cloud aws|gcp --name NAME    the connection name (= AWS profile / gcloud configuration the agent sees)
   --control-file PATH            JSON list of bucket names obtained independently (operator-run control)
@@ -76,6 +82,24 @@ def prompt(cloud: str, name: str, project: str | None) -> str:
 
 def norm(cmd: str) -> str:
     return re.sub(r"\s+", " ", (cmd or "").strip())
+
+
+def parse_callback_base(url: str):
+    """Normalize the agent-reachable studio address: a bare http(s) origin (scheme://host[:port]) with no
+    userinfo, path, query or fragment. Returns the normalized origin, or None when rejected. The caller
+    must never echo the rejected value — a mistyped credential URL would otherwise land in the evidence."""
+    try:
+        u = urllib.parse.urlsplit((url or "").strip())
+        port = u.port          # raises ValueError on a non-numeric / out-of-range port
+    except ValueError:
+        return None
+    if u.scheme not in ("http", "https") or not u.hostname or u.username is not None or u.password is not None:
+        return None
+    if u.path not in ("", "/") or u.query or u.fragment:
+        return None
+    if u.netloc.endswith(":") and port is None:   # "host:" — empty port (non-numeric ones raised above)
+        return None
+    return f"{u.scheme}://{u.netloc}"
 
 
 class HarnessError(Exception):
@@ -185,12 +209,34 @@ def snapshot_complete(s: dict) -> bool:
     return all(isinstance(s.get(k), dict) and s[k].get("id") and s[k].get("startedAt") for k in SERVICES)
 
 
+# The one stderr preamble gcloud is known to emit ahead of its JSON on stdout when the tool captures both
+# streams together: google.api_core's two-line Python-version FutureWarning. Only this exact shape (path
+# ending in api_core/_python_version_support.py, the fixed sentence, then the bare `warnings.warn(...)`
+# line) is recognised, and only at the very start of the output. Nothing else is ever stripped.
+GCLOUD_PY_VERSION_WARNING = re.compile(
+    r"\A\S*/google/api_core/_python_version_support\.py:\d+: FutureWarning: You are using a Python version "
+    r"\(\d+\.\d+(?:\.\d+)?\) which Google will stop supporting in new releases of google\.api_core once it "
+    r"reaches its end of life \(\d{4}-\d{2}-\d{2}\)\. Please upgrade to the latest Python version, or at least "
+    r"Python \d+\.\d+, to continue receiving updates for google\.api_core past that date\.\r?\n"
+    r"[ \t]+warnings\.warn\(message, FutureWarning\)[ \t]*(?:\r?\n|\Z)")
+
+
 def parse_bucket_output(cloud: str, command: str, output: str) -> list[str] | None:
     """Bucket names from the RAW output of an allowed listing command; None when it is not a parsable
-    listing. An empty listing parses to []."""
+    listing. An empty listing parses to [].
+
+    GCP only: when the output begins with the google.api_core Python-version FutureWarning (see
+    GCLOUD_PY_VERSION_WARNING), that prefix is dropped and the ENTIRE remainder must be the JSON listing.
+    A warning with nothing after it is not a listing (None), never an empty one."""
     if output is None:
         return None
     text = output.strip()
+    if cloud != "aws":
+        m = GCLOUD_PY_VERSION_WARNING.match(output.lstrip())
+        if m:
+            text = output.lstrip()[m.end():].strip()
+            if not text:
+                return None
     try:
         d = json.loads(text) if text else None
     except ValueError:
@@ -228,6 +274,9 @@ def run(argv: list[str]) -> tuple[int, dict]:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--base", required=True)
     ap.add_argument("--token-env", default="DUPLO_ADMIN_TOKEN")
+    ap.add_argument("--callback-token-env", required=True,
+                    help="env var holding the interactive session JWT / ticket-scoped callback credential")
+    ap.add_argument("--callback-base", required=True, help="studio URL reachable from the agent container")
     ap.add_argument("--workspace", required=True)
     ap.add_argument("--scope-id", required=True)
     ap.add_argument("--cloud", choices=("aws", "gcp"), required=True)
@@ -245,8 +294,10 @@ def run(argv: list[str]) -> tuple[int, dict]:
     ev: dict = {"cloud": a.cloud, "name": a.name, "scopeId": a.scope_id, "workspace": a.workspace,
                 "startedAt": _dt.datetime.now(_dt.timezone.utc).isoformat(),
                 "allowedCommands": allowed_commands(a.cloud, a.name), "approvals": [], "rejections": [],
+                "callbackTokenEnv": a.callback_token_env,   # callbackBase is recorded only once validated
                 "checks": {}, "failures": []}
     checks = ev["checks"]
+    secrets: list[str] = []   # the callback credential: never serialized, scrubbed from everything that is
 
     def fail(reason: str):
         ev["failures"].append(reason)
@@ -255,6 +306,25 @@ def run(argv: list[str]) -> tuple[int, dict]:
     if not token:
         fail(f"env {a.token_env} is empty")
         return finish(a, ev)
+    # The callback credential is what the UI sends as platform_context.duplo_token; without it the agent
+    # has no way to ask for approval and refuses every Bash call. It is a separate, explicitly named env
+    # var — the admin API token is never forwarded in its place.
+    if a.callback_token_env == a.token_env:
+        fail("--callback-token-env must name a different variable than --token-env (the admin API token is not a session credential)")
+        return finish(a, ev, secrets)
+    cb_token = os.environ.get(a.callback_token_env)
+    if not cb_token or not cb_token.strip():
+        fail(f"env {a.callback_token_env} (callback session credential) is empty")
+        return finish(a, ev, secrets)
+    secrets.append(cb_token)
+    # The rejected value is deliberately not echoed: a URL pasted with userinfo or a query token would
+    # otherwise be written into the failures list and the evidence file.
+    cb_base = parse_callback_base(a.callback_base)
+    if cb_base is None:
+        fail("--callback-base rejected: must be a bare http(s) origin (scheme://host[:port]) with no "
+             "credentials, path, query or fragment (value withheld)")
+        return finish(a, ev, secrets)
+    ev["callbackBase"] = cb_base
     try:
         with open(a.control_file) as f:
             control = json.load(f)
@@ -262,7 +332,7 @@ def run(argv: list[str]) -> tuple[int, dict]:
             raise ValueError("control file must be a JSON list of bucket names")
     except (OSError, ValueError) as e:
         fail(f"control file: {e}")
-        return finish(a, ev)
+        return finish(a, ev, secrets)
     control = sorted(set(control))
     ev["control"] = control
     allowed = {norm(c) for c in allowed_commands(a.cloud, a.name)}
@@ -273,7 +343,7 @@ def run(argv: list[str]) -> tuple[int, dict]:
     ev["containersBefore"] = before
     if not snapshot_complete(before):
         fail(f"container snapshot incomplete for project '{a.project_name}': {before}")
-        return finish(a, ev)
+        return finish(a, ev, secrets)
 
     try:
         # 2. workspace agent + ticket with scope, read back
@@ -312,8 +382,12 @@ def run(argv: list[str]) -> tuple[int, dict]:
 
         def worker():
             try:
+                # Same shape the UI sends: the session credential and the agent-reachable studio URL
+                # travel ONLY here, inside platform_context.
                 box["events"] = api.stream_sse(f"{TICKETS}/{a.workspace}/{tname}/sendMessageStreaming",
-                                               {"role": "user", "content": msg}, deadline)
+                                               {"role": "user", "content": msg,
+                                                "platform_context": {"duplo_token": cb_token,
+                                                                     "duplo_base_url": cb_base}}, deadline)
             except Exception as e:  # noqa: BLE001 — recorded, judged below
                 box["error"] = f"{type(e).__name__}: {e}"
 
@@ -381,12 +455,17 @@ def run(argv: list[str]) -> tuple[int, dict]:
         ev["bucketsFromRawToolOutput"] = parsed_sets[-1] if parsed_sets else None
         checks["rawToolOutputParsed"] = bool(parsed_sets)
         checks["rawToolOutputMatchesControl"] = bool(parsed_sets) and parsed_sets[-1] == control
+        no_output = [e["command"] for e in allowed_executed if e.get("output") is None]
         if not checks["noRejectedCommands"]:
             fail(f"the agent asked for commands outside the allow-list: {ev['rejections']}")
         if not checks["allowedCommandExecuted"]:
             fail("no allowed command was executed with approval_status=approved (prose is not evidence)")
         elif not checks["rawToolOutputParsed"]:
-            fail("the executed listing command's raw output is missing or not a parsable bucket listing")
+            if no_output and len(no_output) == len(allowed_executed):
+                fail(f"missing raw output: the approved record(s) {no_output} persisted no tool output "
+                     "(an 'approved' status alone is not proof the command ran)")
+            else:
+                fail("the executed listing command's raw output is missing or not a parsable bucket listing")
         elif not checks["rawToolOutputMatchesControl"]:
             fail(f"raw tool output {parsed_sets[-1]} != control {control}")
     except HarnessError as e:
@@ -398,16 +477,24 @@ def run(argv: list[str]) -> tuple[int, dict]:
     checks["containersUnchanged"] = snapshot_complete(after) and after == before
     if not checks["containersUnchanged"]:
         fail(f"studio/agent containers changed or went missing during the run: before={before} after={after}")
-    return finish(a, ev)
+    return finish(a, ev, secrets)
 
 
-def finish(a, ev: dict) -> tuple[int, dict]:
+def finish(a, ev: dict, secrets=()) -> tuple[int, dict]:
     ev["ok"] = not ev["failures"]
     ev["finishedAt"] = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    # Scrub credentials from everything persisted or printed — a server that echoes a request body into an
+    # error message must not leak the session token into the evidence or the summary.
+    text = json.dumps(ev, indent=2, sort_keys=True)
+    for s in secrets:
+        if s:
+            text = text.replace(json.dumps(s)[1:-1], "[redacted]")
+    ev.clear()
+    ev.update(json.loads(text))
     os.makedirs(a.evidence, exist_ok=True)
     path = os.path.join(a.evidence, f"e2e-{a.cloud}-{a.name}-{ev.get('ticket') or 'noticket'}-{int(time.time())}.json")
     with open(path, "w") as f:
-        json.dump(ev, f, indent=2, sort_keys=True)
+        f.write(text)
     ev["evidencePath"] = path
     return (0 if ev["ok"] else 1), ev
 

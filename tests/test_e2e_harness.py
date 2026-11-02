@@ -27,6 +27,20 @@ HARNESS = os.path.join(ROOT, "tests", "e2e", "cloud_onboarding_e2e.py")
 AWS_LIST_OUTPUT = json.dumps({"Buckets": [{"Name": "alpha", "CreationDate": "2024-01-01T00:00:00+00:00"},
                                           {"Name": "beta", "CreationDate": "2024-01-02T00:00:00+00:00"}], "Owner": {"ID": "x"}})
 GCP_LIST_OUTPUT = json.dumps([{"name": "g1", "location": "US"}, {"name": "g2", "location": "US"}])
+GCP_CMD = "gcloud storage buckets list --configuration gcp-test9 --format json"
+# Verbatim shape of the stderr preamble the Google SDK emits ahead of gcloud's stdout JSON when a tool
+# captures both streams into one string (the only prefix the harness is allowed to recognise).
+GCP_PY_WARNING = (
+    "/opt/google-cloud-sdk/lib/third_party/google/api_core/_python_version_support.py:266: FutureWarning: "
+    "You are using a Python version (3.11.18) which Google will stop supporting in new releases of "
+    "google.api_core once it reaches its end of life (2027-10-24). Please upgrade to the latest Python "
+    "version, or at least Python 3.12, to continue receiving updates for google.api_core past that date.\n"
+    "  warnings.warn(message, FutureWarning)\n")
+
+# What the UI puts in platform_context: a session JWT and the studio URL the agent container can reach.
+CB_TOKEN_ENV = "E2E_CALLBACK_TOKEN"
+CB_SENTINEL = "cb-sentinel-jwt-9f3a7c"
+CB_BASE = "http://studio.internal:8080"
 
 
 class Fake(BaseHTTPRequestHandler):
@@ -79,6 +93,10 @@ class Fake(BaseHTTPRequestHandler):
             self.decided.set()
             return self._send(200)
         if p.endswith("/sendMessageStreaming"):
+            with self.lock:
+                self.state["stream_body"] = body
+            if self.sc.get("echo_body_error"):   # a server that leaks the request into its error
+                return self._send(500, {"message": "bad context: " + json.dumps(body.get("platform_context"))})
             return self._stream(body)
         if p.startswith("/v1/aiservicedesk/tickets/") and p.count("/") == 4:  # create
             t = dict(body, name="EXT-7", id="ticket-7")
@@ -99,6 +117,11 @@ class Fake(BaseHTTPRequestHandler):
             self.wfile.flush()
 
         emit("message", {"type": "thinking", "text": "thinking"})
+        # Like the real agent: without the UI's callback context there is no approval channel.
+        ctx = (body or {}).get("platform_context") or {}
+        if ctx.get("duplo_token") != CB_SENTINEL or ctx.get("duplo_base_url") != CB_BASE:
+            emit("error", {"type": "error", "error": "No approval callback configured."})
+            return
         if sc.get("hang"):
             time.sleep(sc["hang"])
             return
@@ -189,17 +212,21 @@ class HarnessTests(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def run_h(self, *, cloud="aws", control=("alpha", "beta"), services=BOTH, project="proj", timeout=20, extra_env=None):
+    def run_h(self, *, cloud="aws", control=("alpha", "beta"), services=BOTH, project="proj", timeout=20, extra_env=None,
+              callback_env=CB_TOKEN_ENV, callback_token=CB_SENTINEL, callback_base=CB_BASE, raw=False):
         with open(self.control, "w") as f:
             json.dump(list(control), f)
         env = {"PATH": self.bin + os.pathsep + os.environ.get("PATH", ""), "DUPLO_ADMIN_TOKEN": "tok",
                "DOCKER_STUB_LOG": os.path.join(self.tmp, "docker.log"), "DOCKER_STUB_SERVICES": services,
                "DOCKER_STUB_PROJECT": "proj"}
+        if callback_token is not None:
+            env[CB_TOKEN_ENV] = callback_token
         env.update(extra_env or {})
         name = "test21" if cloud == "aws" else "gcp-test9"
         p = subprocess.run([sys.executable, "-I", HARNESS, "--base", f"http://127.0.0.1:{self.port}", "--workspace", "ws-1",
                             "--scope-id", "scope-1", "--cloud", cloud, "--name", name, "--control-file", self.control,
                             "--runtime", "docker", "--project-name", project, "--evidence", self.evidence,
+                            "--callback-token-env", callback_env, "--callback-base", callback_base,
                             "--timeout", str(timeout), "--poll-interval", "0.2"],
                            capture_output=True, text=True, env=env, timeout=120)
         try:
@@ -209,8 +236,13 @@ class HarnessTests(unittest.TestCase):
         files = os.listdir(self.evidence)
         self.assertEqual(len(files), 1, "exactly one evidence file")
         with open(os.path.join(self.evidence, files[0])) as f:
-            evidence = json.load(f)
-        return p.returncode, summary, evidence
+            raw_evidence = f.read()
+        # Invariant for every scenario: the session credential travels only inside the streamed request.
+        for where, text in (("stdout", p.stdout), ("stderr", p.stderr), ("evidence", raw_evidence)):
+            self.assertNotIn(CB_SENTINEL, text, f"callback token leaked into {where}")
+        if raw:
+            return p.returncode, summary, json.loads(raw_evidence), p
+        return p.returncode, summary, json.loads(raw_evidence)
 
     def aws_allowed(self):
         return ["aws sts get-caller-identity --profile test21 --output json", "aws s3api list-buckets --profile test21 --output json"]
@@ -232,6 +264,121 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(Fake.state["ticket"]["ticketContextForAgent"], {"scopeIds": ["scope-1"]})
         # the decision sent back is the exact command with execute:true, nothing broader
         self.assertEqual(Fake.state["decision"], {"cmds": [{"command": self.aws_allowed()[1], "execute": True}]})
+        # the streamed message carries the UI's callback context — and only there
+        self.assertEqual(Fake.state["stream_body"]["platform_context"], {"duplo_token": CB_SENTINEL, "duplo_base_url": CB_BASE})
+        self.assertEqual(Fake.state["stream_body"]["role"], "user")
+        self.assertNotIn("platform_context", Fake.state["ticket"])
+        self.assertEqual(ev["callbackTokenEnv"], CB_TOKEN_ENV)
+        self.assertEqual(ev["callbackBase"], CB_BASE)
+
+    # ── callback context (the UI's platform_context) ──
+
+    def test_missing_callback_token_env_fails_before_any_ticket(self):
+        Fake.sc = {"asks": self.aws_allowed(), "outputs": {self.aws_allowed()[1]: AWS_LIST_OUTPUT}}
+        for tok in (None, "", "   "):
+            Fake.state = {}
+            if os.path.isdir(self.evidence):
+                shutil.rmtree(self.evidence)
+            rc, summary, ev = self.run_h(callback_token=tok)
+            self.assertEqual(rc, 1, summary)
+            self.assertTrue(any(CB_TOKEN_ENV in f and "empty" in f for f in summary["failures"]), summary)
+            self.assertNotIn("ticket", ev)
+            self.assertIsNone(Fake.state.get("ticket"))
+            self.assertIsNone(Fake.state.get("stream_body"))
+
+    def test_admin_token_env_is_never_forwarded_as_callback_token(self):
+        Fake.sc = {"asks": []}
+        rc, summary, ev = self.run_h(callback_env="DUPLO_ADMIN_TOKEN")
+        self.assertEqual(rc, 1)
+        self.assertTrue(any("different variable" in f for f in summary["failures"]), summary)
+        self.assertIsNone(Fake.state.get("ticket"))
+
+    def test_bad_callback_base_fails_before_any_ticket(self):
+        Fake.sc = {"asks": []}
+        for base in ("", "   ", "studio.internal:8080", "ftp://studio.internal", "http://", "http://:8080",
+                     "http://studio.internal:", "http://studio.internal:abc", "http://studio.internal:70000",
+                     "http://studio.internal/?x=1", "http://studio.internal/studio", "http://studio.internal/a/",
+                     "http://studio.internal#frag", "http://user:pw@studio.internal", "http://user@studio.internal"):
+            Fake.state = {}
+            if os.path.isdir(self.evidence):
+                shutil.rmtree(self.evidence)
+            rc, summary, ev = self.run_h(callback_base=base)
+            self.assertEqual(rc, 1, f"base={base!r}: {summary}")
+            self.assertTrue(any(f.startswith("--callback-base rejected") for f in summary["failures"]), summary)
+            self.assertNotIn("callbackBase", ev, f"base={base!r} recorded before validation")
+            self.assertNotIn("ticket", ev)
+            self.assertIsNone(Fake.state.get("ticket"))
+
+    def test_rejected_callback_base_value_never_appears_anywhere(self):
+        # A pasted URL carrying a password or a query token must not be echoed into the failures, the
+        # evidence file, or either stream — the failure message is generic by design.
+        Fake.sc = {"asks": []}
+        user, pw, qtok = "e2e-cb-user-71b2", "e2e-cb-password-3d9e", "e2e-cb-querytoken-5c04"
+        for base in (f"http://{user}:{pw}@studio.internal:8080", f"http://studio.internal:8080/?token={qtok}",
+                     f"http://{user}:{pw}@studio.internal/login?sig={qtok}#{qtok}",
+                     f"http://studio.internal:8080/{qtok}", f"http://studio.internal:{pw}"):
+            Fake.state = {}
+            if os.path.isdir(self.evidence):
+                shutil.rmtree(self.evidence)
+            rc, summary, ev, p = self.run_h(callback_base=base, raw=True)
+            self.assertEqual(rc, 1, f"base={base!r}: {summary}")
+            self.assertIsNone(Fake.state.get("ticket"))
+            self.assertIsNone(Fake.state.get("stream_body"))
+            files = os.listdir(self.evidence)
+            with open(os.path.join(self.evidence, files[0])) as f:
+                raw_evidence = f.read()
+            for where, text in (("stdout", p.stdout), ("stderr", p.stderr), ("evidence", raw_evidence)):
+                for s in (user, pw, qtok):
+                    self.assertNotIn(s, text, f"base={base!r}: {s} leaked into {where}")
+                self.assertNotIn("studio.internal", text, f"base={base!r}: rejected base echoed into {where}")
+
+    def test_valid_callback_base_forms_are_preserved(self):
+        # The destination is chosen explicitly; any host/container-reachable http(s) origin is accepted
+        # verbatim (scheme/host/port), only a trailing slash is dropped.
+        Fake.sc = {"asks": [], "final_text": "nothing"}
+        for base, want in (("http://studio.internal:8080", "http://studio.internal:8080"),
+                           ("https://studio.internal", "https://studio.internal"),
+                           ("http://host.docker.internal:8080/", "http://host.docker.internal:8080"),
+                           ("http://172.17.0.1:8080", "http://172.17.0.1:8080"),
+                           ("http://[::1]:8080", "http://[::1]:8080"),
+                           ("  http://localhost  ", "http://localhost")):
+            Fake.state = {}
+            if os.path.isdir(self.evidence):
+                shutil.rmtree(self.evidence)
+            rc, summary, ev = self.run_h(callback_base=base)
+            self.assertEqual(ev["callbackBase"], want, f"base={base!r}")
+            self.assertEqual(Fake.state["stream_body"]["platform_context"]["duplo_base_url"], want, f"base={base!r}")
+
+    def test_callback_context_is_not_inferred_from_base(self):
+        # --base is the host loopback; --callback-base is what the agent gets, verbatim (minus trailing slash)
+        Fake.sc = {"asks": [], "final_text": "nothing"}
+        rc, summary, _ = self.run_h(callback_base=CB_BASE + "/")
+        self.assertEqual(Fake.state["stream_body"]["platform_context"]["duplo_base_url"], CB_BASE)
+        self.assertNotIn(f"127.0.0.1:{self.port}", json.dumps(Fake.state["stream_body"]))
+
+    def test_wrong_callback_context_means_no_approval_channel_and_fails(self):
+        Fake.sc = {"asks": self.aws_allowed(), "outputs": {self.aws_allowed()[1]: AWS_LIST_OUTPUT}}
+        rc, summary, ev = self.run_h(callback_base="http://other.internal:9")
+        self.assertEqual(rc, 1)
+        self.assertTrue(any("No approval callback configured" in f for f in summary["failures"]), summary)
+        self.assertEqual(ev["approvals"], [])
+
+    def test_server_echoing_request_does_not_leak_token_into_failures(self):
+        Fake.sc = {"echo_body_error": True}
+        rc, summary, ev = self.run_h()
+        self.assertEqual(rc, 1)
+        self.assertTrue(any("HTTP 500" in f for f in summary["failures"]), summary)
+        # run_h already proved the sentinel is absent everywhere; the echoed context must show the scrub
+        self.assertTrue(any("duplo_token" in f and "[redacted]" in f for f in summary["failures"]), summary)
+
+    def test_approved_record_without_raw_output_is_not_success(self):
+        cmd = self.aws_allowed()[1]
+        Fake.sc = {"asks": [cmd], "outputs": {cmd: None}, "final_text": "BUCKETS:\nalpha\nbeta\n"}
+        rc, summary, ev = self.run_h()
+        self.assertEqual(rc, 1)
+        self.assertTrue(summary["checks"]["allowedCommandExecuted"])
+        self.assertFalse(summary["checks"]["rawToolOutputParsed"])
+        self.assertTrue(any("missing raw output" in f and "approved" in f for f in summary["failures"]), summary)
 
     def test_pass_gcp_with_empty_listing_is_a_legitimate_parsed_result(self):
         cmd = "gcloud storage buckets list --configuration gcp-test9 --format json"
@@ -240,6 +387,65 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(rc, 0, summary)
         self.assertEqual(ev["bucketsFromRawToolOutput"], [])
         self.assertTrue(summary["checks"]["rawToolOutputParsed"])
+
+    # ── gcloud stderr preamble (google.api_core Python-version FutureWarning merged ahead of stdout JSON) ──
+
+    def test_pass_gcp_with_exact_sdk_warning_prefix_then_valid_listing(self):
+        out = GCP_PY_WARNING + json.dumps([{"name": "example-alpha"}, {"name": "example-beta"}], indent=1)
+        Fake.sc = {"asks": [GCP_CMD], "outputs": {GCP_CMD: out}}
+        rc, summary, ev = self.run_h(cloud="gcp", control=("example-alpha", "example-beta"))
+        self.assertEqual(rc, 0, summary)
+        self.assertTrue(summary["checks"]["rawToolOutputParsed"] and summary["checks"]["rawToolOutputMatchesControl"])
+        self.assertEqual(ev["bucketsFromRawToolOutput"], ["example-alpha", "example-beta"])
+        self.assertEqual(ev["approvals"], [GCP_CMD])
+
+    def test_gcp_unprefixed_valid_json_stays_valid(self):
+        Fake.sc = {"asks": [GCP_CMD], "outputs": {GCP_CMD: GCP_LIST_OUTPUT}}
+        rc, summary, ev = self.run_h(cloud="gcp", control=("g1", "g2"))
+        self.assertEqual(rc, 0, summary)
+        self.assertEqual(ev["bucketsFromRawToolOutput"], ["g1", "g2"])
+
+    def test_gcp_warning_only_output_fails_even_with_empty_control(self):
+        Fake.sc = {"asks": [GCP_CMD], "outputs": {GCP_CMD: GCP_PY_WARNING}, "final_text": "No buckets.\nBUCKETS:\n"}
+        rc, summary, ev = self.run_h(cloud="gcp", control=())
+        self.assertEqual(rc, 1, summary)
+        self.assertFalse(summary["checks"]["rawToolOutputParsed"])
+        self.assertIsNone(ev["bucketsFromRawToolOutput"])
+
+    def test_gcp_unrelated_prefix_before_valid_json_fails(self):
+        out = "WARNING: some other gcloud notice\n" + GCP_LIST_OUTPUT
+        Fake.sc = {"asks": [GCP_CMD], "outputs": {GCP_CMD: out}}
+        rc, summary, _ = self.run_h(cloud="gcp", control=("g1", "g2"))
+        self.assertEqual(rc, 1, summary)
+        self.assertFalse(summary["checks"]["rawToolOutputParsed"])
+
+    def test_gcp_json_embedded_in_prose_fails(self):
+        out = "Here are your buckets:\n" + GCP_LIST_OUTPUT + "\nDone."
+        Fake.sc = {"asks": [GCP_CMD], "outputs": {GCP_CMD: out}}
+        rc, summary, _ = self.run_h(cloud="gcp", control=("g1", "g2"))
+        self.assertEqual(rc, 1, summary)
+        self.assertFalse(summary["checks"]["rawToolOutputParsed"])
+
+    def test_gcp_warning_prefix_then_json_then_trailing_error_fails(self):
+        out = GCP_PY_WARNING + GCP_LIST_OUTPUT + "\nERROR: (gcloud.storage.buckets.list) something failed\n"
+        Fake.sc = {"asks": [GCP_CMD], "outputs": {GCP_CMD: out}}
+        rc, summary, _ = self.run_h(cloud="gcp", control=("g1", "g2"))
+        self.assertEqual(rc, 1, summary)
+        self.assertFalse(summary["checks"]["rawToolOutputParsed"])
+
+    def test_gcp_near_miss_warning_prefix_is_not_stripped(self):
+        near = GCP_PY_WARNING.replace("FutureWarning: You are using", "FutureWarning: You are running")
+        Fake.sc = {"asks": [GCP_CMD], "outputs": {GCP_CMD: near + GCP_LIST_OUTPUT}}
+        rc, summary, _ = self.run_h(cloud="gcp", control=("g1", "g2"))
+        self.assertEqual(rc, 1, summary)
+        self.assertFalse(summary["checks"]["rawToolOutputParsed"])
+
+    def test_aws_output_with_sdk_warning_prefix_is_not_stripped(self):
+        cmd = self.aws_allowed()[1]
+        Fake.sc = {"asks": [cmd], "outputs": {cmd: GCP_PY_WARNING + AWS_LIST_OUTPUT}}
+        rc, summary, _ = self.run_h()
+        self.assertEqual(rc, 1, summary)
+        self.assertFalse(summary["checks"]["rawToolOutputParsed"])
 
     # ── failures ──
 
@@ -347,12 +553,14 @@ class HarnessTests(unittest.TestCase):
     def test_bad_control_file_fails_before_anything(self):
         with open(self.control, "w") as f:
             f.write('{"not": "a list"}')
-        env = {"PATH": self.bin + os.pathsep + os.environ.get("PATH", ""), "DUPLO_ADMIN_TOKEN": "tok",
+        env = {"PATH": self.bin + os.pathsep + os.environ.get("PATH", ""), "DUPLO_ADMIN_TOKEN": "tok", CB_TOKEN_ENV: CB_SENTINEL,
                "DOCKER_STUB_LOG": os.path.join(self.tmp, "docker.log"), "DOCKER_STUB_SERVICES": BOTH, "DOCKER_STUB_PROJECT": "proj"}
         p = subprocess.run([sys.executable, "-I", HARNESS, "--base", f"http://127.0.0.1:{self.port}", "--workspace", "ws-1",
                             "--scope-id", "scope-1", "--cloud", "aws", "--name", "test21", "--control-file", self.control,
-                            "--runtime", "docker", "--project-name", "proj", "--evidence", self.evidence],
+                            "--runtime", "docker", "--project-name", "proj", "--evidence", self.evidence,
+                            "--callback-token-env", CB_TOKEN_ENV, "--callback-base", CB_BASE],
                            capture_output=True, text=True, env=env, timeout=60)
+        self.assertNotIn(CB_SENTINEL, p.stdout + p.stderr)
         self.assertEqual(p.returncode, 1)
         self.assertIn("control file", json.loads(p.stdout)["failures"][0])
         self.assertIsNone(Fake.state.get("ticket"))
