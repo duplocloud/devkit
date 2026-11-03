@@ -528,6 +528,48 @@ class ConnectCloudTests(unittest.TestCase):
         self.assertEqual(self.store_log().count("write"), 1)
         self.assertEqual(json.dumps(Fake.state["studio"], sort_keys=True), before)
 
+    def test_gcp_project_only_derives_name_and_service_account(self):
+        Fake.state["sa"] = "helpdesk-sa@gcp-test9.iam.gserviceaccount.com"
+        p = self.run_cc("gcp", "--project", "gcp-test9", "--adc-source", self.adc_path)
+        self.assertIn("connection 'gcp-test9' ready", p.stdout)
+        rec = self.records()["gcp-test9"]
+        self.assertEqual((rec["project"], rec["serviceAccount"], rec["storeFile"], rec["workspaceId"]),
+                         ("gcp-test9", "helpdesk-sa@gcp-test9.iam.gserviceaccount.com", "gcp/gcp-test9.json", "ws-1"))
+        self.assertEqual(Fake.state["studio"]["Workspaces"]["ws-1"]["scopeIds"], [rec["scopeId"]])
+
+    def test_gcp_explicit_name_and_service_account_override_independently(self):
+        Fake.state["sa"] = "helpdesk-sa@gcp-test9.iam.gserviceaccount.com"
+        self.run_cc("gcp", "--project", "gcp-test9", "--name", "mine", "--adc-source", self.adc_path)
+        rec = self.records()["mine"]
+        self.assertEqual(rec["serviceAccount"], "helpdesk-sa@gcp-test9.iam.gserviceaccount.com")
+        Fake.state["sa"] = SA
+        self.run_cc("gcp", "--project", "gcp-test9", "--service-account", SA, "--adc-source", self.adc_path)
+        rec = self.records()["gcp-test9"]
+        self.assertEqual(rec["serviceAccount"], SA)
+
+    def test_gcp_project_only_honours_workspace_flags(self):
+        Fake.state["sa"] = "helpdesk-sa@gcp-test9.iam.gserviceaccount.com"
+        Fake.state["studio"]["Workspaces"]["ws-2"] = {"id": "ws-2", "name": "other", "scopeIds": []}
+        self.run_cc("gcp", "--project", "gcp-test9", "--workspace", "ws-2", "--adc-source", self.adc_path)
+        self.assertEqual(self.records()["gcp-test9"]["workspaceId"], "ws-2")
+        self.assertEqual(Fake.state["studio"]["Workspaces"]["ws-1"]["scopeIds"], [])
+        p = self.run_cc("gcp", "--project", "gcp-test9", "--adc-source", self.adc_path,
+                        workspace_default=None, expect=1)
+        self.assertIn("not selectable by any ticket", p.stderr)
+        p = self.run_cc("gcp", "--project", "gcp-test9", "--adc-source", self.adc_path, "--no-workspace",
+                        workspace_default=None)
+        self.assertIn("NOT attached to any workspace", p.stdout)
+
+    def test_gcp_invalid_project_fails_before_any_side_effect(self):
+        for bad in ("Bad_Project", "ab", "1abc-def", "abc-def-", "a" * 31, "has space", "../x", "valid-project\n"):
+            Fake.log = []
+            p = self.run_cc("gcp", "--project=" + bad, "--adc-source", self.adc_path, expect=1)
+            self.assertIn("is not a GCP project ID", p.stderr)
+            self.assertEqual(Fake.log, [])
+            self.assertEqual(self.studio_writes(), [])
+        self.assertFalse(os.path.exists(os.path.join(self.store_dir, "gcp")))
+        self.assertEqual(self.store_log(), "")
+
     def test_gcp_store_unavailable_fails_after_preflight_with_no_api_write(self):
         self.extra_env["STORE_STUB_UNAVAILABLE"] = "1"
         p = self.run_cc(*self.gcp_args(), expect=1)

@@ -566,7 +566,21 @@ def gcp_prove_impersonation(adc: dict, sa: str, project: str) -> dict:
     return {"principal": adc.get("account") or "(ADC user)", "buckets": len(names), "bucketNames": sorted(names)}
 
 
+GCP_PROJECT_RE = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
+
+
+def check_gcp_project(project: str) -> None:
+    if not GCP_PROJECT_RE.fullmatch(project or ""):
+        raise Fail(f"--project '{project}' is not a GCP project ID (6-30 chars of [a-z0-9-], starting with a "
+                   "letter, not ending with a hyphen). Nothing was changed.")
+
+
 def cmd_gcp(args, studio: Studio, records: Records, out: list[str]) -> dict:
+    check_gcp_project(args.project)
+    # Project-only form: name defaults to the project ID, service account to helpdesk-sa@<project>.
+    # Each default applies independently, so an explicit --name or --service-account is always kept.
+    args.name = args.name or args.project
+    args.service_account = args.service_account or f"helpdesk-sa@{args.project}.iam.gserviceaccount.com"
     check_name(args.name)
     workspace = resolve_workspace(args)
     sa = args.service_account
@@ -742,9 +756,11 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="machine-readable result on stdout")
         sp.add_argument("--dry-run", action="store_true", default=argparse.SUPPRESS, help="resolve and validate, but write nothing")
 
-    def common(sp):
+    def common(sp, name_required=True):
         globals_(sp)
-        sp.add_argument("--name", required=True, help="connection name (scope name, agent profile/config name)")
+        sp.add_argument("--name", required=name_required, default=None,
+                        help="connection name (scope name, agent profile/config name)"
+                        + ("" if name_required else "; default: the project ID"))
         sp.add_argument("--workspace", default=None, help="workspace id (default: EXTENSION_DEV_WORKSPACE_ID)")
         sp.add_argument("--no-workspace", action="store_true", help="register without attaching (not ticket-selectable)")
 
@@ -755,9 +771,10 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--region", default="us-east-1")
 
     g = sub.add_parser("gcp", help="connect a GCP project keylessly via your ADC + SA impersonation")
-    common(g)
+    common(g, name_required=False)
     g.add_argument("--project", required=True)
-    g.add_argument("--service-account", required=True)
+    g.add_argument("--service-account", default=None,
+                   help="service account to impersonate (default: helpdesk-sa@<project>.iam.gserviceaccount.com)")
     g.add_argument("--adc-source", default=None, help=f"authorized_user ADC JSON (default {ADC_WELL_KNOWN})")
 
     for name in ("refresh", "verify"):

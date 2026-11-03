@@ -9,7 +9,7 @@ and a service account in the project that your Google user may impersonate.
 ## 1. Log in for Application Default Credentials
 
 ```bash
-./scripts/setup-google-auth.sh --sa helpdesk-test@gcp-test9.iam.gserviceaccount.com
+./scripts/setup-google-auth.sh --sa helpdesk-sa@gcp-test9.iam.gserviceaccount.com
 ```
 
 This runs `gcloud auth application-default login` if needed (plain `gcloud auth login` is not enough)
@@ -19,9 +19,13 @@ the project, add `--grant` to give yourself `roles/iam.serviceAccountTokenCreato
 ## 2. Connect
 
 ```bash
-./scripts/connect-cloud.sh gcp --name gcp-test9 --project gcp-test9 \
-    --service-account helpdesk-test@gcp-test9.iam.gserviceaccount.com
+./scripts/connect-cloud.sh gcp --project gcp-test9
 ```
+
+The connection name defaults to the project ID (`gcp-test9`) and the service account to
+`helpdesk-sa@<project-id>.iam.gserviceaccount.com`; the scope is attached to the workspace configured in
+`.env` (`EXTENSION_DEV_WORKSPACE_ID`). To use something else, add `--name <name>` and/or
+`--service-account <email>`, or `--workspace <id>` / `--no-workspace`.
 
 What happens, in order, and nothing else:
 

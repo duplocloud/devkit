@@ -22,8 +22,8 @@ single available profile is not consent; the choice is still the user's.
    is only the question "AWS, GCP, or Azure?" — no discovery, no `status`, no reading `~/.aws`,
    `~/.config/gcloud` or `.env` until the user answers. If the user already said AWS, GCP or Azure
    but left details out, do not re-ask the cloud: ask only for the missing method and details
-   (steps 2–3). A complete explicit request (cloud, `--name`, and the profile or project + service
-   account), or `status` / `refresh` / `verify` of a named connection, is not re-asked: run it.
+   (steps 2–3). A complete explicit request (cloud, `--name`, and the profile; or for GCP just the
+   project ID), or `status` / `refresh` / `verify` of a named connection, is not re-asked: run it.
 2. **Then ask the credential method** for the chosen cloud:
    - **AWS** — (a) browser SSO through IAM Identity Center, (b) an existing named profile (it may use
      a `credential_process` such as `duplo-jit`), or (c) access-key credentials, which this command
@@ -35,10 +35,17 @@ single available profile is not consent; the choice is still the user's.
    - **GCP** — (a) local Application Default Credentials login (recommended) or (b) an existing
      service-account JSON key file. State before asking for any path that (b) is **not implemented by
      this command** (keys are refused by design); never ask for key contents or any secret in chat;
-     do not silently fall back to (a) — ask whether to switch. For (a): ask for the project and the
-     existing service account to impersonate (never pick one for the user, never create a service
-     account or IAM grant unless asked) and point to `gcloud auth application-default login`
-     (plain `gcloud auth login` does not write ADC).
+     do not silently fall back to (a) — ask whether to switch. For (a), once GCP + ADC is selected
+     **ask only for the project ID** — never infer it from gcloud config, environment or examples.
+     Derive the rest: connection name = project ID, service account =
+     `helpdesk-sa@<project-id>.iam.gserviceaccount.com`, workspace = the configured default
+     (`EXTENSION_DEV_WORKSPACE_ID`), used automatically. Ask about name, service account or workspace
+     only when the user volunteers an override, or when an exception actually occurs: missing
+     workspace config, a name/object conflict, ADC login needed, or a permission failure. Never create
+     a service account or IAM grant unless asked. If ADC login is needed (plain `gcloud auth login`
+     does not write ADC), ask for scoped normal permission to run
+     `gcloud auth application-default login` and run it yourself; do not default to handing the user a
+     `!` command.
    - **Azure** — (a) Entra browser login with `az login` (recommended for developer use) or (b)
      existing service-principal credentials (workload use); managed identity only when the runtime
      actually runs on Azure infrastructure. In the same reply state that `connect-cloud.sh` has **no
@@ -46,19 +53,21 @@ single available profile is not consent; the choice is still the user's.
      credential discovery, `az login`, app registration or subscription lookup. A host `az login`
      does not authenticate the Docker backend.
 3. **Collect only what is still missing** for a supported method: `--name`, the workspace, and the
-   target (AWS: profile + region, script default `us-east-1`; GCP: project + service account).
-   Propose `EXTENSION_DEV_WORKSPACE_ID` from `.env` as the workspace, but do not use it silently when
+   target (AWS: profile + region, script default `us-east-1`; GCP: the project ID only, see above).
+   For AWS, propose `EXTENSION_DEV_WORKSPACE_ID` from `.env` as the workspace, but do not use it silently when
    it is unset or ambiguous. List profile names (`aws configure list-profiles`) only after the user
    chose AWS + existing profile **and** authorized listing; never resolve or export credentials for
    discovered profiles — the script resolves the one chosen profile itself.
-4. **Echo the selection** (cloud, `--name`, profile or project + service account, region, workspace)
+4. **Echo the selection** (cloud, `--name`, profile or project + service account, region, workspace —
+   for GCP including the derived name and service account)
    before running the registration; `--dry-run` previews it. A target must be selected before any
    run. Skip the echo when the user already supplied the complete command.
 
 ## Permission and completion — running the registration
 
 This section applies only after the user has selected the cloud, the credential method **and** the
-actual target (the profile, or the project + service account, plus `--name` and the workspace); a
+actual target (the profile, or the GCP project ID with its derived or explicit name, service account
+and workspace); a
 cloud and method alone authorize nothing. That selection authorizes exactly that one connection: not
 other profiles, other ADC files, other projects, or any credential the user did not name. Once the
 selection is echoed, the job is to **run the registration and verify it end to end**, obtaining
@@ -92,15 +101,18 @@ approval through the agent runtime's normal permission mechanism whenever it ask
 
 ```bash
 ./scripts/connect-cloud.sh aws --name <name> --profile <profile> [--region <region>] [--workspace <workspace-id>]
-./scripts/connect-cloud.sh gcp --name <name> --project <project> \
-    --service-account <sa>@<project>.iam.gserviceaccount.com [--adc-source <authorized_user json>] \
-    [--workspace <workspace-id>]
+./scripts/connect-cloud.sh gcp --project <project-id> \
+    [--name <name>] [--service-account <sa>@<project>.iam.gserviceaccount.com] \
+    [--adc-source <authorized_user json>] [--workspace <workspace-id>] [--no-workspace]
+# defaults: --name = project ID; --service-account = helpdesk-sa@<project-id>.iam.gserviceaccount.com;
+# the project ID is validated before any storage or cloud API call
 ./scripts/connect-cloud.sh refresh --name <name> [--workspace <workspace-id>]   # re-resolve + rotate in place; prints container ids/start times before and after
 ./scripts/connect-cloud.sh verify  --name <name>      # backend/bootstrap checks, no ticket, no LLM cost
 ./scripts/connect-cloud.sh status [--json]
 ```
 
-Every `<placeholder>` is filled only from the user's own selection; no project, profile or connection
+Every `<placeholder>` is filled only from the user's own selection (GCP name and service account fall
+back to the derived defaults above); no project, profile or connection
 name in this file is a default. `--json` on any subcommand gives a machine-readable result; `--dry-run`
 resolves, validates and prints what *would* be written, and writes nothing. The scope the agent sees
 is named exactly `--name`: AWS → `aws … --profile <name>`, GCP → `gcloud … --configuration <name>`.
