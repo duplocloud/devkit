@@ -41,8 +41,10 @@ single available profile is not consent; the choice is still the user's.
      `helpdesk-sa@<project-id>.iam.gserviceaccount.com`, workspace = the configured default
      (`EXTENSION_DEV_WORKSPACE_ID`), used automatically. Ask about name, service account or workspace
      only when the user volunteers an override, or when an exception actually occurs: missing
-     workspace config, a name/object conflict, ADC login needed, or a permission failure. Never create
-     a service account or IAM grant unless asked. If ADC login is needed (plain `gcloud auth login`
+     workspace config, a name/object conflict, ADC login needed, or a denied/failed cloud step. Selecting
+     GCP + ADC + the project **is** the authorization for the default-identity preparation described
+     under *GCP seamless bootstrap* below — do not ask "may I create the service account / grant IAM?"
+     and do not invent a `--grant` step or hand the user manual `gcloud` commands. If ADC login is needed (plain `gcloud auth login`
      does not write ADC), ask for scoped normal permission to run
      `gcloud auth application-default login` and run it yourself; do not default to handing the user a
      `!` command.
@@ -82,7 +84,22 @@ approval through the agent runtime's normal permission mechanism whenever it ask
   the workspace (unless `--no-workspace`). For AWS: the selected profile is resolved once via
   `aws configure export-credentials` and only that snapshot is handed to the studio under the
   connection's name. The copy plus the read-only mount is delegated access to that one identity, in
-  either store design. Cloud APIs are read-only unless the user explicitly authorizes writes.
+  either store design. Cloud APIs are read-only unless the user explicitly authorizes writes — except the narrow GCP
+  bootstrap below, which selecting the GCP project already authorizes.
+- **GCP seamless bootstrap (authorized by selecting the project).** Add one concise line to the
+  announcement and then just run the command: "If `helpdesk-sa@<project>` or its access is missing,
+  connect-cloud will, in `<project>` only: enable `iam` + `iamcredentials` if disabled, create/reuse
+  `helpdesk-sa`, let your verified ADC user impersonate it (`roles/iam.serviceAccountTokenCreator` on
+  that account only), and give it read-only `roles/viewer` on the project; then validate and register."
+  It runs only when the impersonation or bucket proof fails with a typed missing-account / permission /
+  disabled-API condition (never for a revoked login, a network error or a 5xx), uses no keys, never
+  Owner/Editor, deletes nothing, and never touches another project, the ADC quota project or any
+  different/custom account you passed with `--service-account` (passing the derived
+  `helpdesk-sa@<project>` itself still bootstraps). Local conflicts are refused before any cloud write.
+  Do not claim TokenCreator grants resource access (the viewer grant is what the listing relies on) and
+  do not read a bare 404 from `generateAccessToken` as proof the account is absent — the script looks
+  the account up itself. `--no-bootstrap` is the advanced opt-out; `--dry-run` never mutates and, when
+  repair would be needed, reports that it is *not validated*.
 - **Ask once, scoped, through the normal mechanism.** If the runtime requires approval, request it for
   that exact `connect-cloud.sh` invocation and wait. Do not assume credential handling is forbidden
   because the session runs in an auto mode, do not invent a policy refusal, do not downgrade a run
@@ -103,7 +120,7 @@ approval through the agent runtime's normal permission mechanism whenever it ask
 ./scripts/connect-cloud.sh aws --name <name> --profile <profile> [--region <region>] [--workspace <workspace-id>]
 ./scripts/connect-cloud.sh gcp --project <project-id> \
     [--name <name>] [--service-account <sa>@<project>.iam.gserviceaccount.com] \
-    [--adc-source <authorized_user json>] [--workspace <workspace-id>] [--no-workspace]
+    [--adc-source <authorized_user json>] [--workspace <workspace-id>] [--no-workspace] [--no-bootstrap]
 # defaults: --name = project ID; --service-account = helpdesk-sa@<project-id>.iam.gserviceaccount.com;
 # the project ID is validated before any storage or cloud API call
 ./scripts/connect-cloud.sh refresh --name <name> [--workspace <workspace-id>]   # re-resolve + rotate in place; prints container ids/start times before and after
@@ -139,7 +156,12 @@ is named exactly `--name`: AWS → `aws … --profile <name>`, GCP → `gcloud �
   login`; plain `gcloud auth login` is not enough) into the store under the connection's name, after
   proving with that exact file that it can mint an impersonated token for the service account and list
   the project's buckets. Service-account keys and `external_account` files are refused by design. The
-  user behind the ADC needs `roles/iam.serviceAccountTokenCreator` on the service account. The studio
+  user behind the ADC needs `roles/iam.serviceAccountTokenCreator` on the service account; for the
+  default `helpdesk-sa@<project>` the script arranges that (and the rest of the bootstrap) itself, as the
+  ADC user, with their real approvals. If an IAM/project admin step is **denied (HTTP 403)** it stops
+  and reports exactly which cloud changes were and were not made — that is the genuine boundary where
+  an admin is needed. A different/custom `--service-account` is used as-is: never created, no grants added
+  (cross-project accounts included; the derived default spelled out still bootstraps); if it fails, say which permission is missing. The studio
   honours this only when its image carries the `adcRef` credential path (`AIStudio__GcpAdcRoot`).
 - **GCP compatibility is not proven by the mount.** The Compose mount of the store and the
   `AIStudio__GcpAdcRoot` setting show only that the stack is configured for `adcRef`; they do not
@@ -160,8 +182,12 @@ is named exactly `--name`: AWS → `aws … --profile <name>`, GCP → `gcloud �
   `tests/e2e/cloud_onboarding_e2e.py` (invokes the LLM, approves only exact read-only commands, passes
   only on raw tool output equal to an operator-supplied control list, and requires unchanged container
   ids). Run it only when asked; it costs tokens.
-- **Failures are final, not retried.** A wrong profile, revoked ADC, or un-granted service account
-  fails before any platform write; read the `✗` line, fix the cause, re-run.
+- **Failures are final, not retried.** A wrong profile, a revoked ADC, or a custom/opted-out service
+  account that is not granted fails before any platform write; read the `✗` line, fix the cause,
+  re-run. A bootstrap that stops part-way (403, IAM still propagating after the bounded wait, a
+  disabled service account) prints the cloud changes it already completed — report those; never say
+  "nothing was changed" if any were applied. Cloud failures never lead to credential-store or platform
+  writes.
 
 ## Reporting completion — name the stage actually reached
 
@@ -169,7 +195,9 @@ Each stage is a separate claim. Report the furthest stage that succeeded and nam
 run; never present an earlier stage as a later one.
 
 1. **Validated** — `--dry-run` or the pre-write checks passed (profile or ADC resolved; for GCP the
-   impersonated token and bucket listing proved). Nothing was written.
+   impersonated token and bucket listing proved). Nothing was written. A GCP dry run that finds the
+   account/permissions missing is *not validated*: report the repair a real run would make.
+   (If a real run's bootstrap made cloud changes, report those as their own line.)
 2. **Stored** — the credential snapshot or ADC copy exists in the `cloud_auth` volume under the
    connection's name.
 3. **Registered** — the provider, credential and scope objects exist in the studio.

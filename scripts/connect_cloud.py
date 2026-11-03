@@ -8,8 +8,12 @@ Invoked by scripts/connect-cloud.sh, which supplies every input through the envi
   CONNECT_CLOUD_STATE                 path of the non-secret connection records (JSON)
   CONNECT_CLOUD_STORE_CMD             command prefix for the credential store (write|remove|list|exists|volume)
   CONNECT_CLOUD_PROJECT / RUNTIME     compose project + container CLI, for container snapshots only
-  CONNECT_CLOUD_GOOGLE_TOKEN_URL, CONNECT_CLOUD_GOOGLE_IAM_URL, CONNECT_CLOUD_GOOGLE_STORAGE_URL
+  CONNECT_CLOUD_GOOGLE_TOKEN_URL, CONNECT_CLOUD_GOOGLE_IAM_URL, CONNECT_CLOUD_GOOGLE_STORAGE_URL,
+  CONNECT_CLOUD_GOOGLE_USERINFO_URL, CONNECT_CLOUD_GOOGLE_IAM_ADMIN_URL, CONNECT_CLOUD_GOOGLE_CRM_URL,
+  CONNECT_CLOUD_GOOGLE_SERVICEUSAGE_URL
                                       Google endpoints (tests point them at a local fake)
+  CONNECT_CLOUD_PROPAGATION_ATTEMPTS / _INTERVAL
+                                      bounded IAM-propagation polling after a bootstrap (default 12 x 5s)
 
 Rules this file enforces, in order of importance:
   * secrets travel on stdin / in HTTPS request bodies only; the records file and all output carry
@@ -18,6 +22,9 @@ Rules this file enforces, in order of importance:
     re-run never duplicates and a rotation is an in-place update of the same credential;
   * the identity a connection is registered with is proven before it is stored (STS for AWS, an
     actual IAM generateAccessToken + bucket list for GCP), with the very credentials being stored;
+  * selecting a GCP project authorizes preparing ONLY the derived helpdesk-sa in that project, and only
+    when the impersonation/bucket proof fails with a typed missing-SA/permission/API condition (see
+    GcpBootstrap); every local conflict is refused BEFORE the first cloud IAM write;
   * a "no restart" claim is only ever made from real container ids and start times of BOTH the
     studio and the agent; a missing service fails the claim instead of passing vacuously.
 """
@@ -32,6 +39,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -46,6 +54,17 @@ ADC_WELL_KNOWN = os.path.join(
 GOOGLE_TOKEN_URL = os.environ.get("CONNECT_CLOUD_GOOGLE_TOKEN_URL", "https://oauth2.googleapis.com/token")
 GOOGLE_IAM_URL = os.environ.get("CONNECT_CLOUD_GOOGLE_IAM_URL", "https://iamcredentials.googleapis.com/v1")
 GOOGLE_STORAGE_URL = os.environ.get("CONNECT_CLOUD_GOOGLE_STORAGE_URL", "https://storage.googleapis.com/storage/v1")
+GOOGLE_USERINFO_URL = os.environ.get("CONNECT_CLOUD_GOOGLE_USERINFO_URL", "https://openidconnect.googleapis.com/v1/userinfo")
+GOOGLE_IAM_ADMIN_URL = os.environ.get("CONNECT_CLOUD_GOOGLE_IAM_ADMIN_URL", "https://iam.googleapis.com/v1")
+GOOGLE_CRM_URL = os.environ.get("CONNECT_CLOUD_GOOGLE_CRM_URL", "https://cloudresourcemanager.googleapis.com/v1")
+GOOGLE_SERVICEUSAGE_URL = os.environ.get("CONNECT_CLOUD_GOOGLE_SERVICEUSAGE_URL", "https://serviceusage.googleapis.com/v1")
+PROPAGATION_ATTEMPTS = max(1, int(os.environ.get("CONNECT_CLOUD_PROPAGATION_ATTEMPTS", "12")))
+PROPAGATION_INTERVAL = max(0.0, float(os.environ.get("CONNECT_CLOUD_PROPAGATION_INTERVAL", "5")))
+IAM_WRITE_ATTEMPTS = 5            # etag conflicts (409/412) on a policy write: re-read and retry this many times
+BOOTSTRAP_APIS = ("iam.googleapis.com", "iamcredentials.googleapis.com")
+SA_ACCOUNT_ID = "helpdesk-sa"
+ROLE_TOKEN_CREATOR = "roles/iam.serviceAccountTokenCreator"
+ROLE_VIEWER = "roles/viewer"
 CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 ADC_ALLOWED_KEYS = {"type", "client_id", "client_secret", "refresh_token", "quota_project_id", "universe_domain", "account"}
 AWS_EXPORT_TIMEOUT = int(os.environ.get("CONNECT_CLOUD_AWS_EXPORT_TIMEOUT", "300"))   # interactive logins take a while
@@ -137,6 +156,8 @@ class Studio:
 
 def describe_error(parsed, raw: str) -> str:
     if isinstance(parsed, dict):
+        if isinstance(parsed.get("error"), dict) and parsed["error"].get("message"):   # Google's {"error": {...}}
+            return str(parsed["error"]["message"])[:300]
         parts = [str(parsed.get(k)) for k in ("message", "errors", "title", "detail") if parsed.get(k)]
         if parsed.get("code"):
             parts.append(f"({parsed['code']})")
@@ -477,7 +498,8 @@ def cmd_aws(args, studio: Studio, records: Records, out: list[str]) -> dict:
 
 # ── GCP ────────────────────────────────────────────────────────────────────────
 
-def http_json(url: str, *, data: dict | None = None, headers: dict | None = None, form: bool = False) -> tuple[int, dict | None]:
+def http_json(url: str, *, data: dict | None = None, headers: dict | None = None, form: bool = False,
+              method: str | None = None) -> tuple[int, dict | None]:
     body = None
     hdrs = dict(headers or {})
     if data is not None:
@@ -487,7 +509,7 @@ def http_json(url: str, *, data: dict | None = None, headers: dict | None = None
         else:
             body = json.dumps(data).encode()
             hdrs["Content-Type"] = "application/json"
-    req = urllib.request.Request(url, data=body, headers=hdrs, method="POST" if body else "GET")
+    req = urllib.request.Request(url, data=body, headers=hdrs, method=method or ("POST" if body else "GET"))
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             raw = resp.read().decode()
@@ -524,27 +546,80 @@ def gcp_load_adc(path: str) -> dict:
     return adc
 
 
+def google_error(body) -> dict:
+    """The typed parts of a Google API error body: canonical status, ErrorInfo reasons, consumer project."""
+    out = {"status": "", "message": "", "reasons": [], "consumer": ""}
+    err = body.get("error") if isinstance(body, dict) else None
+    if not isinstance(err, dict):
+        return out
+    out["status"] = str(err.get("status") or "")
+    out["message"] = str(err.get("message") or "")
+    for d in err.get("details") or []:
+        if not isinstance(d, dict):
+            continue
+        if d.get("reason"):
+            out["reasons"].append(str(d["reason"]))
+        meta = d.get("metadata")
+        if isinstance(meta, dict) and meta.get("consumer"):
+            out["consumer"] = str(meta["consumer"])
+    return out
+
+
+class ProofFailure(Fail):
+    """The impersonation/bucket proof failed. `repairable` is True only for a typed missing-SA / missing-
+    permission / disabled-API condition on the selected project — never for a revoked login, a network
+    error or a 5xx, which no IAM change could fix."""
+
+    NOT_IAM = {"ACCESS_TOKEN_SCOPE_INSUFFICIENT", "USER_PROJECT_DENIED", "CONSUMER_INVALID", "BILLING_DISABLED",
+               "RATE_LIMIT_EXCEEDED", "RESOURCE_EXHAUSTED"}
+
+    def __init__(self, msg: str, stage: str, status: int, body):
+        super().__init__(msg)
+        self.stage, self.status, self.info = stage, status, google_error(body)
+
+    @property
+    def repairable(self) -> bool:
+        if self.stage not in ("impersonate", "buckets") or self.status not in (403, 404):
+            return False
+        if self.stage == "buckets" and self.status != 403:
+            return False
+        reasons = set(self.info["reasons"])
+        if reasons & self.NOT_IAM:
+            return False
+        if "SERVICE_DISABLED" in reasons:
+            return self.stage == "impersonate"        # a disabled Storage API is not ours to enable
+        if self.status == 404:
+            return True                               # not-found is only a hint; the bootstrap looks the account up
+        return self.info["status"] in ("", "PERMISSION_DENIED")
+
+
+def gcp_user_token(adc: dict) -> str:
+    """Refresh the ADC refresh token into a short-lived access token (kept in memory, sent only in Authorization)."""
+    status, tok = http_json(GOOGLE_TOKEN_URL, form=True, data={
+        "grant_type": "refresh_token", "client_id": adc["client_id"],
+        "client_secret": adc["client_secret"], "refresh_token": adc["refresh_token"]})
+    if status != 200 or not isinstance(tok, dict) or not tok.get("access_token"):
+        raise ProofFailure(f"the ADC refresh token was rejected by Google (HTTP {status}: {describe_error(tok, '')}). "
+                           "Re-run: gcloud auth application-default login", "adc", status, tok)
+    return tok["access_token"]
+
+
 def gcp_prove_impersonation(adc: dict, sa: str, project: str) -> dict:
     """The exact chain the studio performs with this file: refresh → generateAccessToken(sa) → GCS list.
 
     Returns the principal label and the full (paginated) bucket name list; never the tokens.
     """
-    status, tok = http_json(GOOGLE_TOKEN_URL, form=True, data={
-        "grant_type": "refresh_token", "client_id": adc["client_id"],
-        "client_secret": adc["client_secret"], "refresh_token": adc["refresh_token"]})
-    if status != 200 or not isinstance(tok, dict) or not tok.get("access_token"):
-        raise Fail(f"the ADC refresh token was rejected by Google (HTTP {status}: {describe_error(tok, '')}). "
-                   "Re-run: gcloud auth application-default login")
-    user_token = tok["access_token"]
+    user_token = gcp_user_token(adc)
     status, imp = http_json(
         f"{GOOGLE_IAM_URL}/projects/-/serviceAccounts/{urllib.parse.quote(sa)}:generateAccessToken",
         headers={"Authorization": "Bearer " + user_token},
         data={"scope": [CLOUD_PLATFORM_SCOPE], "lifetime": "600s"})
     if status != 200 or not isinstance(imp, dict) or not imp.get("accessToken"):
-        raise Fail(f"this ADC identity cannot impersonate {sa} (HTTP {status}: {describe_error(imp, '')}).\n"
-                   f"    It needs roles/iam.serviceAccountTokenCreator ON that service account, and "
-                   f"iamcredentials.googleapis.com must be enabled on the ADC quota project. "
-                   f"scripts/setup-google-auth.sh --sa {sa} --grant can apply the grant if you are an IAM admin.")
+        raise ProofFailure(
+            f"this ADC identity cannot impersonate {sa} (HTTP {status}: {describe_error(imp, '')}).\n"
+            f"    It needs roles/iam.serviceAccountTokenCreator ON that service account, the account must exist, and "
+            f"iamcredentials.googleapis.com must be enabled. A 403/404 alone does not say which.",
+            "impersonate", status, imp)
     sa_token = imp["accessToken"]
     names: list[str] = []
     page_token = None
@@ -555,8 +630,10 @@ def gcp_prove_impersonation(adc: dict, sa: str, project: str) -> dict:
         status, buckets = http_json(f"{GOOGLE_STORAGE_URL}/b?{urllib.parse.urlencode(q)}",
                                     headers={"Authorization": "Bearer " + sa_token})
         if status != 200 or not isinstance(buckets, dict):
-            raise Fail(f"{sa} could mint a token but cannot list buckets in '{project}' (HTTP {status}: "
-                       f"{describe_error(buckets, '')}). Grant it roles/storage.viewer (or the project's read-only role).")
+            raise ProofFailure(f"{sa} could mint a token but cannot list buckets in '{project}' (HTTP {status}: "
+                               f"{describe_error(buckets, '')}). It needs a read-only role on the project "
+                               "(roles/viewer or roles/storage.objectViewer + a bucket-list permission).",
+                               "buckets", status, buckets)
         names.extend(i.get("name", "") for i in buckets.get("items") or [])
         page_token = buckets.get("nextPageToken")
         if not page_token:
@@ -564,6 +641,241 @@ def gcp_prove_impersonation(adc: dict, sa: str, project: str) -> dict:
     else:
         raise Fail("bucket listing did not terminate after 100 pages; refusing to trust the count")
     return {"principal": adc.get("account") or "(ADC user)", "buckets": len(names), "bucketNames": sorted(names)}
+
+
+EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+'-]{1,64}@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
+
+
+def gcp_verified_email(user_token: str) -> str:
+    """The real caller behind the refreshed ADC token, from Google's authenticated userinfo endpoint.
+
+    adc.account and gcloud's active account are never consulted: neither proves who the token belongs to."""
+    relogin = ("Re-run: gcloud auth application-default login (the login must include the email scope; "
+               "gcloud's default ADC login does). No IAM change was made.")
+    status, info = http_json(GOOGLE_USERINFO_URL, headers={"Authorization": "Bearer " + user_token})
+    if status in (401, 403):
+        raise Fail(f"Google would not tell this tool who the ADC token belongs to (userinfo HTTP {status}): the token "
+                   f"has no email scope. {relogin}")
+    if status != 200 or not isinstance(info, dict):
+        raise Fail(f"could not resolve the ADC identity (userinfo HTTP {status}); refusing to guess who to grant. "
+                   "No IAM change was made.")
+    email = info.get("email")
+    if info.get("email_verified") not in (True, "true") or not isinstance(email, str) or not email:
+        raise Fail(f"Google returned no verified email for the ADC token. {relogin}")
+    if not EMAIL_RE.fullmatch(email) or email.lower().endswith(".gserviceaccount.com"):
+        raise Fail("the ADC identity is not a plain user email (it is malformed or a service account); refusing to "
+                   "bind IAM to it. This path supports authorized_user ADC only. No IAM change was made.")
+    return email
+
+
+class GcpBootstrap:
+    """Prepare the derived helpdesk-sa in the SELECTED project — nothing else — after the proof failed with a
+    typed, repairable condition. Everything is read first and written only when needed:
+
+      * enable iam + iamcredentials on the selected project if disabled (Service Usage, tracked operation);
+      * create/reuse helpdesk-sa (a disabled one stops the run);
+      * grant the verified ADC user roles/iam.serviceAccountTokenCreator ON that service account only;
+      * grant that service account roles/viewer ON the selected project only (read-only diagnostics).
+
+    No Owner/Editor, no keys, no deletes, no other project, no other principal. Policies are read at
+    version 3 and written back whole (etag, conditional bindings and auditConfigs preserved) with at most
+    one unconditional membership appended. TokenCreator lets the user mint the SA's token; it does not by
+    itself give the SA access to anything — the viewer grant is what the read-only listing relies on.
+    """
+
+    def __init__(self, adc: dict, project: str, sa: str, out: list[str], changes: list[str]):
+        self.adc, self.project, self.sa, self.out, self.changes = adc, project, sa, out, changes
+        self.sa_url = f"{GOOGLE_IAM_ADMIN_URL}/projects/{project}/serviceAccounts/{urllib.parse.quote(sa, safe='')}"
+        self.fresh_apis = False
+
+    def say(self, line: str) -> None:
+        self.out.append("bootstrap  " + line)
+
+    def done(self, line: str) -> None:
+        self.changes.append(line)
+        self.say(line)
+
+    @staticmethod
+    def _auth(token: str) -> dict:
+        return {"Authorization": "Bearer " + token}
+
+    @staticmethod
+    def _sleep() -> None:
+        if PROPAGATION_INTERVAL:
+            time.sleep(PROPAGATION_INTERVAL)
+
+    def _denied(self, what: str, status: int, body) -> Fail:
+        gerr = google_error(body)
+        hint = ("this is a permission problem for the ADC user, not something to retry or work around; an IAM/project "
+                "admin has to make the change" if status == 403 else "unexpected response")
+        return Fail(f"cannot {what} (HTTP {status}: {describe_error(body, '')}); {hint}.")
+
+    def run(self, failure: ProofFailure) -> dict:
+        token = gcp_user_token(self.adc)
+        if failure.stage == "impersonate":
+            email = gcp_verified_email(token)          # BEFORE any write: a bad identity changes nothing
+            self.say(f"ADC identity (Google userinfo, verified): {email}")
+            number = self.project_number(token)
+            consumer = failure.info["consumer"]
+            if consumer and consumer != f"projects/{number}":
+                raise Fail(f"the API is disabled on {consumer}, which is not the selected project '{self.project}' "
+                           f"(projects/{number}). That is the ADC quota project; connect-cloud does not change other "
+                           "projects. Fix the quota project (gcloud auth application-default set-quota-project) or enable "
+                           "the API there yourself. No IAM change was made.")
+            for api in BOOTSTRAP_APIS:
+                self.ensure_api(token, number, api)
+            self.ensure_service_account(token)
+            # serviceAccounts.getIamPolicy: POST, options in the QUERY, EMPTY body (IAM v1 reference)
+            self.grant(token, f"{self.sa_url}:getIamPolicy?options.requestedPolicyVersion=3", f"{self.sa_url}:setIamPolicy",
+                       ROLE_TOKEN_CREATOR, "user:" + email, f"{ROLE_TOKEN_CREATOR} to {email} on {self.sa}", get_body=None)
+        self.grant(token, f"{GOOGLE_CRM_URL}/projects/{self.project}:getIamPolicy",
+                   f"{GOOGLE_CRM_URL}/projects/{self.project}:setIamPolicy", ROLE_VIEWER,
+                   "serviceAccount:" + self.sa, f"{ROLE_VIEWER} to {self.sa} on project {self.project}",
+                   get_body={"options": {"requestedPolicyVersion": 3}})     # projects.getIamPolicy: POST, options in body
+        return self.reprove(failure, applied=bool(self.changes))
+
+    # -- project / APIs --
+    def project_number(self, token: str) -> str:
+        status, d = http_json(f"{GOOGLE_CRM_URL}/projects/{self.project}", headers=self._auth(token))
+        if status != 200 or not isinstance(d, dict):
+            raise self._denied(f"read the metadata of project '{self.project}'", status, d)
+        if d.get("projectId") != self.project or not str(d.get("projectNumber") or "").isdigit():
+            raise Fail(f"project metadata for '{self.project}' is malformed or names another project; refusing to continue.")
+        return str(d["projectNumber"])
+
+    def ensure_api(self, token: str, number: str, api: str) -> None:
+        base = f"{GOOGLE_SERVICEUSAGE_URL}/projects/{number}/services/{api}"
+        status, d = http_json(base, headers=self._auth(token))
+        if status != 200 or not isinstance(d, dict):
+            raise self._denied(f"read the state of {api} on project '{self.project}'", status, d)
+        if d.get("state") == "ENABLED":
+            self.say(f"{api}: already enabled")
+            return
+        status, op = http_json(base + ":enable", headers=self._auth(token), data={})
+        if status != 200 or not isinstance(op, dict):
+            raise self._denied(f"enable {api} on project '{self.project}'", status, op)
+        name = str(op.get("name") or "")
+        polls = 0
+        while not op.get("done"):                      # a result seen on the LAST allowed poll still counts
+            if not name.startswith("operations/"):
+                raise Fail(f"enabling {api} returned no trackable operation; state unknown.")
+            if polls >= PROPAGATION_ATTEMPTS:
+                raise Fail(f"enabling {api} did not complete within {PROPAGATION_ATTEMPTS} polls (operation {name}); "
+                           "it may still finish — re-run later.")
+            self._sleep()
+            polls += 1
+            status, op = http_json(f"{GOOGLE_SERVICEUSAGE_URL}/{name}", headers=self._auth(token))
+            if status != 200 or not isinstance(op, dict):
+                raise self._denied(f"track the operation enabling {api}", status, op)
+        if op.get("error"):
+            raise Fail(f"enabling {api} failed: {str(op['error'])[:300]}")
+        self.fresh_apis = True
+        self.done(f"enabled {api} on project {self.project}")
+
+    # -- service account --
+    def lookup_sa(self, token: str) -> dict | None:
+        for attempt in range(PROPAGATION_ATTEMPTS):
+            status, d = http_json(self.sa_url, headers=self._auth(token))
+            if status == 200 and isinstance(d, dict):
+                return d
+            if status == 404:
+                return None                            # an actual 404 from the IAM API, not from generateAccessToken
+            if self.fresh_apis and "SERVICE_DISABLED" in google_error(d)["reasons"] and attempt + 1 < PROPAGATION_ATTEMPTS:
+                self._sleep()                          # the API we just enabled is still propagating
+                continue
+            raise self._denied(f"look up service account {self.sa}", status, d)
+        raise Fail(f"service account lookup for {self.sa} kept failing while the API propagated.")
+
+    def _check_enabled(self, sa_obj: dict) -> None:
+        if sa_obj.get("disabled"):
+            raise Fail(f"service account {self.sa} exists but is DISABLED; refusing to enable or use it. Enable it "
+                       "yourself or choose another --service-account.")
+        if sa_obj.get("email") and sa_obj["email"] != self.sa:
+            raise Fail(f"IAM returned service account '{sa_obj['email']}' for {self.sa}; refusing to continue.")
+
+    def ensure_service_account(self, token: str) -> None:
+        existing = self.lookup_sa(token)
+        if existing is None:
+            status, d = http_json(
+                f"{GOOGLE_IAM_ADMIN_URL}/projects/{self.project}/serviceAccounts", headers=self._auth(token),
+                data={"accountId": SA_ACCOUNT_ID, "serviceAccount": {
+                    "displayName": "DuploCloud dev kit helpdesk (read-only)",
+                    "description": "Impersonated by the dev kit connect-cloud ADC connection; read-only (roles/viewer)."}})
+            if status in (200, 201) and isinstance(d, dict):
+                self._check_enabled(d)
+                self.done(f"created service account {self.sa}")
+                return
+            if status != 409:
+                raise self._denied(f"create service account {self.sa}", status, d)
+            existing = self.lookup_sa(token)           # lost a create race (or it exists after all): re-look-up
+            if existing is None:
+                raise Fail(f"creating {self.sa} reported a conflict but it cannot be found (a recently deleted account "
+                           "keeps its ID reserved for a while). Choose another --service-account or retry later.")
+        self._check_enabled(existing)
+        self.say(f"service account {self.sa}: exists, reused")
+
+    # -- IAM policy merge --
+    def grant(self, token: str, get_url: str, set_url: str, role: str, member: str, label: str, *, get_body: dict | None) -> None:
+        for attempt in range(IAM_WRITE_ATTEMPTS):
+            status, pol = self._retry_not_found(lambda: http_json(
+                get_url, headers=self._auth(token), data=get_body, method="POST"))
+            if status != 200 or not isinstance(pol, dict):
+                raise self._denied(f"read the IAM policy to grant {label}", status, pol)
+            bindings = pol.get("bindings") or []
+            if any(b.get("role") == role and not b.get("condition")
+                   and member.lower() in [str(m).lower() for m in b.get("members") or []] for b in bindings):
+                self.say(f"{label}: already granted")
+                return
+            if not pol.get("etag"):                    # Google always returns one; without it a write would overwrite blindly
+                raise Fail(f"the IAM policy read to grant {label} carried no etag; refusing to write it back because that "
+                           "could overwrite a concurrent change. Nothing was written for this grant; re-run.")
+            new = json.loads(json.dumps(pol))          # everything else (etag, auditConfigs, conditions) is kept verbatim
+            new["version"] = max(3, int(pol.get("version") or 0))
+            target = next((b for b in new.setdefault("bindings", []) if b.get("role") == role and not b.get("condition")), None)
+            if target is None:
+                new["bindings"].append({"role": role, "members": [member]})
+            else:
+                target.setdefault("members", []).append(member)
+            status, d = self._retry_not_found(lambda: http_json(set_url, headers=self._auth(token), data={"policy": new}))
+            if status == 200:
+                self.done(f"granted {label}")
+                return
+            if status in (409, 412):
+                self.say(f"{label}: policy changed concurrently (HTTP {status}); re-reading ({attempt + 1}/{IAM_WRITE_ATTEMPTS})")
+                continue
+            raise self._denied(f"grant {label}", status, d)
+        raise Fail(f"could not grant {label}: the policy kept changing under us ({IAM_WRITE_ATTEMPTS} attempts). Nothing "
+                   "was overwritten; re-run when the policy is stable.")
+
+    def _retry_not_found(self, call):
+        """A just-created service account may not be visible to the IAM policy API yet: bounded retry on not-found only."""
+        for attempt in range(PROPAGATION_ATTEMPTS):
+            status, d = call()
+            missing = status == 404 or (status == 400 and "does not exist" in describe_error(d, "").lower())
+            if not (missing and any(c.startswith("created service account") for c in self.changes)) \
+                    or attempt + 1 == PROPAGATION_ATTEMPTS:
+                return status, d
+            self._sleep()
+        return status, d
+
+    # -- validate again, with bounded propagation polling --
+    def reprove(self, failure: ProofFailure, applied: bool) -> dict:
+        for attempt in range(PROPAGATION_ATTEMPTS):
+            try:
+                return gcp_prove_impersonation(self.adc, self.sa, self.project)
+            except ProofFailure as e:
+                if e.stage in ("impersonate", "buckets") and e.status in (403, 404) and attempt + 1 < PROPAGATION_ATTEMPTS:
+                    self.say(f"waiting for IAM propagation ({attempt + 1}/{PROPAGATION_ATTEMPTS}): HTTP {e.status}")
+                    self._sleep()
+                    continue
+                if applied:
+                    raise Fail(f"the bootstrap changes were applied but the proof still fails after {attempt + 1} "
+                               f"attempt(s): {e}")
+                raise Fail(f"{failure}\n    The bootstrap found the APIs, the service account and both grants already in "
+                           f"place and changed nothing, yet the proof still fails after {attempt + 1} attempt(s): {e}\n"
+                           "    The cause is not proven: it may be slow IAM propagation, an organization policy, a deny "
+                           "policy, or a condition on a binding.")
+        raise AssertionError("unreachable")
 
 
 GCP_PROJECT_RE = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
@@ -579,19 +891,26 @@ def cmd_gcp(args, studio: Studio, records: Records, out: list[str]) -> dict:
     check_gcp_project(args.project)
     # Project-only form: name defaults to the project ID, service account to helpdesk-sa@<project>.
     # Each default applies independently, so an explicit --name or --service-account is always kept.
+    derived_sa = f"helpdesk-sa@{args.project}.iam.gserviceaccount.com"
+    from_record = getattr(args, "from_record", False)          # refresh: the recorded identity is kept as-is
+    explicit_other = bool(args.service_account) and args.service_account != derived_sa    # the derived default spelled out still bootstraps
+    keep_reason = ("it was given with --service-account" if explicit_other and not from_record else
+                   "--no-bootstrap was given" if getattr(args, "no_bootstrap", False) else
+                   f"refresh keeps the recorded identity; re-run `connect-cloud.sh gcp --project {args.project}` to prepare it"
+                   if from_record else None)
     args.name = args.name or args.project
-    args.service_account = args.service_account or f"helpdesk-sa@{args.project}.iam.gserviceaccount.com"
+    args.service_account = args.service_account or derived_sa
     check_name(args.name)
     workspace = resolve_workspace(args)
     sa = args.service_account
     if not re.match(r"^[a-z0-9-]+@[a-z0-9-]+\.iam\.gserviceaccount\.com$", sa):
         raise Fail(f"--service-account '{sa}' is not a service-account email")
+    bootstrap_ok = keep_reason is None and sa == derived_sa
     adc_path = os.path.abspath(args.adc_source or ADC_WELL_KNOWN)
     adc = gcp_load_adc(adc_path)
-    proof = gcp_prove_impersonation(adc, sa, args.project)
-    out.append(f"identity   ADC {proof['principal']} → impersonates {sa}: OK ({proof['buckets']} bucket(s) visible in {args.project})")
 
-    # Everything that can conflict is checked here, before the store file or any platform object changes.
+    # Everything LOCAL that can conflict is checked here — before any Google call that could write IAM,
+    # the store file, or any platform object. The store must also be reachable before IAM is touched.
     provider_name = f"gcp-{args.name}"
     plan = preflight_chain(studio, provider_name=provider_name, provider_type="gcp", account_id=args.project,
                            credential_name=args.name, scope_name=args.name, region=None,
@@ -603,29 +922,57 @@ def cmd_gcp(args, studio: Studio, records: Records, out: list[str]) -> dict:
         if have_sa and have_sa != sa:
             raise Fail(f"connection '{args.name}' already impersonates '{have_sa}', not '{sa}'. "
                        "Use another --name for a different service account (nothing was changed).")
+    volume = None if studio.dry_run else store_volume()
 
-    rel = f"gcp/{args.name}.json"
-    minimal = {k: adc[k] for k in ADC_ALLOWED_KEYS if k in adc}   # only the fields the backend accepts
-    if studio.dry_run:
-        out.append(f"store      {rel}: would write (uid 1001, mode 0600) — dry-run, nothing written")
-    else:
-        volume = store_volume()
-        store_write(rel, (json.dumps(minimal) + "\n").encode())
-        out.append(f"store      {rel}: written to volume {volume} (uid 1001, mode 0600) — the studio reads it per ticket message")
+    changes: list[str] = []      # cloud IAM changes actually completed by THIS run
+    try:
+        try:
+            proof = gcp_prove_impersonation(adc, sa, args.project)
+        except ProofFailure as failure:
+            if not failure.repairable:
+                raise
+            if not bootstrap_ok:
+                why = keep_reason or "it is not the derived default"
+                raise Fail(f"{failure}\n    connect-cloud uses {sa} as-is ({why}) and will not create it, enable APIs "
+                           "or change grants for it; an admin must fix the condition above.")
+            if studio.dry_run:
+                needs = ("enable iam + iamcredentials on the project if disabled; create/reuse the service account; grant "
+                         f"the verified ADC user {ROLE_TOKEN_CREATOR} on it; grant it {ROLE_VIEWER} on {args.project}"
+                         if failure.stage == "impersonate" else f"grant {sa} {ROLE_VIEWER} on {args.project}")
+                out.append(f"dry-run    NOT validated: {failure}")
+                out.append(f"dry-run    a real run would prepare ONLY {sa} in {args.project}: {needs}. Nothing was changed.")
+                return {"ok": False, "dryRun": True, "runtimeValidated": False, "bootstrapNeeded": True,
+                        "name": args.name, "project": args.project, "serviceAccount": sa}
+            proof = GcpBootstrap(adc, args.project, sa, out, changes).run(failure)
+        out.append(f"identity   ADC {proof['principal']} → impersonates {sa}: OK ({proof['buckets']} bucket(s) visible in {args.project})")
 
-    credential = {"name": args.name, "dataEx": [
-        {"key": "cloudRoleToAssume", "value": sa, "type": "string", "isSensitive": False},
-        {"key": "adcRef", "value": args.name, "type": "string", "isSensitive": False},
-    ], "metaData": {"source": TOOL_SOURCE, "updatedAt": now_iso()}}
-    chain = apply_chain(
-        studio, plan, provider_name=provider_name, provider_type="gcp", account_id=args.project,
-        description=f"Dev-kit GCP connection '{args.name}' (project {args.project}, keyless via ADC '{args.name}')",
-        credential=credential,
-        scope_body={"name": args.name, "description": f"GCP project {args.project} as {sa}"},
-        out=out)
+        rel = f"gcp/{args.name}.json"
+        minimal = {k: adc[k] for k in ADC_ALLOWED_KEYS if k in adc}   # only the fields the backend accepts
+        if studio.dry_run:
+            out.append(f"store      {rel}: would write (uid 1001, mode 0600) — dry-run, nothing written")
+        else:
+            store_write(rel, (json.dumps(minimal) + "\n").encode())
+            out.append(f"store      {rel}: written to volume {volume} (uid 1001, mode 0600) — the studio reads it per ticket message")
+
+        credential = {"name": args.name, "dataEx": [
+            {"key": "cloudRoleToAssume", "value": sa, "type": "string", "isSensitive": False},
+            {"key": "adcRef", "value": args.name, "type": "string", "isSensitive": False},
+        ], "metaData": {"source": TOOL_SOURCE, "updatedAt": now_iso()}}
+        chain = apply_chain(
+            studio, plan, provider_name=provider_name, provider_type="gcp", account_id=args.project,
+            description=f"Dev-kit GCP connection '{args.name}' (project {args.project}, keyless via ADC '{args.name}')",
+            credential=credential,
+            scope_body={"name": args.name, "description": f"GCP project {args.project} as {sa}"},
+            out=out)
+    except Fail as e:
+        if changes:
+            raise Fail(f"{e}\n    Cloud changes ALREADY applied by this run (not rolled back): " + "; ".join(changes) + ".")
+        raise
     record = {"cloud": "gcp", "name": args.name, "project": args.project, "serviceAccount": sa,
               "adcSource": adc_path, "adcRef": args.name, "storeFile": rel,
               "controlBucketCount": proof["buckets"], "updatedAt": now_iso(), **chain}
+    if changes:
+        record["bootstrapChanges"] = changes
     if not studio.dry_run:
         records.put(args.name, record)
     return record
@@ -649,6 +996,7 @@ def cmd_refresh(args, studio: Studio, records: Records, out: list[str]) -> dict:
         result = cmd_aws(ns, studio, records, out)
     elif rec.get("cloud") == "gcp":
         ns.project, ns.service_account, ns.adc_source = rec["project"], rec["serviceAccount"], rec.get("adcSource")
+        ns.from_record = True
         result = cmd_gcp(ns, studio, records, out)
     else:
         raise Fail(f"connection record '{args.name}' has unknown cloud '{rec.get('cloud')}'")
@@ -775,6 +1123,9 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--project", required=True)
     g.add_argument("--service-account", default=None,
                    help="service account to impersonate (default: helpdesk-sa@<project>.iam.gserviceaccount.com)")
+    g.add_argument("--no-bootstrap", action="store_true",
+                   help="advanced: never prepare the derived service account (no API enable / SA create / IAM grants); "
+                        "a missing account or permission then fails instead of being repaired")
     g.add_argument("--adc-source", default=None, help=f"authorized_user ADC JSON (default {ADC_WELL_KNOWN})")
 
     for name in ("refresh", "verify"):
@@ -819,8 +1170,11 @@ def main(argv: list[str]) -> int:
             ws = result.get("workspaceId")
             print(f"✔ {args.cmd}: connection '{args.name}' ready — scope '{args.name}' ({result.get('scopeId')}) "
                   + (f"attached to workspace {ws}" if ws else "NOT attached to any workspace (not ticket-selectable)"))
-        elif args.dry_run:
+        elif args.dry_run and ok:
             print(f"✔ {args.cmd}: dry-run only — nothing installed, nothing tested in the backend")
+        elif args.dry_run:
+            print(f"✗ {args.cmd}: dry-run found the connection would NOT validate today (see above) — nothing was changed, "
+                  "runtime not validated", file=sys.stderr)
     return 0 if ok else 1
 
 

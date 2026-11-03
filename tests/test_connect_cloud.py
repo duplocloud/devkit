@@ -71,6 +71,10 @@ class Fake(BaseHTTPRequestHandler):
             self.log.append((method, self.path, body, dict(self.headers)))  # full path incl. query
         st = self.state
 
+        # ── Google, dynamic IAM model (only when a test sets state["gcp"]) ──
+        if st.get("gcp") and self._gcp(method, path, qs, body):
+            return
+
         # ── Google ──
         if path == "/token":
             if body.get("refresh_token") == REFRESH_TOKEN and body.get("client_secret") == CLIENT_SECRET:
@@ -152,6 +156,178 @@ class Fake(BaseHTTPRequestHandler):
             return self._send(400, {"message": "Invalid Operation", "errors": "The security token included in the request is expired"})
         return self._send(404, {"message": f"unhandled {method} {path}"})
 
+    # ── dynamic Google IAM model: userinfo, Resource Manager, Service Usage, IAM admin, impersonation, GCS ──
+    def _g_send(self, code, obj=None):
+        return self._send(code, obj) or True
+
+    def _g_err(self, code, status, msg="denied", reason=None, consumer=None):
+        err = {"code": code, "status": status, "message": msg}
+        if reason:
+            err["details"] = [{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": reason,
+                               "metadata": {"consumer": consumer} if consumer else {}}]
+        return self._g_send(code, {"error": err})
+
+    def _gcp(self, method, path, qs, body):
+        g = self.state["gcp"]
+        self._greq = (method, qs)                        # the policy route enforces the exact Google contracts
+        auth = self.headers.get("Authorization")
+        denied = g.setdefault("deny", set())
+
+        def need_user():
+            if auth != "Bearer ya29.user":
+                self._g_err(401, "UNAUTHENTICATED", "bad token")
+                return False
+            return True
+
+        if path == "/userinfo":
+            if not need_user():
+                return True
+            if g.get("userinfo_status"):
+                return self._g_err(g["userinfo_status"], "PERMISSION_DENIED", "insufficient scope")
+            return self._g_send(200, g.get("userinfo") or {"sub": "1", "email": g["user_email"], "email_verified": True})
+
+        if path.startswith("/crm/projects/"):
+            if not need_user():
+                return True
+            rest = path[len("/crm/projects/"):]
+            pid, _, verb = rest.partition(":")
+            if pid != g["project"]:
+                return self._g_err(403, "PERMISSION_DENIED", "other project")
+            if not verb:
+                if "crm_get" in denied:
+                    return self._g_err(403, "PERMISSION_DENIED", "resourcemanager.projects.get denied")
+                return self._g_send(200, {"projectId": pid, "projectNumber": g["number"], "lifecycleState": "ACTIVE"})
+            return self._g_policy_route(verb, body, g["proj_policy"], "proj-policy", "proj_setpolicy")
+
+        if path.startswith("/su/"):
+            if not need_user():
+                return True
+            rest = path[len("/su/"):]
+            if rest.startswith("operations/"):
+                op = g["ops"].get(rest)
+                if op is None:
+                    return self._g_err(404, "NOT_FOUND", "no op")
+                op["polls"] -= 1
+                if op["polls"] <= 0:
+                    g["services"][op["svc"]] = "ENABLED"
+                    return self._g_send(200, {"name": rest, "done": True, "response": {}})
+                return self._g_send(200, {"name": rest, "done": False})
+            prefix = f"projects/{g['number']}/services/"
+            if not rest.startswith(prefix):
+                return self._g_err(403, "PERMISSION_DENIED", "other project number")
+            svc, _, verb = rest[len(prefix):].partition(":")
+            if verb == "enable":
+                if "enable" in denied:
+                    return self._g_err(403, "PERMISSION_DENIED", "serviceusage.services.enable denied")
+                g["writes"].append("enable:" + svc)
+                name = f"operations/enable-{svc}"
+                g["ops"][name] = {"svc": svc, "polls": g.get("op_polls", 1)}
+                return self._g_send(200, {"name": name, "done": False})
+            if "su_get" in denied:
+                return self._g_err(403, "PERMISSION_DENIED", "serviceusage.services.get denied")
+            return self._g_send(200, {"name": rest, "state": g["services"].get(svc, "DISABLED")})
+
+        if path.startswith("/iamadmin/projects/"):
+            if not need_user():
+                return True
+            rest = path[len("/iamadmin/projects/"):]
+            proj, _, tail = rest.partition("/serviceAccounts")
+            if proj != g["project"]:
+                return self._g_err(403, "PERMISSION_DENIED", "other project")
+            if tail == "" and method == "POST":
+                if "sa_create" in denied:
+                    return self._g_err(403, "PERMISSION_DENIED", "iam.serviceAccounts.create denied")
+                email = f"{body['accountId']}@{proj}.iam.gserviceaccount.com"
+                g["writes"].append("sa-create:" + email)
+                g.setdefault("created_bodies", []).append(body)
+                if g.get("create_race") or email in g["sas"]:
+                    g["sas"].setdefault(email, {"email": email, "disabled": False})
+                    return self._g_err(409, "ALREADY_EXISTS", "exists")
+                g["sas"][email] = {"email": email, "disabled": False}
+                return self._g_send(200, dict(g["sas"][email]))
+            email_enc, _, verb = tail.lstrip("/").partition(":")
+            email = urllib.parse.unquote(email_enc)
+            if not verb:
+                if "sa_get" in denied:
+                    return self._g_err(403, "PERMISSION_DENIED", "iam.serviceAccounts.get denied")
+                if g["services"].get("iam.googleapis.com") != "ENABLED":
+                    return self._g_err(403, "PERMISSION_DENIED", "IAM API disabled", "SERVICE_DISABLED", "projects/" + g["number"])
+                if email not in g["sas"]:
+                    return self._g_err(404, "NOT_FOUND", "Service account does not exist")
+                return self._g_send(200, g["sas"][email])
+            if email not in g["sas"]:
+                return self._g_err(404, "NOT_FOUND", "Service account does not exist")
+            return self._g_policy_route(verb, body, g["sa_policy"].setdefault(email, {"version": 1, "etag": "ACAB"}),
+                                        "sa-policy:" + email, "sa_setpolicy")
+
+        if path.startswith("/iam/projects/-/serviceAccounts/"):
+            sa = urllib.parse.unquote(path.split("/serviceAccounts/")[1].split(":")[0])
+            if auth != "Bearer ya29.user":
+                return self._g_err(401, "UNAUTHENTICATED", "bad token")
+            if g.get("imp_status"):
+                return self._g_err(g["imp_status"], "UNAVAILABLE", "backend error")
+            g["imp_calls"] = g.get("imp_calls", 0) + 1
+            if g["services"].get("iamcredentials.googleapis.com") != "ENABLED":
+                return self._g_err(403, "PERMISSION_DENIED", "IAM Credentials API has not been used or is disabled",
+                                   "SERVICE_DISABLED", g.get("consumer") or "projects/" + g["number"])
+            if sa not in g["sas"]:
+                code = g.get("missing_status", 404)
+                return self._g_err(code, "NOT_FOUND" if code == 404 else "PERMISSION_DENIED", "no such service account or no permission")
+            pol = g["sa_policy"].get(sa, {})
+            has = any(b.get("role") == "roles/iam.serviceAccountTokenCreator" and not b.get("condition")
+                      and "user:" + g["user_email"] in b.get("members", []) for b in pol.get("bindings", []))
+            if not has:
+                code = g.get("nogrant_status", 403)
+                return self._g_err(code, "NOT_FOUND" if code == 404 else "PERMISSION_DENIED",
+                                   "Permission 'iam.serviceAccounts.getAccessToken' denied")
+            if g.get("lag", 0) > 0:
+                g["lag"] -= 1
+                return self._g_err(403, "PERMISSION_DENIED", "not propagated yet")
+            return self._g_send(200, {"accessToken": "ya29.sa", "expireTime": "2099-01-01T00:00:00Z"})
+
+        if path == "/storage/b":
+            if auth != "Bearer ya29.sa":
+                return self._g_err(401, "UNAUTHENTICATED", "bad token")
+            sa = next(iter(g["sas"]), "")
+            has = any(b.get("role") == "roles/viewer" and not b.get("condition") and "serviceAccount:" + sa in b.get("members", [])
+                      for b in g["proj_policy"].get("bindings", []))
+            if not has:
+                return self._g_err(403, "PERMISSION_DENIED", "storage.buckets.list denied")
+            return self._g_send(200, {"items": [{"name": n} for n in g.get("buckets", ["b1", "b2"])]})
+        return False
+
+    def _g_policy_route(self, verb, body, policy, tag, deny_key):
+        g = self.state["gcp"]
+        if verb == "getIamPolicy":
+            method, qs = self._greq
+            g.setdefault("policy_reads", []).append((tag, method, qs, body))
+            if method != "POST":
+                return self._g_err(405, "METHOD_NOT_ALLOWED", "getIamPolicy is POST")
+            if tag.startswith("sa-policy:"):             # serviceAccounts.getIamPolicy: options in QUERY, body EMPTY
+                if qs != {"options.requestedPolicyVersion": ["3"]} or body is not None:
+                    return self._g_err(400, "INVALID_ARGUMENT", "SA getIamPolicy needs ?options.requestedPolicyVersion=3 and no body")
+            elif qs or body != {"options": {"requestedPolicyVersion": 3}}:   # projects.getIamPolicy: options in BODY
+                return self._g_err(400, "INVALID_ARGUMENT", "project getIamPolicy needs the options body and no query")
+            return self._g_send(200, json.loads(json.dumps(policy)))
+        if verb == "setIamPolicy":
+            if deny_key in g["deny"]:
+                return self._g_err(403, "PERMISSION_DENIED", "setIamPolicy denied")
+            new = body["policy"]
+            g.setdefault("policy_sets", []).append((tag, json.loads(json.dumps(new))))
+            if g.get("conflict_once") and tag == "proj-policy":
+                code = g.pop("conflict_once")            # a concurrent writer wins the race exactly once
+                policy.setdefault("bindings", []).append({"role": "roles/logging.viewer", "members": ["user:other@example.com"]})
+                policy["etag"] = "CONCURRENT"
+                return self._g_err(code, "ABORTED" if code == 409 else "FAILED_PRECONDITION", "etag mismatch")
+            if new.get("etag") != policy.get("etag"):
+                return self._g_err(409, "ABORTED", "etag mismatch")
+            g["writes"].append("set:" + tag)
+            policy.clear()
+            policy.update(new)
+            policy["etag"] = "E%d" % len(g["writes"])
+            return self._g_send(200, json.loads(json.dumps(policy)))
+        return self._g_err(404, "NOT_FOUND", "no verb")
+
     def do_GET(self):
         self._route("GET")
 
@@ -218,10 +394,16 @@ case "$1" in
 esac
 '''
 
+GCLOUD_STUB = r'''#!/usr/bin/env bash
+# stub gcloud: a DIFFERENT active account than the ADC user; any call is a test failure (it is logged).
+printf '%s\n' "$*" >> "$GCLOUD_STUB_LOG"
+echo "gcloud-active@example.com"
+'''
+
 BOTH_RUNNING = "duplo-ai-studio:aaaa1111:2026-10-27T09:00:00Z;claude-code-agent:bbbb2222:2026-10-27T09:00:05Z"
 
 
-class ConnectCloudTests(unittest.TestCase):
+class Harness(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
@@ -240,7 +422,7 @@ class ConnectCloudTests(unittest.TestCase):
         self.state_file = os.path.join(self.tmp, "state", "connections.json")
         self.aws_log = os.path.join(self.tmp, "aws.log")
         self.docker_log = os.path.join(self.tmp, "docker.log")
-        for name, text in (("aws", AWS_STUB), ("store", STORE_STUB), ("docker", DOCKER_STUB)):
+        for name, text in (("aws", AWS_STUB), ("store", STORE_STUB), ("docker", DOCKER_STUB), ("gcloud", GCLOUD_STUB)):
             p = os.path.join(self.bin, name)
             with open(p, "w") as f:
                 f.write(text)
@@ -279,6 +461,12 @@ class ConnectCloudTests(unittest.TestCase):
             "CONNECT_CLOUD_GOOGLE_TOKEN_URL": self.base + "/token",
             "CONNECT_CLOUD_GOOGLE_IAM_URL": self.base + "/iam",
             "CONNECT_CLOUD_GOOGLE_STORAGE_URL": self.base + "/storage",
+            "CONNECT_CLOUD_GOOGLE_USERINFO_URL": self.base + "/userinfo",
+            "CONNECT_CLOUD_GOOGLE_IAM_ADMIN_URL": self.base + "/iamadmin",
+            "CONNECT_CLOUD_GOOGLE_CRM_URL": self.base + "/crm",
+            "CONNECT_CLOUD_GOOGLE_SERVICEUSAGE_URL": self.base + "/su",
+            "CONNECT_CLOUD_PROPAGATION_INTERVAL": "0",
+            "GCLOUD_STUB_LOG": os.path.join(self.tmp, "gcloud.log"),
             "STORE_DIR": self.store_dir,
             "AWS_STUB_LOG": self.aws_log,
             "DOCKER_STUB_LOG": self.docker_log,
@@ -315,6 +503,9 @@ class ConnectCloudTests(unittest.TestCase):
     def gcp_args(self, name="gcp-test9", sa=SA, project="gcp-test9", adc=None):
         return ("gcp", "--name", name, "--project", project, "--service-account", sa, "--adc-source", adc or self.adc_path)
 
+
+
+class ConnectCloudTests(Harness):
     # ── AWS ──
 
     def test_aws_connect_creates_chain_and_attaches_once(self):
@@ -715,6 +906,459 @@ class ConnectCloudTests(unittest.TestCase):
         p = self.run_cc("aws", "--name", "test21", "--profile", "test21", expect=1)
         self.base = env_base
         self.assertIn("cannot reach the studio", p.stderr)
+
+
+DSA = "helpdesk-sa@gcp-test9.iam.gserviceaccount.com"
+REAL = "real.user@example.com"
+COND = {"title": "temp", "expression": "request.time < timestamp('2099-01-01T00:00:00Z')"}
+ADMIN_PREFIXES = ("/userinfo", "/crm", "/su", "/iamadmin")
+
+
+class GcpBootstrapTests(Harness):
+    """Seamless GCP onboarding: the derived helpdesk-sa is prepared against a fake Google (no network)."""
+
+    def setUp(self):
+        super().setUp()
+        Fake.state = {"studio": {"Workspaces": {"ws-1": {"id": "ws-1", "name": "extension-dev", "scopeIds": []}}},
+                      "gcp": self.model()}
+
+    def model(self, **over):
+        g = {"project": "gcp-test9", "number": "123456789012", "user_email": REAL, "deny": set(), "writes": [], "ops": {},
+             "services": {"iam.googleapis.com": "DISABLED", "iamcredentials.googleapis.com": "DISABLED"},
+             "sas": {}, "sa_policy": {},
+             "proj_policy": {"version": 3, "etag": "BwProj", "bindings": [
+                 {"role": "roles/owner", "members": ["user:boss@example.com"]},
+                 {"role": "roles/viewer", "members": [f"serviceAccount:{DSA}"], "condition": COND}],
+                 "auditConfigs": [{"service": "allServices", "auditLogConfigs": [{"logType": "DATA_READ"}]}]}}
+        g.update(over)
+        return g
+
+    def ready_model(self):
+        """Everything in place: the happy 'already configured' world."""
+        g = self.model(sas={DSA: {"email": DSA, "disabled": False}},
+                       services={"iam.googleapis.com": "ENABLED", "iamcredentials.googleapis.com": "ENABLED"})
+        g["sa_policy"][DSA] = {"version": 3, "etag": "R1", "bindings": [
+            {"role": "roles/iam.serviceAccountTokenCreator", "members": [f"user:{REAL}"]}]}
+        g["proj_policy"]["bindings"].append({"role": "roles/viewer", "members": [f"serviceAccount:{DSA}"]})
+        return g
+
+    def run_derived(self, *extra, expect=0, **kw):
+        # ADC file says one account; userinfo (the truth) says another; the gcloud stub says a third.
+        self.write_adc(self.adc_path, account="stale-adc-field@example.com")
+        return self.run_cc("gcp", "--project", "gcp-test9", "--adc-source", self.adc_path, *extra, expect=expect, **kw)
+
+    def g(self):
+        return Fake.state["gcp"]
+
+    def cloud_state(self):
+        g = self.g()
+        return json.dumps({k: g[k] for k in ("services", "sas", "sa_policy", "proj_policy", "writes")}, sort_keys=True)
+
+    def google_writes(self):
+        return [(m, p.split("?")[0]) for m, p, _, _ in Fake.log if m == "POST" and (
+            p.endswith(":setIamPolicy") or ":enable" in p or (p.startswith("/iamadmin") and p.endswith("/serviceAccounts")))]
+
+    def admin_calls(self):
+        return [p for _, p, _, _ in Fake.log if p.startswith(ADMIN_PREFIXES)]
+
+    def assert_nothing_written(self):
+        self.assertEqual(self.google_writes(), [])
+        self.assertEqual(self.studio_writes(), [])
+        self.assertEqual(self.store_log(), "")
+        self.assertFalse(os.path.exists(self.state_file))
+
+    def gcloud_calls(self):
+        p = os.path.join(self.tmp, "gcloud.log")
+        return open(p).read() if os.path.exists(p) else ""
+
+    # ── happy path ──
+    def test_missing_sa_is_created_granted_and_registered_with_the_adc_user(self):
+        p = self.run_derived()
+        g = self.g()
+        # APIs, SA, narrow grants
+        self.assertEqual(g["services"], {"iam.googleapis.com": "ENABLED", "iamcredentials.googleapis.com": "ENABLED"})
+        self.assertEqual(g["created_bodies"][0]["accountId"], "helpdesk-sa")
+        self.assertEqual(g["sa_policy"][DSA]["bindings"],
+                         [{"role": "roles/iam.serviceAccountTokenCreator", "members": [f"user:{REAL}"]}])  # verified userinfo email
+        viewer = [b for b in g["proj_policy"]["bindings"] if b["role"] == "roles/viewer"]
+        self.assertIn({"role": "roles/viewer", "members": [f"serviceAccount:{DSA}"]}, viewer)
+        # the identity came from userinfo, never from adc.account or gcloud
+        self.assertNotIn("stale-adc-field@example.com", json.dumps(g, default=sorted))
+        self.assertNotIn("gcloud-active@example.com", json.dumps(g, default=sorted))
+        self.assertEqual(self.gcloud_calls(), "")
+        # the only writes: enable x2, create, SA policy, project policy — and nothing else
+        self.assertEqual(sorted(w.split(":")[0] for w in g["writes"]), ["enable", "enable", "sa-create", "set", "set"])
+        self.assertEqual(len(g["policy_reads"]) , 2)
+        for tag, method, qs, req in g["policy_reads"]:
+            self.assertEqual(method, "POST")
+            if tag.startswith("sa-policy:"):
+                self.assertEqual((qs, req), ({"options.requestedPolicyVersion": ["3"]}, None))
+            else:
+                self.assertEqual((qs, req), ({}, {"options": {"requestedPolicyVersion": 3}}))
+        sa_get = [pth for m, pth, _, _ in Fake.log if pth.split("?")[0].endswith(":getIamPolicy") and "/iamadmin/" in pth]
+        self.assertTrue(sa_get and all(x.endswith(":getIamPolicy?options.requestedPolicyVersion=3") for x in sa_get))
+        for _, pol in g["policy_sets"]:
+            self.assertGreaterEqual(pol["version"], 3)
+        # registration happened, after every cloud write
+        self.assertEqual(self.provider()["credentials"][0]["dataEx"][0]["value"], DSA)
+        self.assertTrue(os.path.exists(os.path.join(self.store_dir, "gcp", "gcp-test9.json")))
+        order = [m + " " + pth for m, pth, _, _ in Fake.log]
+        last_google_write = max(i for i, o in enumerate(order) if o.startswith("POST") and
+                                (":setIamPolicy" in o or ":enable" in o or o.endswith("/serviceAccounts")))
+        first_studio_write = min(i for i, o in enumerate(order) if "/admin/data/" in o and not o.startswith("GET"))
+        self.assertLess(last_google_write, first_studio_write)
+        rec = self.records()["gcp-test9"]
+        self.assertEqual(rec["serviceAccount"], DSA)
+        self.assertEqual(len(rec["bootstrapChanges"]), 5)
+        self.assertIn("created service account", p.stdout)
+        self.assertIn("connection 'gcp-test9' ready", p.stdout)
+
+    def test_policy_etag_conditions_and_audit_configs_are_preserved(self):
+        self.run_derived()
+        g = self.g()
+        pol = g["proj_policy"]
+        self.assertIn({"role": "roles/owner", "members": ["user:boss@example.com"]}, pol["bindings"])
+        self.assertIn({"role": "roles/viewer", "members": [f"serviceAccount:{DSA}"], "condition": COND}, pol["bindings"])
+        self.assertEqual(pol["auditConfigs"], [{"service": "allServices", "auditLogConfigs": [{"logType": "DATA_READ"}]}])
+        sent = dict(g["policy_sets"])["proj-policy"]
+        self.assertEqual(sent["etag"], "BwProj")           # the etag that was read is the one written back
+        self.assertEqual(sent["version"], 3)
+        # no role beyond the two allowed ones was added
+        added = {b["role"] for b in pol["bindings"]} - {"roles/owner", "roles/viewer"}
+        self.assertEqual(added, set())
+        self.assertNotIn(f"serviceAccount:{DSA}", [m for b in pol["bindings"] if b["role"] == "roles/owner" for m in b["members"]])
+
+    def test_etag_conflict_rereads_and_retries_without_overwriting_the_other_change(self):
+        for code in (409, 412):
+            with self.subTest(code=code):
+                self.setUp()
+                self.g()["conflict_once"] = code
+                self.run_derived()
+                pol = self.g()["proj_policy"]
+                self.assertIn({"role": "roles/logging.viewer", "members": ["user:other@example.com"]}, pol["bindings"])
+                self.assertIn({"role": "roles/viewer", "members": [f"serviceAccount:{DSA}"]}, pol["bindings"])
+                self.assertEqual([t for t, _ in self.g()["policy_sets"]].count("proj-policy"), 2)
+                self.assertEqual(self.g()["policy_sets"][-1][1]["etag"], "CONCURRENT")
+
+    def test_persistent_conflict_gives_up_after_a_bounded_count(self):
+        g = self.g()
+        orig = Fake._g_policy_route
+
+        def always_conflict(handler, verb, body, policy, tag, deny_key):
+            if verb == "setIamPolicy" and tag == "proj-policy":
+                g.setdefault("policy_sets", []).append((tag, body["policy"]))
+                policy["etag"] = "X%d" % len(g["policy_sets"])
+                return handler._g_err(409, "ABORTED", "etag mismatch")
+            return orig(handler, verb, body, policy, tag, deny_key)
+        Fake._g_policy_route = always_conflict
+        try:
+            p = self.run_derived(expect=1)
+        finally:
+            Fake._g_policy_route = orig
+        self.assertEqual([t for t, _ in g["policy_sets"]].count("proj-policy"), 5)
+        self.assertIn("Cloud changes ALREADY applied", p.stderr)
+        self.assertEqual(self.studio_writes(), [])
+
+    # ── idempotency ──
+    def test_repeat_is_idempotent_and_needs_no_iam_admin(self):
+        self.run_derived()
+        snapshot = self.cloud_state()
+        Fake.log = []
+        self.g()["deny"] = {"crm_get", "su_get", "enable", "sa_get", "sa_create", "sa_setpolicy", "proj_setpolicy"}
+        p = self.run_derived()
+        self.assertEqual(self.admin_calls(), [])         # proof passed: no userinfo, no IAM, no Service Usage
+        self.assertEqual(self.google_writes(), [])
+        self.assertEqual(self.cloud_state(), snapshot)          # no cloud state changed at all
+        self.assertEqual([w[0] for w in self.studio_writes()], ["PUT"])
+        self.assertIn("connection 'gcp-test9' ready", p.stdout)
+
+    def test_fully_prepared_project_succeeds_without_any_cloud_write_or_admin_call(self):
+        Fake.state["gcp"] = self.ready_model()
+        self.g()["deny"] = {"crm_get", "su_get", "enable", "sa_get", "sa_create", "sa_setpolicy", "proj_setpolicy"}
+        self.run_derived()
+        self.assertEqual(self.admin_calls(), [])
+        self.assertEqual(self.google_writes(), [])
+        self.assertNotIn("bootstrapChanges", self.records()["gcp-test9"])
+
+    def test_existing_sa_and_grants_are_reused_only_missing_pieces_written(self):
+        g = self.g()
+        g["services"] = {"iam.googleapis.com": "ENABLED", "iamcredentials.googleapis.com": "ENABLED"}
+        g["sas"][DSA] = {"email": DSA, "disabled": False}
+        g["nogrant_status"] = 404                          # a 404 from generateAccessToken is NOT proof the SA is absent
+        self.run_derived()
+        self.assertEqual(sorted(w.split(":")[0] for w in g["writes"]), ["set", "set"])   # grants only: no create, no enable
+        self.assertNotIn("sa-create", " ".join(g["writes"]))
+
+    def test_sa_lookup_distinguishes_real_404_from_403(self):
+        g = self.g()
+        g["missing_status"] = 403                          # Google may answer 403 for a missing SA at impersonation time
+        self.run_derived()
+        self.assertTrue(any(w.startswith("sa-create") for w in g["writes"]))   # the 404 came from the IAM lookup itself
+        # …and an IAM lookup 403 is never read as 'absent'
+        self.setUp()
+        self.g()["deny"] = {"sa_get"}
+        self.g()["services"] = {"iam.googleapis.com": "ENABLED", "iamcredentials.googleapis.com": "ENABLED"}
+        p = self.run_derived(expect=1)
+        self.assertIn("cannot look up service account", p.stderr)
+        self.assertEqual(self.google_writes(), [])
+
+    def test_create_race_409_is_handled_by_relookup(self):
+        g = self.g()
+        g["services"] = {"iam.googleapis.com": "ENABLED", "iamcredentials.googleapis.com": "ENABLED"}
+        g["create_race"] = True
+        self.run_derived()
+        self.assertIn(DSA, g["sas"])
+        self.assertEqual([w for w in g["writes"] if w.startswith("sa-create")], [f"sa-create:{DSA}"])  # one attempt, then reuse
+        self.assertTrue(self.records()["gcp-test9"]["bootstrapChanges"])
+
+    def test_disabled_existing_sa_stops_everything(self):
+        g = self.g()
+        g["services"] = {"iam.googleapis.com": "ENABLED", "iamcredentials.googleapis.com": "ENABLED"}
+        g["sas"][DSA] = {"email": DSA, "disabled": True}
+        p = self.run_derived(expect=1)
+        self.assertIn("DISABLED", p.stderr)
+        self.assertEqual(self.google_writes(), [])
+        self.assertEqual(self.studio_writes(), [])
+        self.assertEqual(self.store_log(), "")
+
+    def test_service_enable_is_tracked_to_completion_and_checked_first(self):
+        g = self.g()
+        g["services"]["iam.googleapis.com"] = "ENABLED"     # already on: must not be re-enabled
+        g["op_polls"] = 3
+        self.run_derived()
+        self.assertEqual([w for w in g["writes"] if w.startswith("enable")], ["enable:iamcredentials.googleapis.com"])
+        polls = [pth for m, pth, _, _ in Fake.log if pth.startswith("/su/operations/")]
+        self.assertEqual(len(polls), 3)
+        for _, pth, _, _ in Fake.log:                       # Service Usage addressed by project NUMBER of the selected project only
+            if pth.startswith("/su/projects/"):
+                self.assertTrue(pth.startswith("/su/projects/123456789012/services/"), pth)
+
+    def test_service_disabled_on_a_different_quota_project_is_not_mutated(self):
+        g = self.g()
+        g["consumer"] = "projects/999999999999"
+        p = self.run_derived(expect=1)
+        self.assertIn("quota project", p.stderr)
+        self.assertEqual(self.google_writes(), [])
+        self.assertEqual(self.studio_writes(), [])
+
+    def test_bucket_denied_only_grants_the_viewer_and_skips_identity_lookup(self):
+        Fake.state["gcp"] = self.ready_model()
+        g = self.g()
+        g["proj_policy"]["bindings"] = [b for b in g["proj_policy"]["bindings"] if b["role"] != "roles/viewer"]
+        self.run_derived()
+        self.assertEqual(g["writes"], ["set:proj-policy"])
+        self.assertNotIn("/userinfo", self.admin_calls())
+
+    # ── failures ──
+    def test_403_on_admin_steps_stops_with_no_other_writes(self):
+        for deny, applied in (("crm_get", False), ("su_get", False), ("enable", False), ("sa_create", True), ("sa_setpolicy", True),
+                              ("proj_setpolicy", True)):
+            with self.subTest(deny=deny):
+                self.setUp()
+                self.g()["deny"] = {deny}
+                p = self.run_derived(expect=1)
+                self.assertIn("HTTP 403", p.stderr)
+                self.assertEqual(self.studio_writes(), [])
+                self.assertEqual(self.store_log(), "")
+                self.assertFalse(os.path.exists(self.state_file))
+                self.assertFalse(os.path.exists(os.path.join(self.store_dir, "gcp")))
+                if applied:   # honest partial-failure report: the API enables did happen
+                    self.assertIn("Cloud changes ALREADY applied", p.stderr)
+                    self.assertIn("enabled iam.googleapis.com", p.stderr)
+                else:
+                    self.assertNotIn("ALREADY applied", p.stderr)
+                if deny == "sa_setpolicy":                  # stopped at the first denied write: the project policy is untouched
+                    self.assertEqual(self.g()["proj_policy"]["etag"], "BwProj")
+                    self.assertFalse(any(w.startswith("set:proj") for w in self.g()["writes"]))
+
+    def test_dry_run_never_mutates_or_claims_validation(self):
+        p = self.run_derived("--dry-run", expect=1)
+        self.assertIn("NOT validated", p.stdout)
+        self.assertIn("would prepare ONLY", p.stdout)
+        self.assertIn("runtime not validated", p.stderr)
+        self.assertNotIn("dry-run only — nothing installed", p.stdout)
+        self.assertEqual(self.admin_calls(), [])
+        self.assert_nothing_written()
+        self.assertEqual(self.g()["writes"], [])
+        self.assertEqual(self.gcloud_calls(), "")
+
+    def test_malformed_or_unverified_identity_is_refused_with_no_writes(self):
+        cases = [
+            ({"sub": "1", "email": REAL, "email_verified": False}, "no verified email"),
+            ({"sub": "1", "email_verified": True}, "no verified email"),
+            ({"sub": "1", "email": "a@b.com, user:x@y.com", "email_verified": True}, "not a plain user email"),
+            ({"sub": "1", "email": "sa@gcp-test9.iam.gserviceaccount.com", "email_verified": True}, "not a plain user email"),
+            ({"sub": "1", "email": "bad\nuser@example.com", "email_verified": True}, "not a plain user email"),
+        ]
+        for info, msg in cases:
+            with self.subTest(info=info):
+                self.setUp()
+                self.g()["userinfo"] = info
+                p = self.run_derived(expect=1)
+                self.assertIn(msg, p.stderr)
+                self.assert_nothing_written()
+        self.setUp()
+        self.g()["userinfo_status"] = 403                      # token without the email scope
+        p = self.run_derived(expect=1)
+        self.assertIn("gcloud auth application-default login", p.stderr)
+        self.assertIn("email scope", p.stderr)
+        self.assert_nothing_written()
+        self.assertEqual(self.gcloud_calls(), "")             # the tool never runs login itself
+
+    def test_platform_conflicts_cause_zero_cloud_calls(self):
+        Fake.state["studio"]["Providers"] = {"providers-9": {
+            "id": "providers-9", "name": "gcp-gcp-test9", "type": "gcp", "accountId": "gcp-test9",
+            "credentials": [{"name": "gcp-test9", "dataEx": [{"key": "cloudRoleToAssume", "value": "other@gcp-test9.iam.gserviceaccount.com"}],
+                             "metaData": {"source": TOOL}}], "metaData": {"source": TOOL}}}
+        Fake.log = []
+        p = self.run_derived(expect=1)
+        self.assertIn("already impersonates", p.stderr)
+        self.assertEqual([x for x in Fake.log if not x[1].startswith("/v1/aiservicedesk")], [])   # not even a token refresh
+        # foreign credential, other-project provider, missing workspace — same guarantee
+        Fake.state["studio"]["Providers"]["providers-9"]["credentials"][0].pop("metaData")
+        Fake.log = []
+        self.assertIn("was not created by connect-cloud", self.run_derived(expect=1).stderr)
+        self.assertEqual([x for x in Fake.log if not x[1].startswith("/v1/aiservicedesk")], [])
+        Fake.state["studio"]["Providers"] = {}
+        Fake.log = []
+        self.assertIn("does not exist", self.run_derived("--workspace", "ws-gone", expect=1).stderr)
+        self.assertEqual([x for x in Fake.log if not x[1].startswith("/v1/aiservicedesk")], [])
+        self.assertEqual(self.g()["writes"], [])
+        self.assertEqual(self.studio_writes(), [])
+
+    def test_store_unavailable_is_found_before_any_iam_write(self):
+        self.extra_env["STORE_STUB_UNAVAILABLE"] = "1"
+        p = self.run_derived(expect=1)
+        self.assertIn("credential store unavailable", p.stderr)
+        self.assertEqual(self.google_writes(), [])
+        self.assertEqual(Fake.log, [x for x in Fake.log if x[1].startswith("/v1/aiservicedesk")])
+
+    def test_explicit_service_account_and_no_bootstrap_are_never_prepared(self):
+        for args, why in ((("--service-account", "other@elsewhere-proj.iam.gserviceaccount.com"), "--service-account"),
+                          (("--no-bootstrap",), "--no-bootstrap")):
+            with self.subTest(args=args):
+                self.setUp()
+                p = self.run_derived(*args, expect=1)
+                self.assertIn("will not create it", p.stderr)
+                self.assertIn(why, p.stderr)
+                self.assertEqual(self.admin_calls(), [])
+                self.assert_nothing_written()
+
+    def test_explicitly_supplied_derived_default_still_bootstraps(self):
+        p = self.run_derived("--service-account", DSA)
+        self.assertIn("created service account", p.stdout)
+        self.assertEqual(self.g()["sa_policy"][DSA]["bindings"],
+                         [{"role": "roles/iam.serviceAccountTokenCreator", "members": [f"user:{REAL}"]}])
+        # --no-bootstrap still wins over the spelled-out default
+        self.setUp()
+        p = self.run_derived("--service-account", DSA, "--no-bootstrap", expect=1)
+        self.assertIn("--no-bootstrap", p.stderr)
+        self.assert_nothing_written()
+
+    def test_refresh_keeps_the_recorded_identity_and_never_bootstraps(self):
+        self.run_derived()
+        self.g()["sa_policy"][DSA]["bindings"] = []            # grant lost since
+        Fake.log = []
+        p = self.run_cc("refresh", "--name", "gcp-test9", expect=1)
+        self.assertIn("recorded identity", p.stderr)
+        self.assertEqual(self.admin_calls(), [])
+        self.assertEqual(self.google_writes(), [])
+
+    def test_not_an_iam_condition_is_not_bootstrapped(self):
+        self.g()["imp_status"] = 503
+        p = self.run_derived(expect=1)
+        self.assertIn("HTTP 503", p.stderr)
+        self.assertEqual(self.admin_calls(), [])
+        self.assert_nothing_written()
+        # a revoked login likewise (covered further by test_gcp_revoked_adc_fails_with_relogin_hint)
+        self.setUp()
+        self.write_adc(self.adc_path, refresh="revoked")
+        p = self.run_cc("gcp", "--project", "gcp-test9", "--adc-source", self.adc_path, expect=1)
+        self.assertIn("gcloud auth application-default login", p.stderr)
+        self.assertEqual(self.admin_calls(), [])
+        # a dead network
+        self.setUp()
+        self.base = "http://127.0.0.1:9"
+        self.extra_env["DOCKER_STUB_SERVICES"] = BOTH_RUNNING
+        p = self.run_cc("gcp", "--project", "gcp-test9", "--adc-source", self.adc_path, expect=1)
+        self.assertNotIn("Traceback", p.stderr)
+
+    # ── propagation ──
+    def test_propagation_is_polled_then_succeeds(self):
+        self.g()["lag"] = 2
+        p = self.run_derived()
+        self.assertEqual(self.g()["imp_calls"], 1 + 3)         # initial failure + 2 laggy + 1 success
+        self.assertIn("waiting for IAM propagation", p.stdout)
+
+    def test_propagation_is_bounded_and_failure_reports_the_changes_made(self):
+        self.g()["lag"] = 10 ** 6
+        self.extra_env["CONNECT_CLOUD_PROPAGATION_ATTEMPTS"] = "3"
+        p = self.run_derived(expect=1)
+        self.assertEqual(self.g()["imp_calls"], 1 + 3)
+        self.assertIn("still fails after 3 attempt", p.stderr)
+        self.assertIn("Cloud changes ALREADY applied", p.stderr)
+        self.assertIn(f"created service account {DSA}", p.stderr)
+        self.assertNotIn("nothing was", p.stderr.lower())
+        self.assertEqual(self.studio_writes(), [])
+        self.assertEqual(self.store_log(), "")                 # a cloud failure never leads to local credential writes
+
+    def test_enable_operation_done_on_the_last_allowed_poll_succeeds(self):
+        self.g()["op_polls"] = 3
+        self.extra_env["CONNECT_CLOUD_PROPAGATION_ATTEMPTS"] = "3"
+        self.run_derived()
+        self.assertEqual(self.g()["services"], {"iam.googleapis.com": "ENABLED", "iamcredentials.googleapis.com": "ENABLED"})
+
+    def test_enable_operation_not_done_after_the_last_poll_times_out(self):
+        self.g()["op_polls"] = 4
+        self.extra_env["CONNECT_CLOUD_PROPAGATION_ATTEMPTS"] = "3"
+        p = self.run_derived(expect=1)
+        self.assertIn("did not complete within 3 polls", p.stderr)
+        self.assertEqual(self.studio_writes(), [])
+
+    def test_policy_without_etag_refuses_the_write(self):
+        del self.g()["proj_policy"]["etag"]
+        self.g()["sas"][DSA] = {"email": DSA, "disabled": False}
+        self.g()["services"] = {"iam.googleapis.com": "ENABLED", "iamcredentials.googleapis.com": "ENABLED"}
+        p = self.run_derived(expect=1)
+        self.assertIn("no etag", p.stderr)
+        self.assertNotIn("proj-policy", [t for t, _ in self.g().get("policy_sets", [])])
+        self.assertNotIn(f"serviceAccount:{DSA}", json.dumps(self.g()["proj_policy"]["bindings"][2:]))
+        self.assertEqual(self.studio_writes(), [])
+
+    def test_grants_already_present_but_proof_fails_is_reproved_before_blaming_anything(self):
+        self.g().update(self.ready_model())
+        self.g()["lag"] = 2                      # first proof fails (lag), bootstrap's reprove fails once more, then passes
+        p = self.run_derived()
+        self.assertEqual(self.google_writes(), [])
+        self.assertIn("waiting for IAM propagation", p.stdout)
+        self.assertIn("connection 'gcp-test9' ready", p.stdout)
+
+    def test_grants_already_present_and_proof_never_passes_does_not_claim_a_proven_cause(self):
+        self.g().update(self.ready_model())
+        self.g()["lag"] = 10 ** 6
+        self.extra_env["CONNECT_CLOUD_PROPAGATION_ATTEMPTS"] = "3"
+        p = self.run_derived(expect=1)
+        self.assertIn("changed nothing", p.stderr)
+        self.assertIn("cause is not proven", p.stderr)
+        self.assertEqual(self.google_writes(), [])
+        self.assertEqual(self.studio_writes(), [])
+
+    # ── secrets ──
+    def test_no_token_or_secret_in_urls_argv_outputs_state_or_store_log(self):
+        p = self.run_derived("--json")
+        secrets = (REFRESH_TOKEN, CLIENT_SECRET, "ya29.user", "ya29.sa")
+        for m, pth, body, hdrs in Fake.log:
+            if pth.startswith("/token"):
+                continue
+            self.assertFalse(any(x in pth for x in secrets), pth)               # never in a URL
+            self.assertFalse(any(x in json.dumps(body) for x in secrets), pth)  # never in a request body
+            if "ya29" in json.dumps(hdrs):
+                self.assertIn(hdrs.get("Authorization"), ("Bearer ya29.user", "Bearer ya29.sa"))
+        with open(self.state_file) as f:
+            state_text = f.read()
+        for secret in secrets:
+            for text in (p.stdout, p.stderr, state_text, self.store_log()):
+                self.assertNotIn(secret, text)
 
 
 if __name__ == "__main__":

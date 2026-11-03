@@ -20,6 +20,10 @@
 #       connection's name, after proving — with that exact file — that it can mint an impersonated token
 #       for the service account and list the project's buckets. The studio then impersonates per
 #       connection (dataEx adcRef), so two connections can carry two Google identities.
+#       Project-only (`gcp --project P`) also prepares the derived helpdesk-sa@P when the proof fails with a
+#       typed missing-account/permission/API condition: enables iam+iamcredentials on P, creates/reuses the
+#       account, grants the verified ADC user TokenCreator on THAT account and the account roles/viewer on P.
+#       An explicit --service-account is used as-is; --no-bootstrap opts out; --dry-run never mutates.
 #   ./scripts/connect-cloud.sh refresh --name <name>     re-resolve credentials and update in place; prints
 #                                                        the studio + agent container ids and start times
 #                                                        before and after (fails if either is not running)
