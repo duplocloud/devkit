@@ -1,6 +1,10 @@
 # shellcheck shell=bash
 # Sourced by scripts/connect-cloud.sh — the cloud credential store.
 #
+# LEGACY for GCP: GCP connections no longer write here (the backend reads the native ADC directory, see
+# scripts/_gcp_auth.sh). The volume and these helpers stay, and old data is never removed, so a rollback to the
+# earlier per-connection design still finds its files.
+#
 # The store is the compose named volume mounted READ-ONLY into duplo-ai-studio at /devkit-auth from
 # its first start (docker-compose.yml: `cloud_auth`). Writing into it never touches the studio or
 # agent containers: a short-lived busybox helper mounts the same volume read-write, runs as uid 1001

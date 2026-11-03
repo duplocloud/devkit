@@ -221,16 +221,56 @@ runtime_resolve() {
 # value and resolves `${ANTHROPIC_API_KEY:-}` to the empty string, masking the key .env configured —
 # the agent then silently falls through to the next provider. Hence the `+x` (is-set) test, not `-n`.
 _RUNTIME_COMPOSE_SHADOW_KEYS=(ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN)
+
+# runtime_gcloud_dir_source -> "<dir>\t<where it came from>" for the host directory the backend binds read-only
+# at /devkit-gcloud (docker-compose.yml). ONE resolver, used by run.sh (mkdir), by runtime_compose (the value
+# compose interpolates) and by connect-cloud's helper, so the mount and the file connect-cloud reads cannot
+# disagree. Precedence, and why:
+#   1. DEVKIT_GCLOUD_DIR in the environment, then in .env — the explicit dev-kit override. (Compose itself
+#      prefers the shell over .env for the same variable, so this is the value compose would have used.)
+#   2. CLOUDSDK_CONFIG from the ENVIRONMENT only — gcloud itself honours only the environment for it, so a
+#      CLOUDSDK_CONFIG written in .env would point the mount somewhere `gcloud auth application-default
+#      login` never writes.
+#   3. $HOME/.config/gcloud.
+# Must be an absolute path (a leading ~/ is expanded); anything else returns 1 with a message, because a
+# relative path would silently mean "relative to whatever directory compose ran in".
+runtime_gcloud_dir_source() {
+  local d src
+  d="$(_runtime_clean "${DEVKIT_GCLOUD_DIR-}")"; src="DEVKIT_GCLOUD_DIR (environment)"
+  if [ -z "$d" ]; then d="$(_runtime_clean "$(_runtime_envv DEVKIT_GCLOUD_DIR)")"; src="DEVKIT_GCLOUD_DIR (.env)"; fi
+  if [ -z "$d" ]; then d="$(_runtime_clean "${CLOUDSDK_CONFIG-}")"; src="CLOUDSDK_CONFIG (environment)"; fi
+  if [ -z "$d" ]; then
+    [ -n "${HOME:-}" ] || { echo "HOME is not set; set DEVKIT_GCLOUD_DIR to the gcloud config directory" >&2; return 1; }
+    d="$HOME/.config/gcloud"; src="default (\$HOME/.config/gcloud)"
+  fi
+  case "$d" in "~/"*) [ -n "${HOME:-}" ] && d="$HOME/${d#"~/"}" ;; esac
+  case "$d" in
+    /*) ;;
+    *) echo "the gcloud directory '$d' (from $src) is not an absolute path; set DEVKIT_GCLOUD_DIR=/absolute/path" >&2; return 1 ;;
+  esac
+  while [ "${#d}" -gt 1 ] && [ "${d%/}" != "$d" ]; do d="${d%/}"; done   # no trailing slash
+  printf '%s\t%s' "$d" "$src"
+}
+runtime_gcloud_dir() { local r; r="$(runtime_gcloud_dir_source)" || return 1; printf '%s' "${r%%$'\t'*}"; }
+
 runtime_compose() {
-  local k args=()
+  local k args=() gdir
   for k in "${_RUNTIME_COMPOSE_SHADOW_KEYS[@]}"; do
     [ -n "${!k+x}" ] && args+=(-u "$k")
   done
-  if [ ${#args[@]} -gt 0 ]; then
-    env "${args[@]}" "${RUNTIME:?}" compose "$@"
+  # The resolved gcloud directory is handed to compose explicitly, so docker-compose.yml's
+  # ${DEVKIT_GCLOUD_DIR:-…} always interpolates the SAME value runtime_gcloud_dir gives run.sh and
+  # connect-cloud (never a second default computed inside compose).
+  gdir="$(runtime_gcloud_dir)" || return 1
+  args+=("DEVKIT_GCLOUD_DIR=$gdir")
+  # Internal (set here, never read from the caller's environment): the container ADC path, only when the host
+  # file exists, so GOOGLE_APPLICATION_CREDENTIALS stays unset (SDK metadata fallback) until a login creates it.
+  if [ -f "$gdir/application_default_credentials.json" ]; then
+    args+=("DEVKIT_GCP_ADC_ENV=/devkit-gcloud/application_default_credentials.json")
   else
-    "${RUNTIME:?}" compose "$@"
+    args+=("DEVKIT_GCP_ADC_ENV=")
   fi
+  env "${args[@]}" "${RUNTIME:?}" compose "$@"
 }
 
 # runtime_is_rootless_podman -> 1 or 0.

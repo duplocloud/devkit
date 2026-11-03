@@ -6,7 +6,11 @@ Invoked by scripts/connect-cloud.sh, which supplies every input through the envi
   DUPLO_BASE / DUPLO_TOKEN            studio URL and admin bearer token (never on a command line)
   CONNECT_CLOUD_WORKSPACE_DEFAULT     workspace to attach scopes to when --workspace is not given
   CONNECT_CLOUD_STATE                 path of the non-secret connection records (JSON)
-  CONNECT_CLOUD_STORE_CMD             command prefix for the credential store (write|remove|list|exists|volume)
+  CONNECT_CLOUD_STORE_CMD             command prefix for the (AWS-era, now legacy) credential store (write|remove|list|exists|volume)
+  CONNECT_CLOUD_GCP_CMD               command prefix for the GCP runtime helper (dir|inspect|probe|prepare|reconcile|restart);
+                                      the ONLY way GCP touches the container runtime — tests stub it
+  CONNECT_CLOUD_GCP_STATE             private record of the runtime ADC fingerprint + backend start marker
+                                      (default: gcp-runtime.json beside the connection records; hashes only)
   CONNECT_CLOUD_PROJECT / RUNTIME     compose project + container CLI, for container snapshots only
   CONNECT_CLOUD_GOOGLE_TOKEN_URL, CONNECT_CLOUD_GOOGLE_IAM_URL, CONNECT_CLOUD_GOOGLE_STORAGE_URL,
   CONNECT_CLOUD_GOOGLE_USERINFO_URL, CONNECT_CLOUD_GOOGLE_IAM_ADMIN_URL, CONNECT_CLOUD_GOOGLE_CRM_URL,
@@ -26,13 +30,19 @@ Rules this file enforces, in order of importance:
     when the impersonation/bucket proof fails with a typed missing-SA/permission/API condition (see
     GcpBootstrap); every local conflict is refused BEFORE the first cloud IAM write;
   * a "no restart" claim is only ever made from real container ids and start times of BOTH the
-    studio and the agent; a missing service fails the claim instead of passing vacuously.
+    studio and the agent; a missing service fails the claim instead of passing vacuously;
+  * GCP uses the published backend's stock Application Default Credentials lookup: the whole host gcloud
+    directory is bound read-only into the backend (docker-compose.yml) and nothing is copied. A connection
+    registers only cloudRoleToAssume. The runtime (mount, env, the backend uid's read access, source identity) is
+    proven BEFORE any platform write; the backend is recreated/restarted, only that service, only when its
+    process-lifetime ADC cache has to be reset (first native connection, or ADC replaced by a new login).
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import hashlib
 import json
 import os
 import re
@@ -47,10 +57,11 @@ import urllib.request
 ADMIN = "/v1/aiservicedesk/admin/data"
 TOOL_SOURCE = "devkit connect-cloud"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
-ADC_WELL_KNOWN = os.path.join(
-    os.environ.get("CLOUDSDK_CONFIG") or os.path.expanduser("~/.config/gcloud"),
-    "application_default_credentials.json",
-)
+RUNTIME_MOUNT = "/devkit-gcloud"                      # where the backend sees the host gcloud directory (docker-compose.yml)
+RUNTIME_ADC_FILE = "application_default_credentials.json"
+RUNTIME_ENV = "GOOGLE_APPLICATION_CREDENTIALS"
+RUNTIME_ENV_VALUE = f"{RUNTIME_MOUNT}/{RUNTIME_ADC_FILE}"
+GCP_OP_TIMEOUT = int(os.environ.get("CONNECT_CLOUD_GCP_OP_TIMEOUT", "600"))   # reconcile/restart include a bounded health wait
 GOOGLE_TOKEN_URL = os.environ.get("CONNECT_CLOUD_GOOGLE_TOKEN_URL", "https://oauth2.googleapis.com/token")
 GOOGLE_IAM_URL = os.environ.get("CONNECT_CLOUD_GOOGLE_IAM_URL", "https://iamcredentials.googleapis.com/v1")
 GOOGLE_STORAGE_URL = os.environ.get("CONNECT_CLOUD_GOOGLE_STORAGE_URL", "https://storage.googleapis.com/storage/v1")
@@ -359,7 +370,9 @@ def apply_chain(studio: Studio, plan: dict, *, provider_name: str, provider_type
     else:
         provider_id = plan["provider"]["id"]
         out.append(f"provider   {provider_name}: reuse ({provider_id})")
-        if plan["credential_action"] == "rotate":
+        if plan["credential_action"] == "keep":
+            out.append(f"credential {cred_name}: already in its final shape — unchanged")
+        elif plan["credential_action"] == "rotate":
             out.append(f"credential {cred_name}: {would}update in place (rotation)")
             studio.write("PUT", f"{ADMIN}/Providers/{provider_id}/credentials/{urllib.parse.quote(cred_name)}", credential)
         else:
@@ -525,14 +538,28 @@ def http_json(url: str, *, data: dict | None = None, headers: dict | None = None
         return status, {"raw": raw[:300]}
 
 
-def gcp_load_adc(path: str) -> dict:
+def login_command(exp: dict) -> str:
+    """The login that writes the file the backend binds. Scoped with CLOUDSDK_CONFIG whenever the directory was
+    not the plain default, because a bare login would write ~/.config/gcloud instead."""
+    if str(exp.get("source") or "").startswith("default"):
+        return "gcloud auth application-default login"
+    return f"CLOUDSDK_CONFIG={shlex.quote(exp['dir'])} gcloud auth application-default login"
+
+
+def gcp_read_adc(path: str, hint_dir: str | None = None, login: str = "gcloud auth application-default login") -> tuple[dict, str]:
+    """Validate the host ADC file and return (fields, sha256 of its bytes). The hash is the file's fingerprint:
+    it is compared with what the backend's own uid reads and recorded (hash only) to know when a new login has
+    replaced the file. File bytes are never logged."""
     if not os.path.isfile(path):
-        raise Fail(f"ADC file not found: {path}\n    Run: gcloud auth application-default login   (or pass --adc-source)")
-    with open(path) as f:
-        try:
-            adc = json.load(f)
-        except ValueError:
-            raise Fail(f"{path} is not valid JSON")
+        where = f" The backend reads it in place from {hint_dir} (bound read-only at {RUNTIME_MOUNT})." if hint_dir else ""
+        raise Fail(f"ADC file not found: {path}\n    Run: {login}   — then re-run this command."
+                   f"{where} connect-cloud never copies or moves ADC files. Nothing was changed.")
+    with open(path, "rb") as f:
+        raw = f.read()
+    try:
+        adc = json.loads(raw)
+    except ValueError:
+        raise Fail(f"{path} is not valid JSON")
     if not isinstance(adc, dict) or adc.get("type") != "authorized_user":
         raise Fail(f"{path} has type '{adc.get('type') if isinstance(adc, dict) else '?'}'; only an authorized_user "
                    "ADC file (gcloud auth application-default login) is supported on this keyless path. "
@@ -543,7 +570,7 @@ def gcp_load_adc(path: str) -> dict:
     for k in ("client_id", "client_secret", "refresh_token"):
         if not adc.get(k):
             raise Fail(f"{path} is missing '{k}'")
-    return adc
+    return adc, hashlib.sha256(raw).hexdigest()
 
 
 def google_error(body) -> dict:
@@ -878,6 +905,288 @@ class GcpBootstrap:
         raise AssertionError("unreachable")
 
 
+# ── GCP runtime: the backend's native ADC (mount + env + the backend uid's read access + cache lifetime) ──
+
+def gcp_cmd() -> list[str]:
+    cmd = os.environ.get("CONNECT_CLOUD_GCP_CMD")
+    if not cmd:
+        raise Fail("CONNECT_CLOUD_GCP_CMD is not set — run this through scripts/connect-cloud.sh")
+    return shlex.split(cmd)
+
+
+def say_now(line: str) -> None:
+    """An announcement made BEFORE the action it describes (the final report is printed at the end)."""
+    print("    " + line, file=sys.stderr, flush=True)
+
+
+class GcpRuntime:
+    """The GCP runtime helper (scripts/_gcp_auth.sh), one JSON object per call. Nothing else in this file touches
+    the container runtime for GCP. A non-zero exit is a failure to answer, never an answer."""
+
+    def call(self, op: str) -> dict:
+        timeout = GCP_OP_TIMEOUT if op in ("reconcile", "restart") else 180
+        try:
+            p = subprocess.run(gcp_cmd() + [op], capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            raise Fail(f"the GCP runtime helper '{op}' did not finish within {timeout}s — is the container runtime responsive?")
+        except OSError as e:
+            raise Fail(f"the GCP runtime helper could not run: {e}")
+        if p.returncode != 0:
+            raise Fail(f"GCP runtime '{op}' failed: " + (p.stderr.strip()[-600:] or f"exit {p.returncode}"))
+        try:
+            d = json.loads(p.stdout)
+        except ValueError:
+            raise Fail(f"the GCP runtime helper '{op}' returned no JSON")
+        if not isinstance(d, dict):
+            raise Fail(f"the GCP runtime helper '{op}' returned an unexpected shape")
+        return d
+
+    def expected(self) -> dict:
+        d = self.call("dir")
+        if not d.get("dir") or not str(d["dir"]).startswith("/"):
+            raise Fail("the GCP runtime helper returned no absolute gcloud directory")
+        d["file"] = d.get("file") or os.path.join(d["dir"], RUNTIME_ADC_FILE)
+        return d
+
+
+def _norm_path(path) -> str:
+    p = str(path or "")
+    if p.startswith("/host_mnt/"):                      # Docker Desktop's view of a host path
+        p = p[len("/host_mnt"):]
+    return os.path.realpath(p) if p else ""
+
+
+def wiring_problems(info: dict, expected_dir: str) -> list[str]:
+    """What is wrong with the RUNNING backend's native-ADC wiring (empty list = wired as docker-compose.yml says).
+    Only the mount and the one environment variable are consulted."""
+    probs: list[str] = []
+    m = info.get("mount") or {}
+    if not m.get("present"):
+        probs.append(f"the running backend has no {RUNTIME_MOUNT} mount (it predates this design or was started by another compose file)")
+    else:
+        if _norm_path(m.get("source")) != _norm_path(expected_dir):
+            probs.append(f"{RUNTIME_MOUNT} is bound from {m.get('source')}, not from {expected_dir}")
+        if m.get("readOnly") is not True:
+            probs.append(f"{RUNTIME_MOUNT} is not mounted read-only")
+    have = (info.get("env") or {}).get(RUNTIME_ENV)
+    if have != RUNTIME_ENV_VALUE:
+        probs.append(f"{RUNTIME_ENV} is {'unset' if not have else 'set to ' + str(have)} in the backend, not {RUNTIME_ENV_VALUE}")
+    return probs
+
+
+def probe_failure(probe: dict, host_hash: str | None, exp: dict) -> str | None:
+    """None when the backend's exact uid can read the exact file the host proof used; else the specific reason."""
+    state = probe.get("state")
+    who = f"{probe.get('user') or 'root (no user set)'} (uid:gid {probe.get('uid')})"
+    if state == "ok":
+        if probe.get("type") != "authorized_user":
+            return (f"the file the backend reads at {RUNTIME_ENV_VALUE} is not an authorized_user ADC file; "
+                    "run `gcloud auth application-default login` and re-run")
+        if host_hash is not None and probe.get("sha256") != host_hash:
+            return (f"the backend reads a DIFFERENT file than the host proof used (sha256 differs: backend "
+                    f"{str(probe.get('sha256'))[:12]}…, host {host_hash[:12]}…). The runtime is bound from another "
+                    f"directory, or a login is replacing the file right now; re-run once it finishes. No registration was written.")
+        return None
+    if state in ("dir-not-traversable", "unreadable"):
+        what = ("the directory itself (no search permission)" if state == "dir-not-traversable"
+                else f"{RUNTIME_ADC_FILE}")
+        return (f"PERMISSIONS: the backend's user {who} cannot read {what} inside {RUNTIME_MOUNT} (host {exp['dir']}). "
+                "A native gcloud directory is typically mode 0700 / the ADC file 0600 owned by you, which another uid "
+                "cannot read on native Linux. connect-cloud never loosens permissions, changes ownership or runs the "
+"backend as root, and does not claim this is solved on every host (only Docker Desktop has been verified; native "
+                "Linux and rootless podman may need uid mapping or an ACL). Treat it as a real exception and decide yourself: "
+                "point DEVKIT_GCLOUD_DIR at a directory that uid can read, or grant that one uid read access on the directory "
+                "and the file (e.g. a POSIX ACL), then re-run. No registration was written.")
+    if state == "missing":
+        return (f"the backend does not see {RUNTIME_ADC_FILE} in {RUNTIME_MOUNT} (host {exp['dir']}). If you have not "
+                "logged in, run `" + login_command(exp) + "`, then re-run — this tool never copies the "
+                "file. Otherwise the running backend is bound from a different directory than the one selected.")
+    if state == "no-mount":
+        return f"{RUNTIME_MOUNT} does not exist in the backend container (the mount is missing)"
+    if state == "not-regular":
+        return f"{RUNTIME_ENV_VALUE} is not a regular file in the backend (a dangling or special link?)"
+    if state == "user-unresolved":
+        return (f"cannot determine the backend's exact uid:gid (user '{probe.get('user')}' has no readable /etc/passwd entry "
+                "in its image), so readability by that user cannot be proven; refusing to guess or to probe as root")
+    return f"the readability probe could not run ({probe.get('detail') or state}); the runtime file is unproven"
+
+
+class GcpRuntimeState:
+    """PRIVATE, hash-only record of what the running backend's process-lifetime ADC cache could have seen:
+    the sha256 of the ADC file, the backend's container id + start marker, the directory. No file bytes, no
+    tokens, no identity. It is how a repeat or a new-target connection avoids a restart and a re-login
+    does not."""
+
+    def __init__(self, path: str):
+        self.path = path
+
+    def load(self) -> dict:
+        try:
+            with open(self.path) as f:
+                d = json.load(f)
+            return d if isinstance(d, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def save(self, *, fingerprint: str, info: dict, directory: str) -> None:
+        d = os.path.dirname(self.path)
+        if d:
+            os.makedirs(d, mode=0o700, exist_ok=True)
+        tmp = self.path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump({"version": 1, "adcFingerprint": fingerprint, "backendId": info.get("containerId"),
+                       "startedAt": info.get("startedAt"), "dir": directory, "updatedAt": now_iso()}, f, indent=2, sort_keys=True)
+            f.write("\n")
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, self.path)
+
+    def cache_reason(self, fingerprint: str, info: dict) -> str | None:
+        """Why the backend's cached Google credential lookup can no longer be trusted — None when it can."""
+        rec = self.load()
+        if not rec:
+            return "first native ADC connection: the backend may already have cached a failed (missing-ADC) or older lookup"
+        if rec.get("adcFingerprint") != fingerprint:
+            return "the ADC file changed since the backend last started (a new login): its process-lifetime cache holds the old credential"
+        if rec.get("backendId") != info.get("containerId") or rec.get("startedAt") != info.get("startedAt"):
+            return "the backend was restarted since this tool last recorded it, so what it cached is unknown"
+        return None
+
+
+def gcp_state(records: "Records") -> GcpRuntimeState:
+    return GcpRuntimeState(os.environ.get("CONNECT_CLOUD_GCP_STATE")
+                           or os.path.join(os.path.dirname(records.path) or ".", "gcp-runtime.json"))
+
+
+def resolve_adc_source(adc_source: str | None, exp: dict) -> str:
+    """The ADC file used for the proof is the one the backend binds. --adc-source may only NAME that file."""
+    native = exp["file"]
+    if not adc_source:
+        return native
+    given = os.path.abspath(adc_source)
+    if os.path.realpath(given) != os.path.realpath(native):
+        raise Fail(f"--adc-source {given} is not the file the running backend reads. The backend binds the whole directory "
+                   f"{exp['dir']} (from {exp.get('source')}) and uses {native}; there are no per-connection ADC files, "
+                   "so a different identity would be proven here and never used by the backend. Nothing was changed.\n"
+                   f"    To use that file anyway, make its directory the one the backend binds: set DEVKIT_GCLOUD_DIR="
+                   f"{os.path.dirname(given)} in .env (the file must be named {RUNTIME_ADC_FILE}); the next run recreates "
+                   "only the backend with that mount. Or omit --adc-source.")
+    return native
+
+
+def gcp_runtime_precheck(rt: GcpRuntime, exp: dict, host_hash: str, out: list[str], dry_run: bool) -> dict:
+    """READ-ONLY runtime checks that must pass before any local write or cloud bootstrap: the backend is running,
+    and when it is already wired, its exact uid can read the exact file the host proof will use."""
+    info = rt.call("inspect")
+    if not info.get("running"):
+        raise Fail(f"the backend ({info.get('service', 'duplo-ai-studio')}) is not running in compose project "
+                   f"'{info.get('project') or os.environ.get('CONNECT_CLOUD_PROJECT')}'. Start the stack (./run.sh) and re-run; "
+                   "nothing was changed.")
+    problems = wiring_problems(info, exp["dir"])
+    ctx = {"info": info, "problems": problems, "probe": None}
+    if problems:
+        out.append("runtime    backend wiring: " + "; ".join(problems))
+    else:
+        out.append(f"runtime    backend mounts {exp['dir']} read-only at {RUNTIME_MOUNT} and sets {RUNTIME_ENV}")
+        if dry_run:
+            out.append("runtime    readability by the backend uid: not probed in --dry-run")
+        else:
+            ctx["probe"] = rt.call("probe")
+            msg = probe_failure(ctx["probe"], host_hash, exp)
+            if msg:
+                raise Fail(msg)
+            out.append(f"runtime    the backend's uid ({ctx['probe'].get('uid')}) reads {RUNTIME_ADC_FILE}: same file as the host proof")
+    return ctx
+
+
+def _verify_runtime(rt: GcpRuntime, exp: dict, host_hash: str, after: str) -> tuple[dict, dict]:
+    """Re-inspect and re-probe the RUNNING backend: still wired, and its exact uid reads the exact file (same sha256)
+    the host proof used. Run after every recreate/restart and before the state is written, so an ADC replaced
+    mid-run (or unreadable after a restart) fails instead of being recorded as ready."""
+    info = rt.call("inspect")
+    if not info.get("running"):
+        raise Fail(f"the backend is not running after {after}; nothing was registered")
+    problems = wiring_problems(info, exp["dir"])
+    if problems:
+        raise Fail(f"the backend's wiring is still wrong after {after}: " + "; ".join(problems) +
+                   ". A COMPOSE_FILE / override in .env may replace the studio's volumes or environment. No registration was written.")
+    probe = rt.call("probe")
+    msg = probe_failure(probe, host_hash, exp)
+    if msg:
+        raise Fail(f"after {after}: {msg}")
+    return info, probe
+
+
+def gcp_runtime_apply(rt: GcpRuntime, ctx: dict, state: GcpRuntimeState, exp: dict, host_hash: str,
+                      out: list[str], dry_run: bool) -> dict:
+    """Make the running backend able to use the selected ADC: recreate it (backend only) if the wiring is absent or
+    misaligned, reset the process-lifetime ADC cache (one backend-only restart) only when the record says it can be
+    stale, and ALWAYS finish by re-verifying wiring + the backend uid's read of the host-proven file before the state
+    is recorded. Returns what it did; "verified" is True only when the runtime was actually probed this run."""
+    res = {"recreated": False, "restarted": False, "reason": None, "verified": False}
+    info = ctx["info"]
+    if ctx["problems"]:
+        res["reason"] = "wiring"
+        if dry_run:
+            out.append(f"runtime    would create {exp['dir']} if missing and recreate ONLY the backend "
+                       "(compose up -d --no-deps --no-build --pull never duplo-ai-studio); that fresh process also resets its ADC cache")
+            return res
+        say_now(f"backend wiring is not in place ({'; '.join(ctx['problems'])}) — recreating ONLY the backend now")
+        rt.call("reconcile")
+        res["recreated"] = True
+        info, probe = _verify_runtime(rt, exp, host_hash, "the recreate")
+        out.append(f"runtime    recreated the backend only; its uid ({probe.get('uid')}) reads {RUNTIME_ADC_FILE}: same file as the host proof")
+    else:
+        reason = state.cache_reason(host_hash, info)
+        if dry_run:
+            out.append(("runtime    would restart ONLY the backend: " + reason) if reason else
+                       "runtime    the backend's ADC cache matches this ADC file (recorded): no restart needed")
+            res["reason"] = reason
+            return res
+        if reason:
+            res["reason"] = reason
+            say_now("restarting ONLY the backend: " + reason)
+            rt.call("restart")
+            res["restarted"] = True
+            out.append("runtime    restarted the backend only (its Google client caches the first credential lookup for the life of the process)")
+            info, probe = _verify_runtime(rt, exp, host_hash, "the restart")
+            out.append(f"runtime    after the restart its uid ({probe.get('uid')}) reads the same file as the host proof")
+        else:
+            out.append("runtime    the backend's ADC cache matches this ADC file (recorded): no restart needed")
+            info, probe = _verify_runtime(rt, exp, host_hash, "the final check")
+    res["verified"] = True
+    state.save(fingerprint=host_hash, info=info, directory=exp["dir"])
+    return res
+
+
+def gcp_runtime_checks(rt: GcpRuntime, state: GcpRuntimeState, exp: dict, host_hash: str | None) -> tuple[dict, list[str]]:
+    """READ-ONLY runtime proof for verify/status: separate facts, no ticket claim."""
+    checks: dict = {}
+    info = rt.call("inspect")
+    running = bool(info.get("running"))
+    problems = wiring_problems(info, exp["dir"]) if running else ["the backend is not running"]
+    checks["runtimeBackendRunning"] = running
+    checks["runtimeMountAndEnv"] = running and not problems
+    checks["runtimeFileReadable"] = False
+    checks["runtimeSourceAligned"] = False
+    checks["runtimeCacheCurrent"] = False
+    messages = list(problems)
+    if running and not problems:
+        probe = rt.call("probe")
+        checks["runtimeFileReadable"] = probe.get("state") == "ok" and probe.get("type") == "authorized_user"
+        if not checks["runtimeFileReadable"]:
+            messages.append(probe_failure(probe, host_hash, exp) or "unreadable")
+        else:
+            checks["runtimeSourceAligned"] = host_hash is not None and probe.get("sha256") == host_hash
+            if not checks["runtimeSourceAligned"]:
+                messages.append(probe_failure(probe, host_hash, exp) or "the host ADC file is unreadable or differs from the backend's")
+        checks["runtimeCacheCurrent"] = host_hash is not None and state.cache_reason(host_hash, info) is None
+        if host_hash is not None and not checks["runtimeCacheCurrent"]:
+            messages.append("the backend's ADC cache is not known to match this ADC file ("
+                            + str(state.cache_reason(host_hash, info)) + "): run `connect-cloud.sh refresh --name <name>` "
+                            "(or the gcp command again) — it restarts only the backend")
+    return checks, messages
+
+
 GCP_PROJECT_RE = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
 
 
@@ -906,11 +1215,17 @@ def cmd_gcp(args, studio: Studio, records: Records, out: list[str]) -> dict:
     if not re.match(r"^[a-z0-9-]+@[a-z0-9-]+\.iam\.gserviceaccount\.com$", sa):
         raise Fail(f"--service-account '{sa}' is not a service-account email")
     bootstrap_ok = keep_reason is None and sa == derived_sa
-    adc_path = os.path.abspath(args.adc_source or ADC_WELL_KNOWN)
-    adc = gcp_load_adc(adc_path)
+
+    # The ADC file is the NATIVE one: the file inside the directory the backend binds (scripts/_runtime.sh is the
+    # single resolver). --adc-source may only name that exact file.
+    rt = GcpRuntime()
+    exp = rt.expected()
+    adc_path = resolve_adc_source(args.adc_source, exp)
+    adc, host_hash = gcp_read_adc(adc_path, hint_dir=exp["dir"], login=login_command(exp))
+    out.append(f"adc        {adc_path} (source: {exp.get('source')}) — the backend reads this file in place; nothing is copied")
 
     # Everything LOCAL that can conflict is checked here — before any Google call that could write IAM,
-    # the store file, or any platform object. The store must also be reachable before IAM is touched.
+    # any container change, or any platform object. Reads only.
     provider_name = f"gcp-{args.name}"
     plan = preflight_chain(studio, provider_name=provider_name, provider_type="gcp", account_id=args.project,
                            credential_name=args.name, scope_name=args.name, region=None,
@@ -922,7 +1237,17 @@ def cmd_gcp(args, studio: Studio, records: Records, out: list[str]) -> dict:
         if have_sa and have_sa != sa:
             raise Fail(f"connection '{args.name}' already impersonates '{have_sa}', not '{sa}'. "
                        "Use another --name for a different service account (nothing was changed).")
-    volume = None if studio.dry_run else store_volume()
+        keys = {d.get("key") for d in existing_cred.get("dataEx") or []}
+        if plan["credential_action"] == "rotate":
+            if keys == {"cloudRoleToAssume"} and _cred_data(existing_cred).get("cloudRoleToAssume") == sa:
+                plan["credential_action"] = "keep"          # already native-shaped: a re-run writes nothing
+            elif "adcRef" in keys:
+                out.append("migrate    this credential carries a legacy adcRef (ignored by the published backend); it is rewritten "
+                           "in place to cloudRoleToAssume only. The old named store data is left untouched for rollback.")
+
+    # Runtime checks (read-only) before any write; the backend must be up and, if already wired, able to read the file.
+    state = gcp_state(records)
+    ctx = gcp_runtime_precheck(rt, exp, host_hash, out, studio.dry_run)
 
     changes: list[str] = []      # cloud IAM changes actually completed by THIS run
     try:
@@ -944,23 +1269,18 @@ def cmd_gcp(args, studio: Studio, records: Records, out: list[str]) -> dict:
                 return {"ok": False, "dryRun": True, "runtimeValidated": False, "bootstrapNeeded": True,
                         "name": args.name, "project": args.project, "serviceAccount": sa}
             proof = GcpBootstrap(adc, args.project, sa, out, changes).run(failure)
-        out.append(f"identity   ADC {proof['principal']} → impersonates {sa}: OK ({proof['buckets']} bucket(s) visible in {args.project})")
+        out.append(f"identity   ADC {proof['principal']} → impersonates {sa}: OK ({proof['buckets']} bucket(s) visible in {args.project}) "
+                   "— host-side proof only")
 
-        rel = f"gcp/{args.name}.json"
-        minimal = {k: adc[k] for k in ADC_ALLOWED_KEYS if k in adc}   # only the fields the backend accepts
-        if studio.dry_run:
-            out.append(f"store      {rel}: would write (uid 1001, mode 0600) — dry-run, nothing written")
-        else:
-            store_write(rel, (json.dumps(minimal) + "\n").encode())
-            out.append(f"store      {rel}: written to volume {volume} (uid 1001, mode 0600) — the studio reads it per ticket message")
+        # Host proof passed: now make the backend able to use this ADC (bounded, backend-only), BEFORE registering.
+        runtime = gcp_runtime_apply(rt, ctx, state, exp, host_hash, out, studio.dry_run)
 
         credential = {"name": args.name, "dataEx": [
             {"key": "cloudRoleToAssume", "value": sa, "type": "string", "isSensitive": False},
-            {"key": "adcRef", "value": args.name, "type": "string", "isSensitive": False},
         ], "metaData": {"source": TOOL_SOURCE, "updatedAt": now_iso()}}
         chain = apply_chain(
             studio, plan, provider_name=provider_name, provider_type="gcp", account_id=args.project,
-            description=f"Dev-kit GCP connection '{args.name}' (project {args.project}, keyless via ADC '{args.name}')",
+            description=f"Dev-kit GCP connection '{args.name}' (project {args.project}, keyless: native ADC + impersonation)",
             credential=credential,
             scope_body={"name": args.name, "description": f"GCP project {args.project} as {sa}"},
             out=out)
@@ -968,20 +1288,33 @@ def cmd_gcp(args, studio: Studio, records: Records, out: list[str]) -> dict:
         if changes:
             raise Fail(f"{e}\n    Cloud changes ALREADY applied by this run (not rolled back): " + "; ".join(changes) + ".")
         raise
+    if runtime["verified"]:
+        out.append("stages     runtime-file: PROVEN (the backend's own uid read the host-proven file) · host-proof: OK · "
+                   "ticket-proven: NO — not exercised (tests/e2e/cloud_onboarding_e2e.py); no SDK/end-to-end claim")
+    else:
+        out.append("stages     runtime-file: NOT PROVEN (dry-run planned only; no probe, recreate or restart ran) · "
+                   "host-proof: OK · ticket-proven: NO")
     record = {"cloud": "gcp", "name": args.name, "project": args.project, "serviceAccount": sa,
-              "adcSource": adc_path, "adcRef": args.name, "storeFile": rel,
+              "adcSource": adc_path, "adcMode": "native-directory", "adcMount": RUNTIME_ENV_VALUE,
               "controlBucketCount": proof["buckets"], "updatedAt": now_iso(), **chain}
     if changes:
         record["bootstrapChanges"] = changes
     if not studio.dry_run:
         records.put(args.name, record)
-    return record
+    return dict(record, runtime=runtime, stages={"runtimeFile": runtime["verified"], "hostProof": True, "ticketProven": False})
 
 
 # ── refresh / verify / status ──────────────────────────────────────────────────
 
 def cmd_refresh(args, studio: Studio, records: Records, out: list[str]) -> dict:
     rec = records.get(args.name) or raise_unknown(args.name)
+    if rec.get("cloud") == "gcp":
+        # No "no restart" claim for GCP: re-checking the native ADC may legitimately restart the backend (and only the
+        # backend) when a new login replaced the file. cmd_gcp announces and reports exactly that.
+        ns = argparse.Namespace(name=args.name, workspace=args.workspace or rec.get("workspaceId"), no_workspace=not (
+            args.workspace or rec.get("workspaceId")), project=rec["project"], service_account=rec["serviceAccount"],
+            adc_source=None, from_record=True)      # always the native file; a legacy recorded adcSource is not trusted
+        return cmd_gcp(ns, studio, records, out)
     before = container_snapshot()
     if not snapshot_complete(before):
         missing = [s for s in SERVICES if not before.get(s)]
@@ -994,10 +1327,6 @@ def cmd_refresh(args, studio: Studio, records: Records, out: list[str]) -> dict:
     if rec.get("cloud") == "aws":
         ns.profile, ns.region = rec["profile"], rec["region"]
         result = cmd_aws(ns, studio, records, out)
-    elif rec.get("cloud") == "gcp":
-        ns.project, ns.service_account, ns.adc_source = rec["project"], rec["serviceAccount"], rec.get("adcSource")
-        ns.from_record = True
-        result = cmd_gcp(ns, studio, records, out)
     else:
         raise Fail(f"connection record '{args.name}' has unknown cloud '{rec.get('cloud')}'")
     after = container_snapshot()
@@ -1049,14 +1378,39 @@ def cmd_verify(args, studio: Studio, records: Records, out: list[str]) -> dict:
         else:
             out.append("backend    scope expansion OK — the studio populated and used this scope's AWS credentials")
     else:
-        adc = gcp_load_adc(rec["adcSource"])
-        proof = gcp_prove_impersonation(adc, rec["serviceAccount"], rec["project"])
-        result["checks"]["adcImpersonation"] = True
-        result["checks"]["controlBucketCount"] = proof["buckets"]
-        result["checks"]["storeFileReadableByStudioUid"] = any(
-            ln.split()[-1] == rec["storeFile"] and "UNREADABLE" not in ln for ln in store_list())
-        out.append(f"bootstrap  ADC → {rec['serviceAccount']} OK ({proof['buckets']} bucket(s)); "
-                   "backend expansion of a GCP scope is only exercised by a ticket: tests/e2e/cloud_onboarding_e2e.py")
+        # Three SEPARATE stages, never merged: the runtime file (what the running backend's own uid can read, and
+        # that it is the host-proven file), the host-side proof (impersonation + bucket list with that ADC), and
+        # a ticket (never exercised here).
+        rt = GcpRuntime()
+        exp = rt.expected()
+        host_hash = None
+        host_err = None
+        try:
+            adc, host_hash = gcp_read_adc(exp["file"], hint_dir=exp["dir"], login=login_command(exp))
+            proof = gcp_prove_impersonation(adc, rec["serviceAccount"], rec["project"])
+            result["checks"]["adcImpersonation"] = True
+            result["checks"]["controlBucketCount"] = proof["buckets"]
+        except Fail as e:
+            result["checks"]["adcImpersonation"] = False
+            host_err = str(e)
+            out.append(f"host-proof  FAILED: {e}")
+        rchecks, rmsgs = gcp_runtime_checks(rt, gcp_state(records), exp, host_hash)
+        result["checks"].update(rchecks)
+        runtime_ok = all(rchecks[k] for k in rchecks)
+        for m in rmsgs:
+            out.append(f"runtime-file  {m}")
+        out.append(f"runtime-file  {'OK' if runtime_ok else 'FAILED'} — the running backend's mount, {RUNTIME_ENV}, its own uid's read of "
+                   "the file, source identity with the host file, and a recorded ADC cache that matches")
+        if result["checks"]["adcImpersonation"]:
+            out.append(f"host-proof    OK — ADC → {rec['serviceAccount']} ({result['checks']['controlBucketCount']} bucket(s)); "
+                       "this proves the host-side chain, not that the backend used it")
+        result["stages"] = {"runtimeFile": runtime_ok, "hostProof": result["checks"]["adcImpersonation"], "ticketProven": False}
+        out.append("ticket-proven NO — verify never runs a ticket; only tests/e2e/cloud_onboarding_e2e.py (run when asked) can show a ticket "
+                   "using the scope, and nothing here proves the backend SDK path end to end")
+        if host_err is None and "adcRef" in {d.get("key") for c in (provider or {}).get("credentials") or []
+                                              if (c.get("name") or "").lower() == rec["credentialName"].lower() for d in c.get("dataEx") or []}:
+            out.append("note        the credential still carries a legacy adcRef; the published backend ignores it "
+                       "(re-run `connect-cloud.sh gcp --project …` to migrate it in place)")
     result["ok"] = all(v is not False for k, v in result["checks"].items() if not k.endswith("Error") and not k.startswith("control"))
     out.append("verify     " + ("OK" if result["ok"] else "FAILED") + " " + json.dumps(result["checks"]))
     return result
@@ -1071,7 +1425,27 @@ def cmd_status(args, studio: Studio, records: Records, out: list[str]) -> dict:
         volume, store_err = None, str(e)
     store = store_list() if volume else []
     result = {"connections": conns, "storeVolume": volume, "storeError": store_err, "store": store}
-    out.append(f"store      {volume or 'UNAVAILABLE: ' + str(store_err)}")
+    out.append(f"store      legacy credential store (no longer used by GCP; kept intact for rollback): "
+               f"{volume or 'UNAVAILABLE: ' + str(store_err)}")
+    if any(r.get("cloud") == "gcp" for r in conns.values() if isinstance(r, dict)):
+        # One global fact for every GCP connection: they all share the ONE host ADC the backend binds.
+        try:
+            rt = GcpRuntime()
+            exp = rt.expected()
+            try:
+                host_hash = gcp_read_adc(exp["file"], hint_dir=exp["dir"], login=login_command(exp))[1]
+            except Fail as e:
+                host_hash = None
+                out.append(f"gcp        host ADC: {str(e).splitlines()[0]}")
+            rchecks, rmsgs = gcp_runtime_checks(rt, gcp_state(records), exp, host_hash)
+            result["gcpRuntime"] = dict(rchecks, adcFile=exp["file"], adcDir=exp["dir"], messages=rmsgs)
+            out.append(f"gcp        shared host ADC {exp['file']}: runtime-file " + ("OK" if all(rchecks.values()) else "NOT OK")
+                       + " (one identity for every GCP connection; ticket-proven: not shown by status)")
+            for m in rmsgs:
+                out.append(f"gcp        {m}")
+        except Fail as e:
+            result["gcpRuntime"] = {"error": str(e)}
+            out.append(f"gcp        runtime unavailable: {e}")
     if not conns:
         out.append("no connections recorded in " + records.path)
     for name, rec in sorted(conns.items()):
@@ -1118,7 +1492,7 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--profile", required=True)
     a.add_argument("--region", default="us-east-1")
 
-    g = sub.add_parser("gcp", help="connect a GCP project keylessly via your ADC + SA impersonation")
+    g = sub.add_parser("gcp", help="connect a GCP project keylessly via the backend's native ADC + SA impersonation")
     common(g, name_required=False)
     g.add_argument("--project", required=True)
     g.add_argument("--service-account", default=None,
@@ -1126,7 +1500,8 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--no-bootstrap", action="store_true",
                    help="advanced: never prepare the derived service account (no API enable / SA create / IAM grants); "
                         "a missing account or permission then fails instead of being repaired")
-    g.add_argument("--adc-source", default=None, help=f"authorized_user ADC JSON (default {ADC_WELL_KNOWN})")
+    g.add_argument("--adc-source", default=None, help="advanced: must name the exact native file the backend binds "
+                        f"(<gcloud dir>/{RUNTIME_ADC_FILE}; default: that file) — any other file is refused")
 
     for name in ("refresh", "verify"):
         sp = sub.add_parser(name)

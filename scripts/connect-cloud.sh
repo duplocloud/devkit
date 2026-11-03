@@ -15,11 +15,15 @@
 #       automatic renewal.
 #   ./scripts/connect-cloud.sh gcp --name gcp-test9 --project gcp-test9 \
 #       --service-account helpdesk-test@gcp-test9.iam.gserviceaccount.com [--adc-source <file>]
-#       Keyless: copies your user ADC file (default ~/.config/gcloud/application_default_credentials.json,
-#       the one `gcloud auth application-default login` writes) into the credential store under THIS
-#       connection's name, after proving — with that exact file — that it can mint an impersonated token
-#       for the service account and list the project's buckets. The studio then impersonates per
-#       connection (dataEx adcRef), so two connections can carry two Google identities.
+#       Keyless, native ADC: the published backend reads your normal ADC file in place — compose binds the
+#       WHOLE gcloud directory (DEVKIT_GCLOUD_DIR, else an explicit CLOUDSDK_CONFIG, else ~/.config/gcloud)
+#       read-only at /devkit-gcloud and sets GOOGLE_APPLICATION_CREDENTIALS. Nothing is copied and the
+#       credential carries only cloudRoleToAssume (no backend patch). Before any platform write it proves, with
+#       that exact file, an impersonated token + bucket list (host proof) AND that the running backend's own uid
+#       reads the same file (runtime proof), recreating/restarting ONLY the backend when needed: its Google client
+#       caches the first credential lookup per process, so the first native connection and a later re-login
+#       restart it automatically (a repeat or a new target project on the same ADC does not). Every GCP
+#       connection shares that one host ADC identity; --adc-source may only name that native file.
 #       Project-only (`gcp --project P`) also prepares the derived helpdesk-sa@P when the proof fails with a
 #       typed missing-account/permission/API condition: enables iam+iamcredentials on P, creates/reuses the
 #       account, grants the verified ADC user TokenCreator on THAT account and the account roles/viewer on P.
@@ -29,7 +33,7 @@
 #                                                        before and after (fails if either is not running)
 #   ./scripts/connect-cloud.sh verify  --name <name>     prove the backend can expand the scope (AWS) / the
 #                                                        bootstrap still works (GCP); no ticket, no LLM
-#   ./scripts/connect-cloud.sh status [--json]           every connection: ids, expiry, store readability
+#   ./scripts/connect-cloud.sh status [--json]           every connection: ids, expiry, shared GCP runtime ADC state
 #
 # Common flags: --workspace <id> (default EXTENSION_DEV_WORKSPACE_ID from .env; required unless
 # --no-workspace), --json (machine output), --dry-run (print what would change, write nothing). Secrets
@@ -40,6 +44,9 @@
 # container, never guessed from a name), so a checkout that sets COMPOSE_PROJECT_NAME in .env works
 # unchanged. No running studio is a hard error.
 #
+# GCP verify reports three separate stages: runtime-file (mount/env/backend-uid read/source identity/cache record),
+# host-proof (impersonation + buckets) and ticket-proven (never run by verify).
+#
 # Backend verification scope: `verify` for AWS calls the studio's own scope endpoint
 # (GET …/admin/data/Scopes/{id}/aws/resources), which runs the backend's credential population for the
 # scope. There is no backend endpoint that expands a GCP scope outside a ticket, so GCP's end-to-end
@@ -49,6 +56,7 @@ cd "$(dirname "$0")/.."
 
 . ./scripts/_runtime.sh
 . ./scripts/_cloud_auth.sh
+. ./scripts/_gcp_auth.sh
 source ./scripts/_target.sh            # → BASE_URL + TOKEN + _TARGET (resolved: env, .env, or inferred remote)
 _envv() { grep -E "^$1=" "${DUPLO_ENV_FILE:-.env}" 2>/dev/null | head -1 | cut -d= -f2- || true; }
 
@@ -91,6 +99,15 @@ if [ "${1-}" = _store ]; then
   exit $?
 fi
 
+# The GCP runtime helper (scripts/_gcp_auth.sh) is exposed the same way: `<this script> _gcp dir|inspect|probe|
+# prepare|reconcile|restart` prints one JSON object. It is the ONLY thing that touches the container runtime for
+# GCP, so tests stub it (CONNECT_CLOUD_GCP_CMD) without a docker.
+if [ "${1-}" = _gcp ]; then
+  export DUPLO_BASE="$BASE_URL"
+  gcp_auth_main "${2-}"
+  exit $?
+fi
+
 # The python module does the work. Everything it needs that could be sensitive goes through the
 # environment of THIS process (the admin token already lives in .env; it is never put on a command
 # line) and stdin; the store helper is reached through CONNECT_CLOUD_STORE_CMD so tests can stub it.
@@ -100,6 +117,7 @@ export CONNECT_CLOUD_WORKSPACE_DEFAULT="${CONNECT_CLOUD_WORKSPACE_DEFAULT:-$(_en
 export CONNECT_CLOUD_STATE="${CONNECT_CLOUD_STATE:-.devkit-cloud/connections.json}"
 export CONNECT_CLOUD_PROJECT="${CONNECT_CLOUD_PROJECT:-$(runtime_compose_project)}"
 export CONNECT_CLOUD_STORE_CMD="${CONNECT_CLOUD_STORE_CMD:-$0 _store}"
+export CONNECT_CLOUD_GCP_CMD="${CONNECT_CLOUD_GCP_CMD:-$0 _gcp}"
 export RUNTIME
 
 # -I: isolated mode — no site customizations, no PYTHON* env, no cwd on sys.path; the script's own

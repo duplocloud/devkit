@@ -2,7 +2,7 @@
 # setup-google-auth.sh — one-time developer setup for KEYLESS GCP scopes in the dev kit.
 #
 # The studio container mints GCP scope tokens from Application Default Credentials (ADC) that
-# docker-compose.override.yml mounts from your ~/.config/gcloud. The gotcha this script exists for:
+# docker-compose.yml binds read-only from your gcloud directory (~/.config/gcloud by default). The gotcha this script exists for:
 # plain `gcloud auth login` does NOT create ADC — only `gcloud auth application-default login`
 # writes the application_default_credentials.json the studio's Google SDK reads. This script makes
 # sure the right login ran, and can verify your impersonation rights on the provisioning SA.
@@ -112,9 +112,12 @@ cat <<'EOF'
 ✔ Google auth ready for the dev kit.
 
 Next steps:
-  1. ./run.sh                    (creates the cloud credential store the studio reads)
-  2. ./scripts/connect-cloud.sh gcp --name <name> --project <project-id> --service-account <sa-email>
-     It copies this ADC into the store under <name>, proves the impersonation, and creates the
-     Provider (type gcp) → Credential (cloudRoleToAssume + adcRef, no keys) → Scope, attached to the
-     extension-dev workspace. Re-run the same command after a new ADC login.
+  1. ./run.sh                    (the backend binds your gcloud directory read-only at /devkit-gcloud)
+  2. ./scripts/connect-cloud.sh gcp --project <project-id>
+     Nothing is copied: the backend reads this ADC file in place. It proves the impersonation, checks the
+     running backend can read the file, and creates the Provider (type gcp) → Credential (cloudRoleToAssume
+     only, no keys) → Scope, attached to the extension-dev workspace. After a new ADC login, re-run it: it
+     restarts ONLY the backend (its Google client caches the first credential lookup per process).
+     If you use a non-default gcloud directory (DEVKIT_GCLOUD_DIR), log in with
+     CLOUDSDK_CONFIG=<that dir> gcloud auth application-default login.
 EOF

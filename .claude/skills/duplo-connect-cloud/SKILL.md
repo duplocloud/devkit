@@ -6,9 +6,9 @@ description: Connect an AWS account or GCP project to the running DuploCloud dev
 # duplo-connect-cloud — cloud connections for the local dev kit
 
 `./scripts/connect-cloud.sh` is the one deterministic way to register a cloud account with the local
-stack. It is idempotent (same `--name` → same objects, updated in place), restarts nothing, checks every
+stack. It is idempotent (same `--name` → same objects, updated in place), checks every
 conflict before it writes anything, and never puts a secret on a command line, in its output, or in
-`.devkit-cloud/connections.json`. Its only subcommands are `aws`, `gcp`, `refresh`, `verify` and
+`.devkit-cloud/connections.json`. AWS never restarts anything; GCP may restart ONLY the backend (see below). Its only subcommands are `aws`, `gcp`, `refresh`, `verify` and
 `status`; there is no `azure` subcommand.
 
 ## Conversation protocol — before any tool call
@@ -45,8 +45,11 @@ single available profile is not consent; the choice is still the user's.
      GCP + ADC + the project **is** the authorization for the default-identity preparation described
      under *GCP seamless bootstrap* below — do not ask "may I create the service account / grant IAM?"
      and do not invent a `--grant` step or hand the user manual `gcloud` commands. If ADC login is needed (plain `gcloud auth login`
-     does not write ADC), ask for scoped normal permission to run
-     `gcloud auth application-default login` and run it yourself; do not default to handing the user a
+     does not write ADC), ask for scoped normal permission to run the **exact** login the failing command printed —
+     `gcloud auth application-default login` for the default directory, or
+     `CLOUDSDK_CONFIG=<selected dir> gcloud auth application-default login` (shell-quoted path) when
+     `DEVKIT_GCLOUD_DIR` selects another one, since a bare login would write elsewhere — and run only that
+     approved command yourself, then retry the connect; never copy the ADC file; do not default to handing the user a
      `!` command.
    - **Azure** — (a) Entra browser login with `az login` (recommended for developer use) or (b)
      existing service-principal credentials (workload use); managed identity only when the runtime
@@ -75,17 +78,18 @@ other profiles, other ADC files, other projects, or any credential the user did 
 selection is echoed, the job is to **run the registration and verify it end to end**, obtaining
 approval through the agent runtime's normal permission mechanism whenever it asks for one.
 
-- **Say what the run will do before asking for approval.** For a user-selected GCP connection: the
-  exact selected `authorized_user` ADC file (it contains a refresh token) is copied from the selected
-  host path into this Compose project's private connection store — the `cloud_auth` named volume
-  mounted read-only into the backend at `/devkit-auth` (owned by uid 1001, mode 0700) — as
-  `gcp/<name>.json` with mode 0600, written through the script's stdin helper, never a command-line
-  argument; then the local provider, credential and scope are registered and the scope attached to
-  the workspace (unless `--no-workspace`). For AWS: the selected profile is resolved once via
-  `aws configure export-credentials` and only that snapshot is handed to the studio under the
-  connection's name. The copy plus the read-only mount is delegated access to that one identity, in
-  either store design. Cloud APIs are read-only unless the user explicitly authorizes writes — except the narrow GCP
-  bootstrap below, which selecting the GCP project already authorizes.
+- **Say what the run will do before asking for approval.** For a user-selected GCP connection: nothing is copied.
+  The published backend reads the user's normal `authorized_user` ADC file (it contains a refresh token) **in
+  place** — compose binds the whole gcloud directory (`DEVKIT_GCLOUD_DIR`, else an explicit `CLOUDSDK_CONFIG`,
+  else `~/.config/gcloud`) read-only at `/devkit-gcloud`. The run proves the impersonation with that file, checks
+  the running backend's own uid can read it, **recreates or restarts only the backend** when needed (first
+  native connection or after a new ADC login — local restarts of the dev-kit backend are authorized by selecting
+  the GCP connection; announce it, do not ask again), then registers the provider, a credential carrying only
+  `cloudRoleToAssume`, and the scope, attached to the workspace (unless `--no-workspace`). Every GCP connection
+  shares that one host ADC identity. For AWS: the selected profile is resolved once via
+  `aws configure export-credentials` and only that snapshot is handed to the studio under the connection's name.
+  Cloud APIs are read-only unless the user explicitly authorizes writes — except the narrow GCP bootstrap below,
+  which selecting the GCP project already authorizes.
 - **GCP seamless bootstrap (authorized by selecting the project).** Add one concise line to the
   announcement and then just run the command: "If `helpdesk-sa@<project>` or its access is missing,
   connect-cloud will, in `<project>` only: enable `iam` + `iamcredentials` if disabled, create/reuse
@@ -120,7 +124,7 @@ approval through the agent runtime's normal permission mechanism whenever it ask
 ./scripts/connect-cloud.sh aws --name <name> --profile <profile> [--region <region>] [--workspace <workspace-id>]
 ./scripts/connect-cloud.sh gcp --project <project-id> \
     [--name <name>] [--service-account <sa>@<project>.iam.gserviceaccount.com] \
-    [--adc-source <authorized_user json>] [--workspace <workspace-id>] [--no-workspace] [--no-bootstrap]
+    [--adc-source <the native ADC file>] [--workspace <workspace-id>] [--no-workspace] [--no-bootstrap]
 # defaults: --name = project ID; --service-account = helpdesk-sa@<project-id>.iam.gserviceaccount.com;
 # the project ID is validated before any storage or cloud API call
 ./scripts/connect-cloud.sh refresh --name <name> [--workspace <workspace-id>]   # re-resolve + rotate in place; prints container ids/start times before and after
@@ -136,9 +140,9 @@ is named exactly `--name`: AWS → `aws … --profile <name>`, GCP → `gcloud �
 
 ## What to know before running it
 
-- **The stack must be up** (`./run.sh` once). The credential store is the volume the running studio
-  has mounted at `/devkit-auth`; the script reads it from the container, so an isolated checkout with
-  `COMPOSE_PROJECT_NAME` in `.env` works unchanged. No running studio is a hard error.
+- **The stack must be up** (`./run.sh` once). The script finds the backend through this checkout's compose
+  project (`COMPOSE_PROJECT_NAME` in `.env` works unchanged) and refuses a backend started from another
+  checkout. No running backend is a hard error.
 - **A workspace is required** so the scope is selectable by tickets; the default is
   `EXTENSION_DEV_WORKSPACE_ID` from `.env`. When the user explicitly selected a workspace, always pass
   `--workspace <selected-id>` on the `aws`/`gcp` connect and on `refresh` — never let the `.env`
@@ -152,33 +156,39 @@ is named exactly `--name`: AWS → `aws … --profile <name>`, GCP → `gcloud �
   interactive shell, not a background job. Credentials from JIT are temporary: `status` shows the
   expiry and there is **no automatic renewal** — run `refresh` (or the same `aws` command) to reconnect.
   Platform-side assume-role is not used: the studio has no AWS identity of its own in the dev kit.
-- **GCP** is keyless: it copies your `authorized_user` ADC file (from `gcloud auth application-default
-  login`; plain `gcloud auth login` is not enough) into the store under the connection's name, after
-  proving with that exact file that it can mint an impersonated token for the service account and list
-  the project's buckets. Service-account keys and `external_account` files are refused by design. The
-  user behind the ADC needs `roles/iam.serviceAccountTokenCreator` on the service account; for the
-  default `helpdesk-sa@<project>` the script arranges that (and the rest of the bootstrap) itself, as the
-  ADC user, with their real approvals. If an IAM/project admin step is **denied (HTTP 403)** it stops
-  and reports exactly which cloud changes were and were not made — that is the genuine boundary where
-  an admin is needed. A different/custom `--service-account` is used as-is: never created, no grants added
-  (cross-project accounts included; the derived default spelled out still bootstraps); if it fails, say which permission is missing. The studio
-  honours this only when its image carries the `adcRef` credential path (`AIStudio__GcpAdcRoot`).
-- **GCP compatibility is not proven by the mount.** The Compose mount of the store and the
-  `AIStudio__GcpAdcRoot` setting show only that the stack is configured for `adcRef`; they do not
-  prove the running studio image supports it. A legacy error mentioning *no private key*,
-  `SystemCredential` or *default ADC* means the image lacks `adcRef` support or the credential was
-  registered without a reference. Check those non-secret markers — the error text, the running
-  image's build, and whether the credential carries a reference — never the credential contents. The
-  fix is a one-time update of the backend using the companion backend PR 796 and its build
-  instructions. Do not suggest a service-account private key, a global ADC mount or an extra Google
-  login as a workaround, and do not call a bootstrap `verify` pass a ticket success.
+- **GCP** is keyless and native: the backend reads the user's `authorized_user` ADC file (from `gcloud auth
+  application-default login`; plain `gcloud auth login` is not enough) in place; the connection proves with that
+  exact file that it can mint an impersonated token for the service account and list the project's buckets.
+  `--adc-source` may only name that exact native file (another file is refused — the backend would never use
+  it). Missing ADC → run the login command the failure prints (scoped with `CLOUDSDK_CONFIG=<dir>` for a custom
+  `DEVKIT_GCLOUD_DIR`), then retry; never copy a file. Service-account keys and `external_account` files are
+  refused. The user behind the ADC needs `roles/iam.serviceAccountTokenCreator` on the service account; for the
+  default `helpdesk-sa@<project>` the script arranges that (and the rest of the bootstrap) itself. If an
+  IAM/project admin step is **denied (HTTP 403)** it stops and reports exactly which cloud changes were and were
+  not made. A different/custom `--service-account` is used as-is: never created, no grants added.
+- **Why the backend restarts (honestly).** Google's .NET client caches the first credential lookup for the life of
+  the process — a "no ADC" failure included — so changing the file cannot clear it. The tool restarts only the
+  backend on the first native connection and after a new login, waits (bounded) for health, and records a
+  hash-only fingerprint so a repeat or a new target project on the same ADC does not restart. Never promise it
+  never restarts, and never restart other services.
+- **Startup without local ADC.** If no ADC file exists when the stack starts, `GOOGLE_APPLICATION_CREDENTIALS` is
+  left empty so the standard metadata fallback remains. After login, `connect-cloud.sh` automatically applies the
+  native environment variable and mount and resets the credential cache.
+- **Permissions on native Linux.** If the backend's uid cannot read a `0700`/`0600` gcloud directory the run
+  fails with a specific PERMISSIONS message before registering. Do not chmod/chown it, run anything as root, or
+  copy the file; report it as an exception the user decides (a readable `DEVKIT_GCLOUD_DIR`, or a uid-scoped
+  ACL they grant). Only Docker Desktop has been verified.
+- **An older stack** (backend without the mount) is repaired automatically by the same run. A legacy `adcRef`
+  on an existing tool-created credential is ignored by the published backend and rewritten in place; the old
+  `cloud_auth` store data is left untouched. Do not suggest a service-account private key, a backend patch or
+  an extra Google login as a workaround, and do not call a `verify` pass a ticket success.
 - **This check changes no rules.** It links no new files and adds no new paths; the question-first
   protocol and the scoped-permission rules above apply unchanged. Diagnosing compatibility is not a
-  reason to read `~/.config/gcloud` or the store, pick a target for the user, or run anything beyond
+  reason to read `~/.config/gcloud` pick a target for the user, or run anything beyond
   `status` / `verify` of the already-approved connection without the usual approval.
 - **Verification scope.** `verify` for AWS calls the studio's own scope endpoint, which runs the
   backend's credential population for that scope. For GCP, nothing outside a ticket expands a scope,
-  so `verify` proves the bootstrap and the store file only; the ticket proof is
+  so `verify` reports three separate stages — runtime-file, host-proof and ticket-proven (always NO) — and the ticket proof is
   `tests/e2e/cloud_onboarding_e2e.py` (invokes the LLM, approves only exact read-only commands, passes
   only on raw tool output equal to an operator-supplied control list, and requires unchanged container
   ids). Run it only when asked; it costs tokens.
@@ -186,7 +196,7 @@ is named exactly `--name`: AWS → `aws … --profile <name>`, GCP → `gcloud �
   account that is not granted fails before any platform write; read the `✗` line, fix the cause,
   re-run. A bootstrap that stops part-way (403, IAM still propagating after the bounded wait, a
   disabled service account) prints the cloud changes it already completed — report those; never say
-  "nothing was changed" if any were applied. Cloud failures never lead to credential-store or platform
+  "nothing was changed" if any were applied. Cloud failures never lead to platform
   writes.
 
 ## Reporting completion — name the stage actually reached
@@ -198,13 +208,14 @@ run; never present an earlier stage as a later one.
    impersonated token and bucket listing proved). Nothing was written. A GCP dry run that finds the
    account/permissions missing is *not validated*: report the repair a real run would make.
    (If a real run's bootstrap made cloud changes, report those as their own line.)
-2. **Stored** — the credential snapshot or ADC copy exists in the `cloud_auth` volume under the
-   connection's name.
+2. **Runtime-ready** (GCP) / **Stored** (AWS) — GCP: the running backend's own uid was probed reading the
+   host-proven ADC file (`runtime-file: PROVEN`; a `--dry-run` prints NOT PROVEN); AWS: the credential snapshot
+   is handed to the studio.
 3. **Registered** — the provider, credential and scope objects exist in the studio.
 4. **Workspace-attached** — the scope is confirmed attached to the selected workspace, not assumed
    from the flag (not when `--no-workspace` was used).
 5. **Verification passed** — `verify --name <name>` passed. For AWS this exercises the backend's
-   credential population for the scope; for GCP it proves only the bootstrap and the store file.
+   credential population for the scope; for GCP it reports runtime-file and host-proof only.
    **GCP `verify` is not the ticket E2E** — only `tests/e2e/cloud_onboarding_e2e.py`, run when asked,
    proves a ticket can use the scope.
 

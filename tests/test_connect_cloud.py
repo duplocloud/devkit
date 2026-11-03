@@ -394,6 +394,69 @@ case "$1" in
 esac
 '''
 
+GCP_RUNTIME_STUB = r'''#!__PYTHON__
+"""Stub of scripts/_gcp_auth.sh (CONNECT_CLOUD_GCP_CMD): a fake backend runtime kept in $GCP_STUB_DIR/state.json.
+It reads the REAL file in the directory it pretends to bind, exactly as the busybox probe would, and records the
+name of every op it is asked to run — the tests' evidence for "no restart", "no mutation" and ordering."""
+import hashlib, json, os, sys
+D = os.environ["GCP_STUB_DIR"]
+SP = os.path.join(D, "state.json")
+op = sys.argv[1]
+with open(os.path.join(D, "calls.log"), "a") as f:
+    f.write(op + "\n")
+st = json.load(open(SP))
+def save():
+    json.dump(st, open(SP, "w"))
+if st.get("fail") == op:
+    print("stub: %s failed on purpose" % op, file=sys.stderr); sys.exit(1)
+if op == "dir":
+    print(json.dumps({"dir": st["dir"], "file": st["dir"] + "/application_default_credentials.json", "source": st.get("source", "test")}))
+elif op == "inspect":
+    if not st.get("running", True):
+        print(json.dumps({"running": False, "service": "duplo-ai-studio", "project": "fakeproj"})); sys.exit(0)
+    print(json.dumps({"running": True, "service": "duplo-ai-studio", "containerId": st["id"], "startedAt": st["started"],
+                      "workingDir": None, "mount": {"present": bool(st["mount"]), "source": st["mount"], "readOnly": st["ro"], "type": "bind"},
+                      "env": {"GOOGLE_APPLICATION_CREDENTIALS": st["env"]}, "user": "backenduser"}))
+elif op == "probe":
+    st["probes"] = st.get("probes", 0) + 1
+    save()
+    if st.get("probe_after_restart") and st.get("restarted_once"):
+        print(json.dumps(dict({"user": "backenduser", "uid": "1001:1001", "type": None, "sha256": None, "detail": None}, **st["probe_after_restart"]))); sys.exit(0)
+    if st.get("probe_second") and st["probes"] % 2 == 0:
+        print(json.dumps(dict({"user": "backenduser", "uid": "1001:1001", "type": None, "sha256": None, "detail": None}, **st["probe_second"]))); sys.exit(0)
+    if st.get("probe"):
+        print(json.dumps(dict({"user": "backenduser", "uid": "1001:1001", "type": None, "sha256": None, "detail": None}, **st["probe"]))); sys.exit(0)
+    r = {"user": "backenduser", "uid": "1001:1001", "type": None, "sha256": None, "detail": None}
+    if not st["mount"]:
+        r["state"] = "no-mount"
+    else:
+        f = os.path.join(st["mount"], "application_default_credentials.json")
+        if not os.path.isfile(f):
+            r["state"] = "missing"
+        else:
+            raw = open(f, "rb").read()
+            r["state"] = "ok"
+            r["type"] = "authorized_user" if b'"authorized_user"' in raw else "other"
+            r["sha256"] = hashlib.sha256(raw).hexdigest()
+    print(json.dumps(r))
+elif op == "prepare":
+    os.makedirs(st["dir"], exist_ok=True); print(json.dumps({"dir": st["dir"], "created": False}))
+elif op == "reconcile":
+    os.makedirs(st["dir"], exist_ok=True)
+    st["n"] = st.get("n", 1) + 1
+    st.update(id="stud%d" % st["n"], started="2026-11-03T10:00:%02dZ" % st["n"])
+    if not st.get("reconcile_noop"):          # noop: a COMPOSE_FILE override that drops the studio's mount/env
+        st.update(mount=st["dir"], ro=True, env="/devkit-gcloud/application_default_credentials.json")
+    save(); print(json.dumps({"ok": True, "action": "recreated"}))
+elif op == "restart":
+    st["restarted_once"] = True
+    st["n"] = st.get("n", 1) + 1
+    st["started"] = "2026-11-03T10:00:%02dZ" % st["n"]
+    save(); print(json.dumps({"ok": True, "action": "restarted"}))
+else:
+    sys.exit(2)
+'''
+
 GCLOUD_STUB = r'''#!/usr/bin/env bash
 # stub gcloud: a DIFFERENT active account than the ADC user; any call is a test failure (it is logged).
 printf '%s\n' "$*" >> "$GCLOUD_STUB_LOG"
@@ -414,6 +477,7 @@ class Harness(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.server.shutdown()
+        cls.server.server_close()
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="connect-cloud-test-")
@@ -422,12 +486,17 @@ class Harness(unittest.TestCase):
         self.state_file = os.path.join(self.tmp, "state", "connections.json")
         self.aws_log = os.path.join(self.tmp, "aws.log")
         self.docker_log = os.path.join(self.tmp, "docker.log")
-        for name, text in (("aws", AWS_STUB), ("store", STORE_STUB), ("docker", DOCKER_STUB), ("gcloud", GCLOUD_STUB)):
+        self.gdir = os.path.join(self.tmp, "gcloud"); os.makedirs(self.gdir)
+        self.rt_dir = os.path.join(self.tmp, "rt"); os.makedirs(self.rt_dir)
+        self.rt_set(dir=self.gdir, id="stud1", started="2026-11-03T10:00:01Z", n=1, mount=self.gdir, ro=True,
+                    env="/devkit-gcloud/application_default_credentials.json", running=True)
+        for name, text in (("aws", AWS_STUB), ("store", STORE_STUB), ("docker", DOCKER_STUB), ("gcloud", GCLOUD_STUB),
+                           ("gcprt", GCP_RUNTIME_STUB.replace("__PYTHON__", sys.executable))):
             p = os.path.join(self.bin, name)
             with open(p, "w") as f:
                 f.write(text)
             os.chmod(p, 0o755)
-        self.adc_path = os.path.join(self.tmp, "adc.json")
+        self.adc_path = os.path.join(self.gdir, "application_default_credentials.json")
         self.write_adc(self.adc_path)
         Fake.state = {
             "sa": SA, "project": "gcp-test9",
@@ -454,6 +523,8 @@ class Harness(unittest.TestCase):
             "DUPLO_BASE": self.base, "DUPLO_TOKEN": "admin-token-not-a-secret-in-tests",
             "CONNECT_CLOUD_STATE": self.state_file,
             "CONNECT_CLOUD_STORE_CMD": os.path.join(self.bin, "store"),
+            "CONNECT_CLOUD_GCP_CMD": os.path.join(self.bin, "gcprt"),
+            "GCP_STUB_DIR": self.rt_dir,
             "CONNECT_CLOUD_PROJECT": "fakeproj",
             "RUNTIME": "docker",
             "CONNECT_CLOUD_ALLOW_NO_TTY": "1",
@@ -482,6 +553,23 @@ class Harness(unittest.TestCase):
                            cwd=self.tmp, timeout=timeout)
         self.assertEqual(p.returncode, expect, f"rc={p.returncode}\nstdout:\n{p.stdout}\nstderr:\n{p.stderr}")
         return p
+
+    # ── the fake backend runtime (stub of scripts/_gcp_auth.sh) ──
+    def rt_set(self, **kw):
+        p = os.path.join(self.rt_dir, "state.json")
+        st = json.load(open(p)) if os.path.exists(p) else {}
+        st.update(kw)
+        json.dump(st, open(p, "w"))
+
+    def rt_calls(self):
+        p = os.path.join(self.rt_dir, "calls.log")
+        return open(p).read().split() if os.path.exists(p) else []
+
+    def rt_mutations(self):
+        return [c for c in self.rt_calls() if c in ("prepare", "reconcile", "restart")]
+
+    def rt_state_file(self):
+        return os.path.join(self.tmp, "state", "gcp-runtime.json")
 
     def studio_writes(self):
         return [(m, p) for m, p, _, _ in Fake.log if m in ("POST", "PUT", "DELETE") and "/admin/data/" in p]
@@ -661,23 +749,30 @@ class ConnectCloudTests(Harness):
 
     # ── GCP ──
 
-    def test_gcp_connect_proves_impersonation_stores_adc_and_registers_adcref(self):
+    def test_gcp_connect_proves_impersonation_uses_native_adc_and_registers_a_native_credential(self):
         p = self.run_cc(*self.gcp_args())
         self.assertIn("6 bucket(s) visible", p.stdout)
-        self.assertIn("written to volume fakeproj_cloud_auth", p.stdout)
+        self.assertIn("nothing is copied", p.stdout)
         google = [pth.split("?")[0] for m, pth, _, _ in Fake.log if pth.startswith(("/token", "/iam", "/storage"))]
         self.assertEqual(google, ["/token", f"/iam/projects/-/serviceAccounts/{urllib.parse.quote(SA)}:generateAccessToken", "/storage/b"])
-        stored = os.path.join(self.store_dir, "gcp", "gcp-test9.json")
-        self.assertEqual(oct(os.stat(stored).st_mode & 0o777), "0o600")
-        with open(stored) as f:
-            adc = json.load(f)
-        self.assertEqual((adc["type"], adc["refresh_token"]), ("authorized_user", REFRESH_TOKEN))
+        # the credential store is no longer involved at all: no write, no file, no volume lookup dependency
+        self.assertEqual(self.store_log(), "")
+        self.assertFalse(os.path.exists(os.path.join(self.store_dir, "gcp")))
         prov = self.provider()
         self.assertEqual((prov["type"], prov["accountId"], prov["name"]), ("gcp", "gcp-test9", "gcp-gcp-test9"))
-        self.assertEqual({d["key"]: d["value"] for d in prov["credentials"][0]["dataEx"]},
-                         {"cloudRoleToAssume": SA, "adcRef": "gcp-test9"})
+        # the backend-visible credential shape: cloudRoleToAssume ONLY — no adcRef, no key material
+        self.assertEqual(prov["credentials"][0]["dataEx"],
+                         [{"key": "cloudRoleToAssume", "value": SA, "type": "string", "isSensitive": False}])
         rec = self.records()["gcp-test9"]
-        self.assertEqual((rec["controlBucketCount"], rec["storeFile"]), (6, "gcp/gcp-test9.json"))
+        self.assertEqual(rec["controlBucketCount"], 6)
+        self.assertNotIn("adcRef", rec)
+        self.assertNotIn("storeFile", rec)
+        self.assertEqual((rec["adcMode"], rec["adcMount"], rec["adcSource"]),
+                         ("native-directory", "/devkit-gcloud/application_default_credentials.json", self.adc_path))
+        self.assertNotIn("adcRef", json.dumps(Fake.state["studio"]))
+        # first native connection: the runtime check ran before registration and the backend was restarted once
+        self.assertEqual(self.rt_calls(), ["dir", "inspect", "probe", "restart", "inspect", "probe"])
+        self.assertIn("ticket-proven: NO", p.stdout)
 
     def test_gcp_bucket_list_is_paginated(self):
         Fake.state["bucket_pages"] = [["a", "b"], ["c"], ["d", "e", "f", "g"]]
@@ -687,36 +782,35 @@ class ConnectCloudTests(Harness):
         self.assertEqual(len(pages), 3)
         self.assertIn("pageToken=2", pages[2])
 
-    def test_gcp_rerun_rewrites_store_file_without_duplicating_objects(self):
+    def test_gcp_repeat_is_idempotent_writes_nothing_and_does_not_restart(self):
         self.run_cc(*self.gcp_args())
         Fake.log = []
-        self.run_cc(*self.gcp_args())
-        self.assertEqual([w[0] for w in self.studio_writes()], ["PUT"])
-        self.assertEqual(self.store_log().count("write gcp/gcp-test9.json"), 2)
+        n_calls = len(self.rt_calls())
+        p = self.run_cc(*self.gcp_args())
+        self.assertEqual(self.studio_writes(), [])                       # native-shaped credential: nothing to rewrite
+        self.assertIn("unchanged", p.stdout)
+        self.assertEqual(self.rt_calls().count("restart"), 1)             # only the first connection restarted
+        self.assertEqual(self.rt_mutations(), ["restart"])
+        self.assertIn("no restart needed", p.stdout)
+        self.assertGreater(len(self.rt_calls()), n_calls)
 
     def test_gcp_reused_name_with_other_project_or_sa_changes_nothing(self):
         self.run_cc(*self.gcp_args())
-        stored = os.path.join(self.store_dir, "gcp", "gcp-test9.json")
-        with open(stored) as f:
-            file_before = f.read()
         before = json.dumps(Fake.state["studio"], sort_keys=True)
-        other_adc = os.path.join(self.tmp, "other.json")
-        self.write_adc(other_adc, refresh=REFRESH_TOKEN, account="other@example.com")
+        mutations = self.rt_mutations()
         Fake.log = []
         # other project under the same name
         Fake.state["project"] = "other-proj"
-        p = self.run_cc(*self.gcp_args(project="other-proj", adc=other_adc), expect=1)
+        p = self.run_cc(*self.gcp_args(project="other-proj"), expect=1)
         self.assertIn("already exists for account 'gcp-test9'", p.stderr)
         self.assertEqual(self.studio_writes(), [])
         # other service account under the same name (project matches)
         Fake.state["project"] = "gcp-test9"
         Fake.state["sa"] = "other-sa@gcp-test9.iam.gserviceaccount.com"
-        p = self.run_cc(*self.gcp_args(sa="other-sa@gcp-test9.iam.gserviceaccount.com", adc=other_adc), expect=1)
+        p = self.run_cc(*self.gcp_args(sa="other-sa@gcp-test9.iam.gserviceaccount.com"), expect=1)
         self.assertIn("already impersonates", p.stderr)
         self.assertEqual(self.studio_writes(), [])
-        with open(stored) as f:
-            self.assertEqual(f.read(), file_before)        # the working connection's ADC file is untouched
-        self.assertEqual(self.store_log().count("write"), 1)
+        self.assertEqual(self.rt_mutations(), mutations)                  # the conflicts touched no container
         self.assertEqual(json.dumps(Fake.state["studio"], sort_keys=True), before)
 
     def test_gcp_project_only_derives_name_and_service_account(self):
@@ -724,8 +818,8 @@ class ConnectCloudTests(Harness):
         p = self.run_cc("gcp", "--project", "gcp-test9", "--adc-source", self.adc_path)
         self.assertIn("connection 'gcp-test9' ready", p.stdout)
         rec = self.records()["gcp-test9"]
-        self.assertEqual((rec["project"], rec["serviceAccount"], rec["storeFile"], rec["workspaceId"]),
-                         ("gcp-test9", "helpdesk-sa@gcp-test9.iam.gserviceaccount.com", "gcp/gcp-test9.json", "ws-1"))
+        self.assertEqual((rec["project"], rec["serviceAccount"], rec["workspaceId"]),
+                         ("gcp-test9", "helpdesk-sa@gcp-test9.iam.gserviceaccount.com", "ws-1"))
         self.assertEqual(Fake.state["studio"]["Workspaces"]["ws-1"]["scopeIds"], [rec["scopeId"]])
 
     def test_gcp_explicit_name_and_service_account_override_independently(self):
@@ -761,29 +855,28 @@ class ConnectCloudTests(Harness):
         self.assertFalse(os.path.exists(os.path.join(self.store_dir, "gcp")))
         self.assertEqual(self.store_log(), "")
 
-    def test_gcp_store_unavailable_fails_after_preflight_with_no_api_write(self):
-        self.extra_env["STORE_STUB_UNAVAILABLE"] = "1"
-        p = self.run_cc(*self.gcp_args(), expect=1)
-        self.assertIn("credential store unavailable", p.stderr)
-        self.assertIn("no running 'duplo-ai-studio'", p.stderr)
-        self.assertEqual(self.studio_writes(), [])
+    def test_gcp_does_not_depend_on_the_credential_store(self):
+        self.extra_env["STORE_STUB_UNAVAILABLE"] = "1"          # the legacy store is unreachable: irrelevant to GCP now
+        p = self.run_cc(*self.gcp_args())
+        self.assertIn("connection 'gcp-test9' ready", p.stdout)
+        self.assertEqual(self.store_log(), "")
 
-    def test_gcp_two_connections_two_store_files(self):
-        other = os.path.join(self.tmp, "adc2.json")
-        self.write_adc(other, account="bob@example.com")
+    def test_gcp_two_connections_share_the_one_host_adc_without_a_second_restart(self):
         self.run_cc(*self.gcp_args(name="alice"))
-        self.run_cc(*self.gcp_args(name="bob", adc=other))
-        self.assertEqual(sorted(os.listdir(os.path.join(self.store_dir, "gcp"))), ["alice.json", "bob.json"])
-        refs = sorted({d["key"]: d["value"] for d in p["credentials"][0]["dataEx"]}["adcRef"]
-                      for p in Fake.state["studio"]["Providers"].values())
-        self.assertEqual(refs, ["alice", "bob"])
+        self.run_cc(*self.gcp_args(name="bob"))
+        creds = [p["credentials"][0]["dataEx"] for p in Fake.state["studio"]["Providers"].values()]
+        self.assertEqual(len(creds), 2)
+        for data in creds:
+            self.assertEqual([d["key"] for d in data], ["cloudRoleToAssume"])
+        self.assertEqual(self.rt_calls().count("restart"), 1)
+        self.assertEqual(self.store_log(), "")
 
     def test_gcp_wrong_service_account_fails_before_any_write(self):
         p = self.run_cc(*self.gcp_args(name="x", sa="nobody@gcp-test9.iam.gserviceaccount.com"), expect=1)
         self.assertIn("cannot impersonate nobody@gcp-test9", p.stderr)
         self.assertIn("serviceAccountTokenCreator", p.stderr)
         self.assertEqual(self.studio_writes(), [])
-        self.assertFalse(os.path.exists(os.path.join(self.store_dir, "gcp")))
+        self.assertEqual(self.rt_mutations(), [])                         # a failed host proof never restarts the backend
 
     def test_gcp_revoked_adc_fails_with_relogin_hint(self):
         with open(self.adc_path, "w") as f:
@@ -791,6 +884,7 @@ class ConnectCloudTests(Harness):
         p = self.run_cc(*self.gcp_args(name="x"), expect=1)
         self.assertIn("gcloud auth application-default login", p.stderr)
         self.assertEqual(self.studio_writes(), [])
+        self.assertEqual(self.rt_mutations(), [])
 
     def test_gcp_rejects_service_account_key_and_external_account_files(self):
         for adc in ({"type": "service_account", "client_email": "x@y", "private_key": "k"},
@@ -802,13 +896,21 @@ class ConnectCloudTests(Harness):
             self.assertTrue("only an authorized_user" in p.stderr or "unexpected fields" in p.stderr, p.stderr)
             self.assertEqual([pth for m, pth, _, _ in Fake.log if pth.startswith("/token")], [])
 
-    def test_gcp_verify_reports_store_readability_and_bootstrap(self):
+    def test_gcp_verify_reports_separate_runtime_host_and_ticket_stages(self):
         self.run_cc(*self.gcp_args())
         p = self.run_cc("verify", "--name", "gcp-test9", "--json")
-        res = json.loads(p.stdout)["result"]["checks"]
-        self.assertTrue(res["adcImpersonation"])
-        self.assertTrue(res["storeFileReadableByStudioUid"])
-        self.assertEqual(res["controlBucketCount"], 6)
+        res = json.loads(p.stdout)["result"]
+        c = res["checks"]
+        self.assertTrue(c["adcImpersonation"])
+        self.assertTrue(all(c[k] for k in ("runtimeBackendRunning", "runtimeMountAndEnv", "runtimeFileReadable",
+                                          "runtimeSourceAligned", "runtimeCacheCurrent")))
+        self.assertEqual(c["controlBucketCount"], 6)
+        self.assertNotIn("storeFileReadableByStudioUid", c)
+        self.assertEqual(res["stages"], {"runtimeFile": True, "hostProof": True, "ticketProven": False})
+        text = "\n".join(json.loads(p.stdout)["log"])
+        self.assertIn("ticket-proven NO", text)
+        self.assertIn("not that the backend used it", text)
+        self.assertEqual(self.rt_mutations(), ["restart"])                # verify is read-only
 
     # ── refresh / snapshots ──
 
@@ -874,10 +976,14 @@ class ConnectCloudTests(Harness):
         self.assertEqual(self.studio_writes(), [])
         self.assertFalse(os.path.exists(self.state_file))
         q = self.run_cc("--dry-run", *self.gcp_args())
-        self.assertIn("would write", q.stdout)
-        self.assertNotIn(": written", q.stdout)
+        self.assertIn("would restart ONLY the backend", q.stdout)
+        self.assertIn("would create", q.stdout)
         self.assertEqual(self.store_log(), "")
         self.assertEqual(self.studio_writes(), [])
+        self.assertEqual(self.rt_calls(), ["dir", "inspect"])             # inspect only: no probe, mkdir, recreate or restart
+        self.assertFalse(os.path.exists(self.rt_state_file()))
+        self.assertIn("runtime-file: NOT PROVEN", q.stdout)
+        self.assertNotIn("PROVEN (the backend", q.stdout)
 
     def test_status_reports_volume_and_unattached_connections(self):
         self.run_cc("aws", "--name", "test21", "--profile", "test21", "--no-workspace")
@@ -1001,7 +1107,7 @@ class GcpBootstrapTests(Harness):
             self.assertGreaterEqual(pol["version"], 3)
         # registration happened, after every cloud write
         self.assertEqual(self.provider()["credentials"][0]["dataEx"][0]["value"], DSA)
-        self.assertTrue(os.path.exists(os.path.join(self.store_dir, "gcp", "gcp-test9.json")))
+        self.assertEqual(self.store_log(), "")
         order = [m + " " + pth for m, pth, _, _ in Fake.log]
         last_google_write = max(i for i, o in enumerate(order) if o.startswith("POST") and
                                 (":setIamPolicy" in o or ":enable" in o or o.endswith("/serviceAccounts")))
@@ -1069,7 +1175,7 @@ class GcpBootstrapTests(Harness):
         self.assertEqual(self.admin_calls(), [])         # proof passed: no userinfo, no IAM, no Service Usage
         self.assertEqual(self.google_writes(), [])
         self.assertEqual(self.cloud_state(), snapshot)          # no cloud state changed at all
-        self.assertEqual([w[0] for w in self.studio_writes()], ["PUT"])
+        self.assertEqual(self.studio_writes(), [])            # already native-shaped: nothing to rewrite
         self.assertIn("connection 'gcp-test9' ready", p.stdout)
 
     def test_fully_prepared_project_succeeds_without_any_cloud_write_or_admin_call(self):
@@ -1226,11 +1332,12 @@ class GcpBootstrapTests(Harness):
         self.assertEqual(self.g()["writes"], [])
         self.assertEqual(self.studio_writes(), [])
 
-    def test_store_unavailable_is_found_before_any_iam_write(self):
-        self.extra_env["STORE_STUB_UNAVAILABLE"] = "1"
+    def test_runtime_unusable_is_found_before_any_iam_write(self):
+        self.rt_set(running=False)                                # the backend is not running: found before any IAM change
         p = self.run_derived(expect=1)
-        self.assertIn("credential store unavailable", p.stderr)
+        self.assertIn("is not running", p.stderr)
         self.assertEqual(self.google_writes(), [])
+        self.assertEqual(self.rt_mutations(), [])
         self.assertEqual(Fake.log, [x for x in Fake.log if x[1].startswith("/v1/aiservicedesk")])
 
     def test_explicit_service_account_and_no_bootstrap_are_never_prepared(self):
@@ -1359,6 +1466,364 @@ class GcpBootstrapTests(Harness):
         for secret in secrets:
             for text in (p.stdout, p.stderr, state_text, self.store_log()):
                 self.assertNotIn(secret, text)
+
+
+class GcpNativeRuntimeTests(Harness):
+    """The backend's native ADC: the whole gcloud directory bound read-only, GOOGLE_APPLICATION_CREDENTIALS set, no copy,
+    no adcRef. The runtime is a stub of scripts/_gcp_auth.sh that reads the real files of the directory it pretends to
+    bind; each test asserts which runtime operations ran and which platform/cloud writes did (or did not) follow."""
+
+    def connect(self, *extra, name="gcp-test9", expect=0, **kw):
+        args = ("gcp", "--name", name, "--project", "gcp-test9", "--service-account", SA, *extra)
+        return self.run_cc(*args, expect=expect, **kw)
+
+    def relogin(self, account="second.login@example.com"):
+        """A new `gcloud auth application-default login`: the file is replaced (atomic rename, like gcloud)."""
+        tmp = self.adc_path + ".new"
+        self.write_adc(tmp, account=account)
+        os.replace(tmp, self.adc_path)
+
+    def assert_no_registration(self):
+        self.assertEqual(self.studio_writes(), [])
+        self.assertFalse(os.path.exists(self.state_file))
+
+    # ── runtime wiring: absent / misaligned vs. readable ──
+    def test_missing_mount_recreates_only_the_backend_once_then_registers_without_a_second_restart(self):
+        self.rt_set(mount=None, env=None)                              # an old backend: no /devkit-gcloud, no env
+        p = self.connect()
+        calls = self.rt_calls()
+        self.assertEqual(calls, ["dir", "inspect", "reconcile", "inspect", "probe"])
+        self.assertNotIn("restart", calls)                             # the recreate already reset the ADC cache: no double restart
+        self.assertIn("recreating ONLY the backend", p.stderr)        # announced before it was done
+        self.assertIn("recreated the backend only", p.stdout)
+        self.assertEqual([m for m, _ in self.studio_writes()], ["POST", "POST", "POST"])
+        with open(self.rt_state_file()) as f:
+            rec = json.load(f)
+        self.assertEqual((rec["backendId"], rec["dir"]), ("stud2", self.gdir))
+        self.assertEqual(len(rec["adcFingerprint"]), 64)
+
+    def test_missing_env_with_the_mount_present_is_repaired_too(self):
+        self.rt_set(env=None)
+        self.connect()
+        self.assertIn("reconcile", self.rt_calls())
+        self.assertNotIn("restart", self.rt_calls())
+
+    def test_mount_bound_from_another_directory_is_repaired(self):
+        other = os.path.join(self.tmp, "elsewhere"); os.makedirs(other)
+        self.rt_set(mount=other)
+        p = self.connect()
+        self.assertIn(f"is bound from {other}", p.stdout)
+        self.assertIn("reconcile", self.rt_calls())
+
+    def test_a_writable_mount_is_not_accepted_as_wired(self):
+        self.rt_set(ro=False)
+        p = self.connect()
+        self.assertIn("not mounted read-only", p.stdout)
+        self.assertIn("reconcile", self.rt_calls())
+
+    def test_wiring_still_wrong_after_the_recreate_registers_nothing(self):
+        self.rt_set(mount=None, env=None, reconcile_noop=True)     # compose applied an override that drops the mount
+        p = self.connect(expect=1)
+        self.assertIn("wiring is still wrong", p.stderr)
+        self.assertIn("COMPOSE_FILE", p.stderr)
+        self.assert_no_registration()
+        self.assertFalse(os.path.exists(self.rt_state_file()))
+
+    def test_reconcile_failure_registers_nothing_and_records_no_state(self):
+        self.rt_set(mount=None, env=None, fail="reconcile")
+        p = self.connect(expect=1)
+        self.assertIn("reconcile' failed", p.stderr)
+        self.assert_no_registration()
+        self.assertFalse(os.path.exists(self.rt_state_file()))
+
+    def test_unreadable_by_the_backend_uid_is_a_specific_permission_failure_before_any_write(self):
+        for state in ("dir-not-traversable", "unreadable"):
+            with self.subTest(state=state):
+                self.rt_set(probe={"state": state})
+                Fake.log = []
+                p = self.connect(expect=1)
+                self.assertIn("PERMISSIONS", p.stderr)
+                self.assertIn("uid:gid 1001:1001", p.stderr)
+                self.assertIn("never loosens permissions", p.stderr)
+                self.assertEqual(self.studio_writes(), [])
+                self.assertEqual([x for x in Fake.log if x[1].startswith(("/token", "/iam", "/storage"))], [])   # before the host proof too
+                self.assertEqual(self.rt_mutations(), [])
+                self.assertFalse(os.path.exists(self.state_file))
+
+    def test_runtime_reads_a_different_file_than_the_host_proof_registers_nothing(self):
+        other = os.path.join(self.tmp, "other-gcloud"); os.makedirs(other)
+        self.write_adc(os.path.join(other, "application_default_credentials.json"), account="someone.else@example.com")
+        self.rt_set(mount=self.gdir, probe={"state": "ok", "type": "authorized_user", "sha256": "0" * 64})
+        p = self.connect(expect=1)
+        self.assertIn("DIFFERENT file", p.stderr)
+        self.assert_no_registration()
+        self.assertEqual(self.rt_mutations(), [])
+
+    def test_missing_file_inside_a_wired_backend_directs_to_login_not_a_copy(self):
+        self.rt_set(probe={"state": "missing"})
+        p = self.connect(expect=1)
+        self.assertIn("gcloud auth application-default login", p.stderr)
+        self.assertIn("never copies", p.stderr)
+        self.assert_no_registration()
+
+    # ── --adc-source: only the exact native file ──
+    def test_adc_source_must_be_the_exact_native_file_the_backend_binds(self):
+        other = os.path.join(self.tmp, "adc2.json")
+        self.write_adc(other, account="bob@example.com")
+        p = self.connect("--adc-source", other, expect=1)
+        self.assertIn("is not the file the running backend reads", p.stderr)
+        self.assertIn("DEVKIT_GCLOUD_DIR=", p.stderr)
+        self.assertEqual(self.rt_calls(), ["dir"])                    # refused before inspecting, probing or changing anything
+        self.assertEqual(Fake.log, [])
+        self.assert_no_registration()
+        # the same native file spelled through a symlink is the same file
+        link = os.path.join(self.tmp, "link.json")
+        os.symlink(self.adc_path, link)
+        self.connect("--adc-source", link)
+        self.assertEqual(self.records()["gcp-test9"]["adcSource"], self.adc_path)
+
+    # ── no ADC → login → visible ──
+    def test_no_adc_then_login_then_the_backend_sees_it_after_exactly_one_restart(self):
+        os.remove(self.adc_path)
+        p = self.connect(expect=1)
+        self.assertIn("gcloud auth application-default login", p.stderr)
+        self.assertIn("never copies", p.stderr)
+        self.assertEqual(self.rt_calls(), ["dir"])                    # nothing touched: no mkdir, no restart, no cloud call
+        self.assertEqual(Fake.log, [])
+        self.assert_no_registration()
+        self.write_adc(self.adc_path)                                  # the user (or the agent) ran the normal login
+        p = self.connect()
+        self.assertIn("first native ADC connection", p.stderr)         # the backend may have cached the earlier failure
+        self.assertEqual(self.rt_calls().count("restart"), 1)
+        self.assertIn("connection 'gcp-test9' ready", p.stdout)
+
+    # ── cache reset: re-login restarts; repeat and new target do not ──
+    def test_relogin_restarts_the_backend_automatically_and_then_settles(self):
+        self.connect()
+        self.assertEqual(self.rt_calls().count("restart"), 1)
+        first = json.load(open(self.rt_state_file()))["adcFingerprint"]
+        self.connect()
+        self.assertEqual(self.rt_calls().count("restart"), 1)          # unchanged ADC: no restart
+        self.relogin()
+        p = self.connect()
+        self.assertEqual(self.rt_calls().count("restart"), 2)
+        self.assertIn("a new login", p.stderr)
+        self.assertIn("restarting ONLY the backend", p.stderr)
+        self.assertNotEqual(json.load(open(self.rt_state_file()))["adcFingerprint"], first)
+        self.connect()
+        self.assertEqual(self.rt_calls().count("restart"), 2)          # settled again
+        self.assertEqual(self.rt_calls().count("reconcile"), 0)        # a restart, never a recreate, when wiring is fine
+
+    def test_new_target_project_on_the_same_adc_does_not_restart(self):
+        self.connect()
+        Fake.state["project"] = "proj-two"
+        Fake.state["sa"] = "helpdesk-sa@proj-two.iam.gserviceaccount.com"
+        p = self.run_cc("gcp", "--name", "second", "--project", "proj-two",
+                        "--service-account", "helpdesk-sa@proj-two.iam.gserviceaccount.com")
+        self.assertIn("no restart needed", p.stdout)
+        self.assertEqual(self.rt_calls().count("restart"), 1)
+        self.assertEqual(sorted(self.records()), ["gcp-test9", "second"])
+
+    def test_a_backend_restarted_elsewhere_is_restarted_once_more_because_its_cache_is_unknown(self):
+        self.connect()
+        self.rt_set(started="2026-11-03T11:11:11Z")                    # someone restarted it (new start marker)
+        p = self.connect()
+        self.assertIn("restarted since this tool last recorded it", p.stderr)
+        self.assertEqual(self.rt_calls().count("restart"), 2)
+
+    def test_the_private_state_holds_hashes_only(self):
+        self.connect()
+        with open(self.rt_state_file()) as f:
+            text = f.read()
+        for secret in (REFRESH_TOKEN, CLIENT_SECRET, "ya29", "ganesh@example.com"):
+            self.assertNotIn(secret, text)
+        self.assertEqual(oct(os.stat(self.rt_state_file()).st_mode & 0o777), "0o600")
+        self.assertEqual(sorted(json.loads(text)), ["adcFingerprint", "backendId", "dir", "startedAt", "updatedAt", "version"])
+
+    # ── dry-run: inspect only ──
+    def test_dry_run_with_missing_wiring_mutates_nothing(self):
+        self.rt_set(mount=None, env=None)
+        before = open(os.path.join(self.rt_dir, "state.json")).read()
+        p = self.connect("--dry-run")
+        self.assertIn("would create", p.stdout)
+        self.assertIn("recreate ONLY the backend", p.stdout)
+        self.assertIn("compose up -d --no-deps --no-build --pull never duplo-ai-studio", p.stdout)
+        self.assertEqual(self.rt_calls(), ["dir", "inspect"])
+        self.assertEqual(open(os.path.join(self.rt_dir, "state.json")).read(), before)
+        self.assertEqual(self.studio_writes(), [])
+        self.assertFalse(os.path.exists(self.state_file))
+        self.assertFalse(os.path.exists(self.rt_state_file()))
+        self.assertEqual(self.store_log(), "")
+
+    # ── migration of a legacy adcRef credential ──
+    def seed_legacy(self, extra_credential=True):
+        creds = [{"name": "gcp-test9", "dataEx": [
+            {"key": "cloudRoleToAssume", "value": SA, "type": "string", "isSensitive": False},
+            {"key": "adcRef", "value": "gcp-test9", "type": "string", "isSensitive": False}],
+            "metaData": {"source": TOOL}}]
+        if extra_credential:
+            creds.append({"name": "someone-elses", "dataEx": [{"key": "cloudRoleToAssume", "value": "x@y.iam.gserviceaccount.com"}]})
+        Fake.state["studio"]["Providers"] = {"providers-1": {
+            "id": "providers-1", "name": "gcp-gcp-test9", "type": "gcp", "accountId": "gcp-test9", "credentials": creds,
+            "metaData": {"source": TOOL}}}
+        Fake.state["studio"]["Scopes"] = {"scopes-1": {
+            "id": "scopes-1", "name": "gcp-test9", "providerId": "providers-1", "credentialName": "gcp-test9",
+            "metaData": {"source": TOOL}}}
+        Fake.state["studio"]["Workspaces"]["ws-1"]["scopeIds"] = ["scopes-1"]
+        os.makedirs(os.path.join(self.store_dir, "gcp"))
+        legacy_file = os.path.join(self.store_dir, "gcp", "gcp-test9.json")
+        with open(legacy_file, "w") as f:
+            f.write("legacy-store-file-kept-for-rollback")
+        return legacy_file
+
+    def test_legacy_adcref_credential_is_migrated_in_place_idempotently_without_touching_others_or_the_store(self):
+        legacy_file = self.seed_legacy()
+        p = self.connect()
+        self.assertIn("legacy adcRef", p.stdout)
+        self.assertEqual(self.studio_writes(), [("PUT", "/v1/aiservicedesk/admin/data/Providers/providers-1/credentials/gcp-test9")])
+        creds = Fake.state["studio"]["Providers"]["providers-1"]["credentials"]
+        self.assertEqual([c["name"] for c in creds], ["gcp-test9", "someone-elses"])
+        self.assertEqual([d["key"] for d in creds[0]["dataEx"]], ["cloudRoleToAssume"])
+        self.assertEqual(creds[1]["dataEx"], [{"key": "cloudRoleToAssume", "value": "x@y.iam.gserviceaccount.com"}])   # untouched
+        self.assertEqual(len(Fake.state["studio"]["Scopes"]), 1)
+        with open(legacy_file) as f:
+            self.assertEqual(f.read(), "legacy-store-file-kept-for-rollback")                 # old named store data intact
+        self.assertEqual(self.store_log(), "")                                                 # and never written or removed
+        Fake.log = []
+        p = self.connect()
+        self.assertEqual(self.studio_writes(), [])                                             # second run: nothing left to migrate
+        self.assertIn("already in its final shape", p.stdout)
+
+    def test_a_foreign_credential_is_never_migrated_or_overwritten(self):
+        self.seed_legacy()
+        Fake.state["studio"]["Providers"]["providers-1"]["credentials"][0].pop("metaData")
+        before = json.dumps(Fake.state["studio"], sort_keys=True)
+        p = self.connect(expect=1)
+        self.assertIn("was not created by connect-cloud", p.stderr)
+        self.assertEqual(json.dumps(Fake.state["studio"], sort_keys=True), before)
+        self.assertEqual(self.rt_mutations(), [])
+
+    # ── verify / status / refresh ──
+    def test_verify_fails_the_runtime_stage_alone_when_the_backend_mount_is_gone(self):
+        self.connect()
+        self.rt_set(mount=None, env=None)
+        p = self.run_cc("verify", "--name", "gcp-test9", "--json", expect=1)
+        res = json.loads(p.stdout)["result"]
+        self.assertEqual(res["stages"], {"runtimeFile": False, "hostProof": True, "ticketProven": False})
+        self.assertFalse(res["checks"]["runtimeMountAndEnv"])
+        self.assertTrue(res["checks"]["adcImpersonation"])                 # host proof alone is not enough
+        self.assertEqual(self.rt_calls().count("reconcile"), 0)            # verify never repairs
+
+    def test_verify_flags_a_stale_adc_cache_after_a_relogin_and_refresh_restarts_the_backend(self):
+        self.connect()
+        self.relogin()
+        p = self.run_cc("verify", "--name", "gcp-test9", "--json", expect=1)
+        res = json.loads(p.stdout)["result"]
+        self.assertFalse(res["checks"]["runtimeCacheCurrent"])
+        self.assertTrue(res["checks"]["runtimeFileReadable"])
+        self.assertTrue(res["checks"]["runtimeSourceAligned"])             # the NEW file is what the backend binds and sees
+        self.assertEqual(self.rt_calls().count("restart"), 1)              # verify did not restart
+        r = self.run_cc("refresh", "--name", "gcp-test9", "--json")
+        self.assertTrue(json.loads(r.stdout)["ok"])                         # no "no restart" claim is made for GCP
+        self.assertEqual(self.rt_calls().count("restart"), 2)
+        self.run_cc("verify", "--name", "gcp-test9")
+
+    def test_refresh_does_not_require_the_agent_container_for_gcp(self):
+        self.connect()
+        self.extra_env["DOCKER_STUB_SERVICES"] = ""
+        self.run_cc("refresh", "--name", "gcp-test9")
+
+    def test_status_reports_the_one_shared_runtime_adc(self):
+        self.connect()
+        self.connect(name="other")
+        p = self.run_cc("status", "--json")
+        res = json.loads(p.stdout)["result"]
+        self.assertTrue(res["gcpRuntime"]["runtimeMountAndEnv"])
+        self.assertEqual(res["gcpRuntime"]["adcFile"], self.adc_path)
+        self.assertIn("one identity for every GCP connection", "\n".join(json.loads(p.stdout)["log"]))
+
+
+    # ── review fixes ──
+    def test_dry_run_json_never_claims_the_runtime_file_proven(self):
+        for wiring in ({}, {"mount": None, "env": None}):
+            self.rt_set(**wiring) if wiring else None
+            p = self.connect("--dry-run", "--json")
+            res = json.loads(p.stdout)["result"]
+            self.assertEqual(res["stages"], {"runtimeFile": False, "hostProof": True, "ticketProven": False})
+            self.assertFalse(res["runtime"]["verified"])
+            self.assertNotIn("runtime-file: PROVEN", p.stdout)
+        self.assertEqual(self.rt_mutations(), [])
+
+    def test_real_run_stage_line_says_proven_only_after_the_probe(self):
+        p = self.connect("--json")
+        res = json.loads(p.stdout)["result"]
+        self.assertEqual(res["stages"], {"runtimeFile": True, "hostProof": True, "ticketProven": False})
+        self.assertIn("no SDK/end-to-end claim", p.stdout)
+
+    def test_adc_replaced_during_the_restart_is_not_recorded_or_registered(self):
+        # the file the backend reads after the restart differs from the one the host proof used
+        self.rt_set(probe_after_restart={"state": "ok", "type": "authorized_user", "sha256": "1" * 64})
+        p = self.connect(expect=1)
+        self.assertIn("after the restart", p.stderr)
+        self.assertIn("DIFFERENT file", p.stderr)
+        self.assert_no_registration()
+        self.assertFalse(os.path.exists(self.rt_state_file()))
+
+    def test_unreadable_after_the_restart_registers_nothing(self):
+        self.rt_set(probe_after_restart={"state": "unreadable"})
+        p = self.connect(expect=1)
+        self.assertIn("PERMISSIONS", p.stderr)
+        self.assert_no_registration()
+        self.assertFalse(os.path.exists(self.rt_state_file()))
+
+    def test_adc_replaced_after_precheck_is_caught_even_when_no_restart_is_needed(self):
+        self.connect()
+        self.rt_set(probe_after_restart=None, probe_on_nth=None)
+        self.rt_set(probe_second={"state": "ok", "type": "authorized_user", "sha256": "2" * 64})
+        before = open(self.rt_state_file()).read()
+        p = self.connect(expect=1)
+        self.assertIn("after the final check", p.stderr)
+        self.assertEqual(open(self.rt_state_file()).read(), before)
+
+    def test_credential_with_an_empty_target_is_rewritten_not_kept(self):
+        self.seed_legacy(extra_credential=False)
+        Fake.state["studio"]["Providers"]["providers-1"]["credentials"][0]["dataEx"] = [
+            {"key": "cloudRoleToAssume", "value": "", "type": "string", "isSensitive": False}]
+        self.connect()
+        self.assertEqual([m for m, _ in self.studio_writes()], ["PUT"])
+        data = Fake.state["studio"]["Providers"]["providers-1"]["credentials"][0]["dataEx"]
+        self.assertEqual(data[0]["value"], SA)
+
+    def test_missing_adc_names_the_scoped_login_for_a_custom_directory(self):
+        custom = os.path.join(self.tmp, "my gcloud's dir")
+        os.makedirs(custom)
+        self.rt_set(dir=custom, source="DEVKIT_GCLOUD_DIR (.env)")
+        p = self.connect(expect=1)
+        self.assertIn("CLOUDSDK_CONFIG='" + custom.replace("'", "'\"'\"'") + "' gcloud auth application-default login", p.stderr)
+        # the default directory keeps the plain command
+        self.rt_set(dir=self.gdir, source="default ($HOME/.config/gcloud)")
+        os.remove(self.adc_path)
+        p = self.connect(expect=1)
+        self.assertIn("Run: gcloud auth application-default login", p.stderr)
+        self.assertNotIn("CLOUDSDK_CONFIG", p.stderr)
+
+    def test_permission_message_makes_no_rootless_podman_claim(self):
+        self.rt_set(probe={"state": "unreadable"})
+        p = self.connect(expect=1)
+        self.assertNotIn("usually map", p.stderr)
+        self.assertIn("only Docker Desktop has been verified", p.stderr)
+
+    # ── nothing secret anywhere new ──
+    def test_no_secret_in_runtime_calls_state_or_output(self):
+        p = self.connect("--json")
+        self.relogin()
+        q = self.connect("--json")
+        texts = [p.stdout + p.stderr, q.stdout + q.stderr, open(self.rt_state_file()).read(),
+                 open(os.path.join(self.rt_dir, "calls.log")).read(), open(self.state_file).read()]
+        for secret in (REFRESH_TOKEN, CLIENT_SECRET, "ya29.user", "ya29.sa"):
+            for t in texts:
+                self.assertNotIn(secret, t)
+        self.assertEqual(self.store_log(), "")
 
 
 if __name__ == "__main__":

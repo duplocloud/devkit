@@ -50,7 +50,7 @@ store() {
 
 echo "connect-cloud, static:"
 t "scripts are syntactically valid"
-if bash -n scripts/connect-cloud.sh && bash -n scripts/_cloud_auth.sh && python3 -I -m py_compile scripts/connect_cloud.py; then ok
+if bash -n scripts/connect-cloud.sh && bash -n scripts/_cloud_auth.sh && bash -n scripts/_gcp_auth.sh && python3 -I -m py_compile scripts/connect_cloud.py; then ok
 else bad "syntax"; fi
 
 echo "credential store helper (fake runtime):"

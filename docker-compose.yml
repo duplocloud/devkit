@@ -85,10 +85,16 @@ services:
       - AIStudio__XtermHost=http://localhost:${XTERM_PORT:-6060}
       - LocalFileStorage__RootPath=/data
       - Extensions__InstallerUrl=http://installer:8080
-      # Per-connection GCP bootstrap credentials: a GCP credential whose dataEx carries adcRef=<name>
-      # makes the studio load /devkit-auth/gcp/<name>.json (an authorized_user ADC file) on every scope
-      # expansion — no process-global ADC, so two connections can carry two identities and a replaced
-      # file takes effect on the next ticket message. Unset in production images; dev-kit only.
+      # GCP, native path: the published backend resolves Google credentials with its stock
+      # GoogleCredential.GetApplicationDefaultAsync. DEVKIT_GCP_ADC_ENV is set by runtime_compose to the path below
+      # ONLY when the selected gcloud directory already holds application_default_credentials.json (bound read-only,
+      # see volumes); otherwise it is empty, so the SDK keeps its normal metadata/workload-identity fallback.
+      # The client caches the first lookup per process; scripts/connect-cloud.sh recreates ONLY this service when
+      # the file first appears or is replaced by a new login.
+      - GOOGLE_APPLICATION_CREDENTIALS=${DEVKIT_GCP_ADC_ENV:-}
+      # LEGACY, not used by the normal GCP path: a patched backend once read per-connection ADC copies from
+      # the cloud_auth volume below via an `adcRef`. The published image ignores both. Kept (with the volume and
+      # its data) only so a rollback to that design finds its files; new connections write neither.
       - AIStudio__GcpAdcRoot=/devkit-auth/gcp
     volumes:
       # Shared /data file store (skills + loaded-extension skill files). Shared with the agent so it can
@@ -103,6 +109,21 @@ services:
       # A named volume rather than a host directory: a 0700 host directory owned by you is unreadable
       # by the studio's uid 1001 on Linux, and loosening it would expose the credentials on the host.
       - cloud_auth:/devkit-auth:ro
+      # Your gcloud directory, WHOLE and read-only, at a stable path (never a copy, never chmod/chown'd by the
+      # kit): a login replaces application_default_credentials.json atomically, and a single-file bind would keep
+      # showing the old inode. The host path is resolved ONCE by scripts/_runtime.sh
+      # DEVKIT_GCLOUD_DIR, else an explicit CLOUDSDK_CONFIG, else ~/.config/gcloud) and exported by runtime_compose,
+      # so run.sh, connect-cloud and compose agree. The inline default only applies to a hand-run `docker compose`
+      # that bypasses runtime_compose, where the mount is then reported as misaligned.
+      # create_host_path:false — a missing directory is an error, never a root-owned one created by the runtime
+      # (run.sh creates it first, as you). On native Linux the backend's user must be able to read the directory;
+      # connect-cloud detects an unreadable one and reports it, and never loosens it.
+      - type: bind
+        source: ${DEVKIT_GCLOUD_DIR:-/var/empty}
+        target: /devkit-gcloud
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       mongo:
         condition: service_started

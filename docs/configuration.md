@@ -289,28 +289,46 @@ The permission set and group exist because the UI's accessible-workspace list is
 no superuser bypass. Without them, login lands on `/app/auth/no-tenant-access` even though the admin token
 works against the API.
 
-## Cloud credential store
+## Cloud connections
 
-Cloud connections made with `scripts/connect-cloud.sh` (see [cli-reference.md](cli-reference.md#platform-registration))
-keep their bootstrap material in the compose volume `cloud_auth`, not in `.env` and not in a host
-directory. It is created and chowned to the studio's uid 1001 by `init-perms` on every start, mounted
-**read-only** into `duplo-ai-studio` at `/devkit-auth` from the first start, and written only through a
-short-lived helper container that runs as uid 1001 with `umask 077` and takes the secret on stdin. The
-helper never guesses the volume's name: it reads it from the running studio container's `/devkit-auth`
-mount, so a checkout that sets `COMPOSE_PROJECT_NAME` in `.env` works unchanged, and a stack that is not
-running (or runs an older compose file without the mount) is a hard error. Nothing in the stack is
-recreated when a connection is added or rotated. A second checkout gets its own volume
-(`<project>_cloud_auth`); `run.sh --reset` and `stop.sh --wipe` remove it with the rest.
+Connections made with `scripts/connect-cloud.sh` (see [cli-reference.md](cli-reference.md#platform-registration)).
+
+**AWS** stores the resolved (temporary) keys on the provider credential itself — the shape the UI's **Access
+Key** credential type uses.
+
+**GCP** uses the published backend's stock Application Default Credentials lookup. `docker-compose.yml` binds
+your **whole gcloud directory read-only** into `duplo-ai-studio` at `/devkit-gcloud` and sets
+`GOOGLE_APPLICATION_CREDENTIALS=/devkit-gcloud/application_default_credentials.json`; the credential on the
+platform carries only `cloudRoleToAssume`. Nothing is copied, no key exists, and no backend patch is involved.
+
+If no local ADC file exists at startup, `GOOGLE_APPLICATION_CREDENTIALS` is left empty so the standard Google
+metadata fallback remains available. After login, `connect-cloud.sh` automatically applies the native
+environment variable and mount and resets the backend's credential cache.
 
 | Setting | Where | Effect |
 | --- | --- | --- |
-| `AIStudio__GcpAdcRoot=/devkit-auth/gcp` | `docker-compose.yml` (studio environment) | Enables the per-connection GCP path: a GCP credential whose `dataEx` has `adcRef=<name>` makes the studio load `/devkit-auth/gcp/<name>.json` — an `authorized_user` ADC file and nothing else — on every scope expansion and impersonate `cloudRoleToAssume` with it. Unset on production images, where such a credential fails with a clear error instead of falling back to process ADC. |
-| `.devkit-cloud/connections.json` | repo root, gitignored | The non-secret records `connect-cloud.sh` keeps per connection: names, ids, account/project, region, AWS credential expiry. Dropped by `--reset`. |
+| `DEVKIT_GCLOUD_DIR` | environment or `.env` | The host directory to bind. Default: an explicitly exported `CLOUDSDK_CONFIG`, else `~/.config/gcloud` (a `CLOUDSDK_CONFIG` only in `.env` is ignored, as gcloud ignores it). Absolute path. `run.sh` creates it with plain `mkdir -p`; the kit never chmods or chowns it. For a non-default directory log in with `CLOUDSDK_CONFIG=<dir> gcloud auth application-default login`. |
+| `.devkit-cloud/connections.json` | repo root, gitignored | Non-secret records per connection. Dropped by `--reset`. |
+| `.devkit-cloud/gcp-runtime.json` | repo root, gitignored | Private, hash-only record: sha256 of the ADC file the backend last saw, the backend's container id and start marker. It decides when the backend must restart. |
 
-AWS connections store the resolved (temporary) keys on the provider credential itself — the same
-shape the UI's **Access Key** credential type uses — so they need no file in the store; GCP
-connections store only `cloudRoleToAssume` and `adcRef` on the credential, and the refresh token stays
-in the volume.
+Why the backend restarts: Google's .NET client caches the **first** credential lookup for the life of the process
+(a "no ADC" failure included, and the credential read before a later login). Replacing the file cannot clear
+that, so `connect-cloud.sh gcp` restarts **only the backend** (`compose up -d --no-deps --no-build --pull never`
+when the mount is missing, otherwise `compose restart duplo-ai-studio`) on the first native connection and again
+after a new ADC login, then waits (bounded) for health. A repeat run or a new target project on the same ADC does
+not restart; a backend restarted by something else is restarted once more because what it cached is unknown. This
+is not a promise that the backend never restarts. All GCP connections share the one host ADC identity.
+
+Before registering, the kit probes with a disposable busybox helper that runs as the backend's exact uid:gid and
+confirms it reads the same file (sha256) the host proof used. On native Linux a `0700` directory / `0600` file
+owned by you is unreadable to another uid; the kit reports that as a permissions failure and never loosens
+permissions or runs the backend as root. Only Docker Desktop has been verified; native Linux and rootless podman
+may need uid mapping or an ACL you grant yourself.
+
+The older design copied ADC into the `cloud_auth` volume (`/devkit-auth`) and used `adcRef` /
+`AIStudio__GcpAdcRoot`. The published image ignores those; they remain in compose, with the volume and its data,
+only so a rollback finds its files. New connections write nothing there, and an existing credential's `adcRef` is
+ignored and migrated away in place on the next `connect-cloud.sh gcp` run.
 
 ## Usage metrics
 

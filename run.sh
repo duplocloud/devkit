@@ -1126,6 +1126,11 @@ echo "==> Pulling images…"; runtime_compose pull
 # The installer mounts extensions/. A bind source the runtime has to create comes out root-owned under rootful docker
 # on Linux, which neither fetch-terraform-extension.sh below nor a build could then write.
 mkdir -p extensions
+# The backend binds your gcloud directory read-only (docker-compose.yml: /devkit-gcloud). A bind source the
+# runtime has to create comes out root-owned under rootful docker on Linux, so create it as YOU first — plain
+# mkdir -p: this never copies credentials and never chmods or chowns a directory that is not ours to change.
+GCLOUD_DIR="$(runtime_gcloud_dir)" || exit 1
+mkdir -p "$GCLOUD_DIR" || { echo "cannot create the gcloud directory $GCLOUD_DIR" >&2; exit 1; }
 echo "==> Starting…"; runtime_compose up -d
 
 STUDIO_PORT="$(getenv STUDIO_PORT)"; [ -z "$STUDIO_PORT" ] && STUDIO_PORT=60021
