@@ -85,10 +85,9 @@ The installer reinstalls a same-version rebuild only over a build it installed i
 such as `deploy-extension.sh` with the installer stopped or Extension Studio's in-platform flow, bump the version or
 run `./scripts/remove-extension.sh [id]` before relying on the installer for a rebuild.
 
-**From the catalog.** The Available tab lists the extensions your license entitles you to. Install there hands
-the click to this installer only once the UI tag and the studio tag in `.env.example` are images that do that.
-Those two tags predate that handoff. The installer reads that catalog only when `.env` sets these keys, so by
-default it runs on your own builds alone:
+**From the catalog.** The Available tab lists the extensions your license entitles you to, a trial included, and
+Install there hands the click to this installer. The installer reads that catalog only when `.env` sets these keys,
+so by default it runs on your own builds alone:
 
 ```bash
 LICENSE_SERVER_URL=https://console.duplocloud.com
