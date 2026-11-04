@@ -77,6 +77,8 @@ validate_header_actions() {
 # validate_header_action_exposes <manifest.json> <remoteEntry.json>: every action/child expose must be exported.
 validate_header_action_exposes() {
   local manifest="$1" remote="$2" out
+  # No actions, nothing to check: a frontend without remoteEntry.json (e.g. Webpack's remoteEntry.js) still builds.
+  jq -e '(.frontend.headerActions? // []) | type == "array" and length > 0' "$manifest" >/dev/null 2>&1 || return 0
   if ! jq -e . "$remote" >/dev/null 2>&1; then
     echo "  ✗ frontend.headerActions: $remote is missing or not valid JSON" >&2; return 1
   fi
