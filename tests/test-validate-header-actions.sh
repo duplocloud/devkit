@@ -135,6 +135,8 @@ expose_fail "expose check fails when the expose is missing" "$(wrap "[$(act '{"e
 expose_pass "expose check passes a group whose children are present" "$(wrap "[$(grp '[{"id":"c1","label":"C1","expose":"./C1"},{"id":"c2","label":"C2","expose":"./A"}]')]")"
 expose_fail "expose check fails when a child expose is missing" "$(wrap "[$(grp '[{"id":"c1","label":"C1","expose":"./C1"},{"id":"c2","label":"C2","expose":"./Gone"}]')]")" "children[1].expose"
 expose_pass "expose check passes without headerActions" '{"id":"e","frontend":{}}'
+expose_pass "expose check skips a missing remoteEntry.json without headerActions" '{"id":"e","frontend":{}}' "$TMP/none.json"
+expose_pass "expose check skips a missing remoteEntry.json with empty headerActions" "$(wrap "[]")" "$TMP/none.json"
 expose_fail "expose check fails on a missing remoteEntry.json" "$(wrap "[$ACT]")" "none.json" "$TMP/none.json"
 t "expose check prints one line per missing expose"; mk "$(wrap "[$(act '{"expose":"./X"}'),$(act '{"id":"b","expose":"./Y"}')]")"
 [ "$(validate_header_action_exposes "$TMP/ext/manifest.json" "$RE" 2>&1 | grep -c '✗')" = 2 ] && ok || bad "want 2 lines"
