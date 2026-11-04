@@ -1,0 +1,184 @@
+// Template-G structure primitives — the Extension Studio details page's shared building blocks, ported
+// for an extension remote. Source of truth: duplo-ui/portal/ai-studio/src/app/environment/extensions/
+// _g-structure.scss. Colors come ONLY from the platform's CSS-var contract; G contributes placement,
+// spacing and shapes. `@use` this from a component stylesheet — never globally (the remote ships no global
+// CSS, and the host loads the remote's JS, not a stylesheet). See reference/19-detail-page.md.
+//
+// Tokens carry a fallback because the remote may render before the host theme's custom properties are
+// resolvable (standalone `ng serve`, storybook-style previews) and because `--primary-50` / `--neutral-*`
+// are emitted by the portal build, not declared in the vendored `_theme-vars.scss`. Fallbacks are the Vuexy
+// defaults the portal ships, so a missing var degrades to the same look rather than to transparent.
+$g-white:       var(--white, #fff);
+$g-border:      var(--border-color, #ebe9f1);
+$g-headings:    var(--headings-color, #5e5873);
+$g-body:        var(--body-color, #6e6b7b);
+$g-muted:       var(--text-muted, #b9b9c3);
+$g-primary:     var(--primary, #7367f0);
+$g-primary-50:  var(--primary-50, #f0eefd);
+$g-secondary:   var(--secondary, #82868b);
+$g-neutral-50:  var(--neutral-50, #f8f8f8);
+$g-neutral-400: var(--neutral-400, #d8d6de);
+$g-success:     var(--success, #28c76f);
+$g-warning:     var(--warning, #ff9f43);
+$g-danger:      var(--danger, #ea5455);
+
+// Bootstrap's --font-family-monospace resolves to a PROPORTIONAL stack in the portal theme, so anything
+// that needs column alignment (ids, SHAs, CIDRs) names a real monospace stack literally.
+$g-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+
+// Flat bordered card — G has no card shadows.
+%g-card {
+  background: $g-white;
+  border: 1px solid $g-border;
+  border-radius: 12px;
+}
+
+// Pane micro-header ("LIFECYCLE", "ATTACHED", …).
+%g-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: $g-headings;
+  padding: 10px 12px 6px;
+}
+
+// Tile label / value pair.
+%g-tl {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: $g-muted;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+%g-tv {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+  color: $g-headings;
+  font-weight: 500;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+// G tab strip: quiet items, active = strong text + 2px primary underline. Applied as a scoped override
+// of the global flat-tabs metrics.
+%g-tabs {
+  height: 42px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid $g-border;
+
+  // Keyed on the CLASS NgbNavItem host-binds — a property binding ([ngbNavItem]="'id'") leaves no DOM
+  // attribute, so an attribute selector here would silently stop matching.
+  li.nav-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin: 0 1.4rem 0 0;
+    position: relative;
+  }
+
+  a.nav-link[ngbnavlink] {
+    padding: 0 0 0.55rem 0;
+    font-weight: 500;
+    color: $g-body;
+    border: 0;
+  }
+
+  li.nav-item.active a.nav-link[ngbnavlink],
+  a.nav-link[ngbnavlink].active {
+    color: $g-headings;
+    font-weight: 600;
+    background: transparent;
+  }
+
+  a.nav-link[ngbnavlink].active::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 2px;
+    background: $g-primary;
+    border-radius: 2px;
+  }
+}
+
+// G ghost button: white, hairline border, quiet text — the default control everywhere but the CTA.
+%g-btn-ghost {
+  background: $g-white;
+  border: 1px solid $g-border;
+  border-radius: 8px;
+  height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: $g-headings;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+
+  &:hover:not(:disabled) {
+    background: $g-neutral-50;
+    color: $g-headings;
+  }
+
+  &:disabled {
+    opacity: 0.55;
+  }
+}
+
+// The 6px currentColor status dot G puts in front of every badge. Square-cornered 6px with an 11.5px label —
+// deliberately NOT the global pill `.badge-soft.badge-dot`, which would undo the approved look.
+@mixin g-dot-badge {
+  border-radius: 6px;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+
+  &::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    flex: none;
+  }
+}
+
+// Inline "working" pulse (three bouncing dots) beside the status badge while the agent/worker is active.
+// A mixin, not a global rule, for the same reason as everything else here: include it from the consuming
+// component's own stylesheet. Vendored from common-lib/scss/_dots-loader.scss (not exported by the lib).
+@mixin dots-loader {
+  .dots-loader {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: 6px;
+    vertical-align: middle;
+
+    span {
+      display: inline-block;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background-color: currentColor;
+      animation: dots-bounce 1.2s infinite ease-in-out;
+
+      &:nth-child(1) { animation-delay: 0s; }
+      &:nth-child(2) { animation-delay: 0.2s; }
+      &:nth-child(3) { animation-delay: 0.4s; }
+    }
+  }
+
+  @keyframes dots-bounce {
+    0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+    40%           { transform: scale(1); opacity: 1; }
+  }
+}

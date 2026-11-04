@@ -37,7 +37,8 @@ from a built-in resource (Network, Namespace, …).
 > [17-custom-result-views](reference/17-custom-result-views.md) — the hand-written Result content: Overview tiles, tabs, panels ·
 > [18-access-control](reference/18-access-control.md) — the `[AccessControl]` declaration and named actions ·
 > [19-detail-page](reference/19-detail-page.md) — the detail-page shell, the lifecycle rail, per-resource phases per mode ·
-> [20-ui-library](reference/20-ui-library.md) — every `ng-common-lib` export, a "need X → use Y" picker, verified recipes, and what works in a remote.
+> [20-ui-library](reference/20-ui-library.md) — every `ng-common-lib` export, a "need X → use Y" picker, verified recipes, and what works in a remote. ·
+> [21-secrets](reference/21-secrets.md) — a Spec/Result field that holds a password/token/key: `[SecretValue]`/`[AgentSecretValue]`, encryption-at-rest, the reveal endpoint, write-only forms.
 
 > **Every dev-kit extension is TYPED — there is no archetype choice.** A typed extension ships a compiled
 > .NET DLL (`manifest.archetype = "typed"`) with the resource's own controller/route/collection, an Angular
@@ -97,7 +98,14 @@ Settle before building (derive, else ask — **after** listening):
   the **same** value. Never a bare or `clouds/…` segment — [00-naming](reference/00-naming.md) is canonical and the
   build gate enforces it. In a repo that already holds extensions, the name must collide with **no sibling** —
   including the frontend's federation remote `name` and the Mongo `extension_<entity>` collection name.
-- **Spec fields** — each with name, type, and required/optional. **Result fields** — same.
+- **Spec fields** — each with name, type, and required/optional. **Result fields** — same. For every field,
+  ask: is this a password/API token/key, or anything else sensitive? Don't wait for the user to volunteer
+  it — a field named `apiKey`/`password`/`token`/`secret` (or described that way) always gets this question.
+  If yes, settle whether it's actually an external-system credential (→ a Scope/Credential,
+  [07-scope-credentials](reference/07-scope-credentials.md), not a raw field) or an inherent attribute of
+  the resource itself (→ [21-secrets](reference/21-secrets.md): `[SecretValue]`/`[AgentSecretValue]`,
+  encryption-at-rest, a reveal endpoint, a write-only edit form) — present the field table with a
+  **Sensitive?** column so the answer is visible when you ask for approval.
 - **Provisioning MODE** — decide HOW this resource is provisioned. **Do not default to an agent skill.** Pick by
   what the work actually is (derive from the requirement; confirm if unsure):
   | Mode | Choose when the requirement is… | Wiring | Sample |
@@ -158,7 +166,7 @@ Settle before building (derive, else ask — **after** listening):
 
 **Present the settled shape for approval** (local: the plan you `ExitPlanMode` with; in-platform: the `Processing`
 summary you post) **as a structured shape, not a prose blurb:** a **Spec** field table (name · type ·
-required/optional), a **Result** field table (name · type), the **provisioning mode** with a one-line reason, the
+required/optional · sensitive?), a **Result** field table (name · type · sensitive?), the **provisioning mode** with a one-line reason, the
 **detail view's shape** — the **lifecycle phases** this resource goes through (label + the status/result field that
 drives each; [19-detail-page](reference/19-detail-page.md) → "Deriving phases") and the **Result tabs** (Overview at
 minimum; name each further tab; [17-custom-result-views](reference/17-custom-result-views.md)) — and a short
