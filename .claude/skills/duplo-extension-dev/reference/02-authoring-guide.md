@@ -103,6 +103,221 @@ no nav entry. The author supplies titles; you fill each node's `id`, `relativeUr
 `frontend.routes[]`. Full rules, shapes and the legacy `frontend.menu` deprecation:
 [08-parent-child-and-menus](08-parent-child-and-menus.md#frontend-how-the-child-shows-up).
 
+### `frontend.headerActions[]`
+
+`headerActions` adds buttons to the portal navbar. Each entry is an **action** (opens something when clicked) or a
+**group** (a dropdown of actions). The host loads your `expose` module and calls its `run(ctx)`.
+
+```json
+"headerActions": [
+  {
+    "id": "report-issue",
+    "label": "Report an issue",
+    "matIcon": "bug-outline",
+    "placement": "inline",
+    "order": 10,
+    "expose": "./HeaderActions",
+    "shortcut": "Mod+Shift+Period"
+  },
+  {
+    "id": "view-reports",
+    "label": "Reports",
+    "matIcon": "file-chart-outline",
+    "expose": "./HeaderActions"
+  },
+  {
+    "id": "cost",
+    "label": "Cost",
+    "matIcon": "chart-line",
+    "children": [
+      { "id": "daily", "label": "Daily cost", "expose": "./HeaderActions", "order": 10 },
+      { "id": "monthly", "label": "Monthly cost", "expose": "./HeaderActions", "order": 20 }
+    ]
+  }
+]
+```
+
+The samples below assume the extension id is `my-ext`, so the full ids are `my-ext.report-issue`, `my-ext.view-reports`,
+`my-ext.cost`, `my-ext.daily` and `my-ext.monthly`.
+
+The host uses the same `frontend.remote` entry for the exposes. Add `"./HeaderActions"` to the remote's `exposes`.
+A non-empty `headerActions` needs a non-blank `frontend.remote.remoteEntry`: without it the portal drops every action and the build fails.
+
+#### Fields
+
+| Field | Type | Default | Applies to | Meaning |
+|---|---|---|---|---|
+| `id` | string | required | all | Unique in the extension, no `.` (use `-`). Full id is `<extensionId>.<id>` (the host adds the prefix). |
+| `label` | string | required | all | Tooltip, menu text and aria-label. |
+| `matIcon` | string | none | top-level entries (required); optional on children | Icon name already registered in the host. |
+| `placement` | `"inline"` or `"menu"` | `"menu"` | top-level only | Where the button goes (see Placement). |
+| `order` | number | last | all | Sort key, ascending. |
+| `showInAdmin` | boolean | `false` | top-level only | Also show on AI Admin pages. |
+| `roles` | string[] | every signed-in user with at least one role | all | Only these roles see it. Administrator always passes. See Roles. |
+| `visibilityUrl` | string | none | actions only | Per-page visibility check (see below). |
+| `expose` | string | required | actions only | Module that exports `run(ctx)`, e.g. `./HeaderActions`. |
+| `shortcut` | string | none | actions only | Keyboard shortcut (see grammar). |
+| `isolatePointer` | boolean | `false` | actions only | See Flags. |
+| `preserveFocus` | boolean | `false` | actions only | See Flags. |
+| `children` | entry[] | none | groups only | Non-empty. Makes the entry a group. |
+
+Rules. The portal drops a bad entry with a `console.warn`. The build fails on the same entry.
+
+- `id` and `label` are non-blank strings. `id` must not contain `.`, so full ids cannot collide across extensions.
+- `order` is a finite number. `roles` is an array of strings. Flags are booleans.
+- Top-level entries (action or group) need `matIcon`.
+- A group must not set `expose`, `shortcut`, `visibilityUrl`, `isolatePointer` or `preserveFocus`.
+- A child must not set `children`, `placement` or `showInAdmin`. The group's `showInAdmin` applies.
+- An action (no `children`) needs `expose`.
+- Full ids must be unique, children included.
+- An unparseable `shortcut` fails the build. The portal keeps the action and drops the shortcut, with a warning.
+- A non-empty `headerActions` without a non-blank `frontend.remote.remoteEntry` fails the build. The portal drops them all.
+- After the frontend builds, `build-extension.sh` checks that every action's and child's `expose` is listed in `frontend/dist/remoteEntry.json` `exposes[].key`. A missing one fails the build. `--validate-only` skips this check.
+
+#### Roles
+
+- Valid names: `User`, `Administrator`, `SecurityAdmin`, `AIStudioAdmin`. The `UserRole` keys (`Admin`, `Security`, `AiStudioAdmin`) work too.
+- An unknown name matches nobody, so only Administrators see the entry.
+
+#### Placement and order
+
+- Order everywhere: `order` ascending, entries without `order` last, then `label` (case-insensitive), then full id.
+- There are **2 inline slots**. The first 2 `placement: "inline"` entries get them. The rest go to overflow.
+- The ⋮ menu lists the overflow items, then a divider, then all `placement: "menu"` items. The divider shows only when both sets have a visible item.
+- Slots are fixed for the session. They come from `roles` only, never from `showInAdmin` or visibility answers.
+- Hiding never moves an item. A hidden inline button leaves its slot empty; ⋮ items do not take it.
+- A group with no visible child is hidden.
+- When a new extension loads mid-session, existing items keep their slot and position. New items go to the end of their bucket.
+- A different user, a role change, or logging out and back in reassigns slots from scratch and asks every `visibilityUrl` again.
+
+#### Where buttons show
+
+- On every `/ai/...` page except `/ai/suite/admin/...`.
+- On AI Admin only when the entry sets `showInAdmin: true`.
+- Never outside `/ai/`.
+
+#### `visibilityUrl`
+
+Use it to show an action only on pages where your backend says yes.
+
+- It must be a path starting with `/v1/aiservicedesk/`.
+- It must not contain whitespace or control characters, `#`, `//`, `\`, a scheme, a `%2f` or `%5c` (any case) in the path, or a `.` or `..` segment (raw or `%2e`-encoded). The portal sends the bearer token on this request, so it must stay on our API.
+- Request: `GET <visibilityUrl>?workspaceId=<id>`. `<id>` is the page's workspace id, or `''` on pages without one. It is URL-encoded, and appended with `&` when `visibilityUrl` already has a `?`.
+- Response (bare or wrapped in `ApiResponse`):
+
+```ts
+interface HeaderActionVisibility {
+  visible: boolean;
+  workspaceId?: string | null;
+  context?: Record<string, unknown>;
+}
+```
+
+- The action shows only when `visible === true`. The check times out after 5000 ms.
+- A successful answer is cached per (visibilityUrl, workspace) until the page reloads or the user/roles change. Actions sharing one `visibilityUrl` share one request and one answer. Errors and timeouts are not cached, so the next navigation asks again.
+- `ctx.workspaceId` is `answer.workspaceId || page workspace || null`.
+- An omitted, `null` or empty `workspaceId` in the answer means "use the page's workspace".
+- Without `visibilityUrl`, the action shows once the static rules pass, and `ctx.workspaceId` is the page's workspace (or `null`).
+
+#### The `run(ctx)` contract
+
+Each `expose` module exports `run`. One `run` serves all of the extension's actions; switch on `ctx.actionId`.
+
+```ts
+export interface HeaderActionRunContext {
+  actionId: string;               // full id, e.g. "my-ext.report-issue"
+  injector: EnvironmentInjector;  // host injector
+  trigger?: HTMLElement;          // clicked element; omitted when preserveFocus is on
+  workspaceId: string | null;
+  context?: Record<string, unknown>;
+}
+
+export function run(ctx: HeaderActionRunContext): void | Promise<void>;
+```
+
+Keep a **verbatim local copy** of `HeaderActionRunContext` in your extension (for example `src/app/contract/header-action-run.ts`). The host owns the type. Do not import it from the portal.
+
+Resolve services through `ctx.injector.get(...)`. Do not use `inject()` in `run`; it is not in an injection context.
+
+Example: one `run` for every action above, with full ids. One action opens a modal, the others navigate. The group `my-ext.cost` has no case: only its children run.
+
+```ts
+// src/app/header-actions/index.ts  (exposed as ./HeaderActions)
+import { Router } from '@angular/router';
+import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
+import type { HeaderActionRunContext } from '../contract/header-action-run';
+import { ReportIssueModalComponent } from './report-issue-modal.component';
+
+export async function run(ctx: HeaderActionRunContext): Promise<void> {
+  switch (ctx.actionId) {
+    case 'my-ext.report-issue':
+      ctx.injector.get(NgbModal).open(ReportIssueModalComponent, { size: 'lg' });
+      return;
+    case 'my-ext.view-reports':
+      // workspaceId is null on pages without a workspace; there is no URL to build.
+      if (!ctx.workspaceId) {
+        return;
+      }
+      await ctx.injector.get(Router).navigateByUrl(`/ai/suite/${ctx.workspaceId}/my-ext/reports`);
+      return;
+    case 'my-ext.daily':
+    case 'my-ext.monthly': {
+      if (!ctx.workspaceId) {
+        return;
+      }
+      const period = ctx.actionId === 'my-ext.daily' ? 'daily' : 'monthly';
+      await ctx.injector.get(Router).navigateByUrl(`/ai/suite/${ctx.workspaceId}/my-ext/cost/${period}`);
+      return;
+    }
+    default:
+      console.warn(`unknown header action: ${ctx.actionId}`);
+  }
+}
+```
+
+Click flow:
+
+1. The host loads your remote module. Only this load shows the busy state. A modal your `run` opens does not block the button.
+2. It clears the busy state, then calls `run(ctx)`. It awaits a returned promise.
+3. `run` is not called if the user left `/ai/`, the action became hidden, the session changed, or the resolved workspace changed during the load.
+4. Repeat clicks while the action is loading are ignored. A group id has no `run`; only its children run.
+5. If the load or `run` fails (a rejected promise too), the host shows the toast `<label> could not be opened. Please try again.`
+
+#### Shortcut grammar
+
+`Modifier+...+Key`, joined by `+`.
+
+- One or more **unique** modifiers from `Mod`, `Ctrl`, `Shift`, `Alt`. `Mod` matches Ctrl or Cmd; the tooltip shows the platform's symbol. Never use `Mod` with `Ctrl`.
+- `Mod` or `Ctrl` is required. `Shift` and `Alt` only add to it, so `Shift+KeyK`, `Alt+KeyK` and `Alt+Shift+KeyK` are rejected (they would swallow typing).
+- All modifiers come before the key (`KeyK+Shift` is rejected). A bare key, or a modifier used as the key (`Ctrl+Shift`), is rejected too.
+- Then exactly one `KeyboardEvent.code` that matches `^(Key[A-Z]|Digit[0-9]|[A-Z][A-Za-z0-9]+)$`, for example `Period`, `KeyK`, `Digit1`.
+- Examples: `Mod+Shift+Period`, `Mod+Alt+KeyK`, `Ctrl+Shift+KeyK`.
+- The tooltip and the ⋮ / group menu rows show the shortcut in the platform's form.
+- A shortcut works only while its action is visible and not loading. If two visible actions share a shortcut, the first in view order wins and the portal warns once. View order is inline, overflow, menu, with a group's children right after the group.
+
+#### Flags
+
+| Flag | Use when | Effect |
+|---|---|---|
+| `isolatePointer` | The page has "click outside" handlers that would close your UI (a picker, a popover). | The host stops pointer events on the button at window capture, so the page never sees the click. |
+| `preserveFocus` | Your action needs the user's current focus or selection (a text field, a screenshot). | `mousedown` is cancelled so focus stays put. `trigger` is omitted. The tooltip and menus close before `run`. Run from a menu row by keyboard, focus moves to that menu's toggle (⋮ or the group button) first, so `document.activeElement` is the toggle. |
+
+A group behaves as if a flag is on when any of its visible children has it on. The ⋮ toggle does the same for its visible overflow and menu items. Hidden items do not count.
+
+#### Known limits
+
+- After an extension upgrade, the remote code already loaded in a tab keeps running until the page reloads.
+
+#### Build check
+
+`scripts/build-extension.sh` checks every rule above and fails the build on a violation. Run only the check with:
+
+```bash
+./scripts/build-extension.sh --validate-only <extension-dir>
+```
+
+Extension repos get this check only after they pull the new devkit scripts. Until then their builds skip it.
+
 ## Build, package, load
 
 The `duplo-extension-dev` skill (`../SKILL.md`) does this — both inside an Extension provisioning ticket and on
