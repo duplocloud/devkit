@@ -215,7 +215,7 @@ be read.
 
 | Variable | Effect |
 | --- | --- |
-| `DEVKIT_MODEL` | `anthropic`, `bedrock`, `gateway`, `bedrock-instance-role`, or `subscription`. Chooses which credential block below is used. |
+| `DEVKIT_MODEL` | `anthropic`, `bedrock`, `gateway`, `bedrock-instance-role`, `bedrock-iam-anywhere`, or `subscription`. Chooses which credential block below is used. |
 | `CLAUDE_MODEL` | The model id the agent calls, and the System default in the ticket LLM picker. `claude-sonnet-5` for Anthropic; `us.anthropic.claude-sonnet-5` for either Bedrock mode; for `gateway`, whatever the gateway calls it (OpenRouter: `anthropic/claude-sonnet-5`); for `subscription`, a first-party id the Claude CLI accepts. Not interchangeable — the direct Anthropic API rejects the `us.*` prefix and Bedrock requires it. |
 | `CLAUDE_EXTRA_MODELS` | Comma-separated extra model ids registered alongside `CLAUDE_MODEL` so they show in the picker. `claude-opus-5` for Anthropic and `subscription` (both call the first-party API with bare ids), `us.anthropic.claude-opus-5` for Bedrock, blank for `gateway` (a gateway names models its own way, so only the id you supplied is registered). Registration-only; the agent runs on `CLAUDE_MODEL`. |
 | `ANTHROPIC_API_KEY` | Direct Anthropic API key. Blanked by `gateway`: key **and** URL together mean "proxy in front of the real Anthropic API", a different agent code path that would send the gateway's token nowhere useful. |

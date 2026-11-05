@@ -69,6 +69,10 @@ services:
       - "${STUDIO_PORT:-60021}:60021"
     env_file:
       - ./.env
+    # host.docker.internal -> the host, so containers can reach `ra-creds serve` (bedrock-iam-anywhere, port
+    # 9911) via AWS_EC2_METADATA_SERVICE_ENDPOINT. A no-op on Docker Desktop, where the name already resolves.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - MongoDB__ConnectionString=mongodb://authuser:authpass@mongo:27017/?retryWrites=false
       - MongoDB__DatabaseName=duplo-ai-helpdesk
@@ -142,6 +146,10 @@ services:
     restart: unless-stopped
     ports:
       - "${AGENT_PORT:-8000}:8000"
+    # host.docker.internal -> the host, so containers can reach `ra-creds serve` (bedrock-iam-anywhere, port
+    # 9911) via AWS_EC2_METADATA_SERVICE_ENDPOINT. A no-op on Docker Desktop, where the name already resolves.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - PERSISTENT_VOLUME_STORAGE=/data
       - AGENT_CALLBACK_BASE_URL=http://duplo-ai-studio:60021
@@ -176,6 +184,9 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
+      # bedrock-iam-anywhere: points the AWS SDK's IMDS client at `ra-creds serve` on the host
+      # (http://host.docker.internal:9911) instead of 169.254.169.254. Blank for every other provider.
+      - AWS_EC2_METADATA_SERVICE_ENDPOINT=${AWS_EC2_METADATA_SERVICE_ENDPOINT:-}
       # Docker-in-Docker: the dind service shares this container's network namespace, so its daemon
       # is reachable on loopback here and nowhere else.
       - DOCKER_HOST=tcp://127.0.0.1:2375
