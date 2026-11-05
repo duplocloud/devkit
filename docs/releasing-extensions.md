@@ -9,6 +9,14 @@ extra steps that apply only inside DuploCloud's own organizations, `duplocloud` 
 Only one release run executes for a repository at a time. A run that starts while another is still in
 flight queues behind it rather than overlapping or being canceled mid-write.
 
+The same steps are also one reusable action,
+[duplocloud/actions/release-extension](https://github.com/duplocloud/actions/tree/main/release-extension), which
+builds, signs, releases, uploads and registers in one run and is what `release.yml` will call. Until it does, a
+repository that wants the action adds a `workflow_dispatch` workflow from the action's README, with `publish` left
+false, and disables `release.yml` while both exist, since a push to `main` would otherwise cut the tag first and
+turn the action's run into a resume. `scripts/upgrade_dev_kit.sh` removes a workflow devkit did not ship, so the
+hand-added one goes back after each upgrade until then.
+
 ## What a release produces
 
 A build is tagged `<slug>-v<version>-sdk-<sdkVersion>`, where `<slug>` is the extension directory's name
@@ -22,8 +30,9 @@ Two checks run before any of that, for every build in every organization. A mani
 entry is refused, since the host would refuse the bundle anyway, and so is a zip over 268435456 bytes (256
 MiB). A pull request that touches an extension sees the same checks ahead of time, as a warning rather than
 a failure, from `scripts/check-extension-pr.sh`. That script also warns when `manifest.version` has not
-moved, when a `skills/` folder has no matching `skills[].folder` entry in the manifest, and when a webpack
-frontend bundle ships without the file that Native Federation hosts need.
+moved, when a `skills/` folder has no matching `skills[].folder` entry in the manifest, when a webpack
+frontend bundle ships without the file that Native Federation hosts need, and when the frontend uses an
+ng-common-lib older than 0.5.1 (see the `duplo-extension-theme-migration` skill).
 
 In `duplocloud` and `duplocloud-internal`, the release also carries `extension.zip.sig`, and, for an id the
 allowlist maps to this repository, the build is uploaded to the channels bucket and registered as a new,
@@ -61,9 +70,32 @@ and the namespace. By default it fetches root keys from the console's public `ro
 needs no credential. A `--root-key` flag substitutes a local key for testing and says so in its output, so
 that run is never mistaken for a check against the console's real roots.
 
+## Obfuscating a build
+
+DuploCloud's own extensions ship with their backend assembly obfuscated by ArmDot, the same protection the
+platform's assemblies carry. Only the extension's own assembly is processed. The SDK assemblies the host
+provides never ship in the bundle, so they are never touched. ArmDot runs with control-flow obfuscation and
+code virtualization only. Renaming and string hiding stay off, because both break the reflection the host
+uses to load an extension.
+
+Obfuscation runs when `ARMDOT_LICENSE_FILE_PATH` names an ArmDot license file, and only for Release builds.
+`build-extension.sh` passes the license into the builder container and drops a temporary
+`Directory.Build.targets` beside the extension's csproj, so the extension's own project file never changes. An
+extension that already has its own `Directory.Build.targets` in its `backend/` directory is refused, since the
+build would overwrite it. A relative license path is taken relative to the directory you run the script from.
+
+A license problem fails the build rather than ship an unprotected or expiring assembly. A path that does not name
+a non-empty file is refused before anything compiles. A license file ArmDot rejects fails the build too.
+
+An obfuscated bundle's `manifest.json` carries `"obfuscation": {"tool": "armdot", "version": "<engine
+version>"}`, and a plain bundle carries no `obfuscation` key, so a release step can tell the two apart. The
+reusable release action refuses a bundle from a DuploCloud organization that carries no `obfuscation` key, so
+once `release.yml` runs that action every DuploCloud release ships obfuscated. The license is DuploCloud's, so
+a customer's build is plain and needs nothing.
+
 ## In DuploCloud's organizations
 
-Signing is mandatory in `duplocloud` and `duplocloud-internal`. A repository there sets two secrets and two
+Signing is mandatory in `duplocloud` and `duplocloud-internal`. A repository there sets these secrets and
 organization variables:
 
 | Name | Kind | Holds |
@@ -72,9 +104,10 @@ organization variables:
 | `CONSOLE_API_KEY` | Secret, granted per repository | The console API key used to register versions and artifacts |
 | `CONSOLE_SIGNING_CERT` | Organization variable | The publisher's certificate. The same value for every repository |
 | `EXTENSION_PUBLISHER_ROLE_ARN` | Organization variable | The AWS role the workflow assumes, by name, to write to the channels bucket |
+| `ARMDOT_LICENSE_KEY` | Organization secret | Base64 of DuploCloud's ArmDot license file. The reusable release action decodes it to the file `build-extension.sh` reads, so every build it runs obfuscates |
 
 The workflow maps `CONSOLE_SIGNING_KEY` onto `EXTENSION_SIGNING_KEY` and `CONSOLE_SIGNING_CERT` onto
-`EXTENSION_SIGNING_CERT` before calling the signer. Each of the four fails the job before anything is
+`EXTENSION_SIGNING_CERT` before calling the signer. Each of the first four fails the job before anything is
 written. A missing signing key or certificate fails each extension before it is signed or released, rather
 than shipping an unsigned build. An allowlisted extension with no `CONSOLE_API_KEY` fails the same way,
 before it is signed or released, since that build could never be registered. A missing
@@ -92,8 +125,9 @@ A platform owner sets up each of these once in the console. Each one then serves
    **View extension versions** and **Manage extension versions**, create a service account with that role,
    and store its API key as the organization secret. The release job reads and creates versions and artifacts,
    and publishes a version when opted in. Manage extension versions covers publishing, and the allowlist
-   supplies each extension's uuid, so the key needs no other capability. The console's own guide covers the
-   service-account workflow in `docs/platform_owner/extension-versions.md`.
+   supplies each extension's uuid, so the key needs no other capability. The reusable release action looks the
+   extension up by manifest id on the console's staff routes instead, which also needs `view_agents` on that
+   role. The console's own guide covers the service-account workflow in `docs/platform_owner/extension-versions.md`.
 2. **The signing key behind `CONSOLE_SIGNING_KEY` and `CONSOLE_SIGNING_CERT`.** The publishing team needs a
    namespace covering its manifest ids, and a signing key created under that team. The console returns the
    key's private PEM once, at creation, and that goes into the secret. The key's certificate goes into the
@@ -121,6 +155,10 @@ repository and one console extension, with an optional `"publish": true` (see "P
 The `consoleExtension` uuid comes from the console's extensions page. Without an entry, or with one that
 names a different repository, a build still signs and releases, since signing does not depend on the
 allowlist, but the release job logs a notice and never uploads or registers it.
+
+The reusable release action never reads this file. It finds the extension's record on the console by manifest id
+and registers under that, so a repository releasing through the action needs the record and the role trust, not
+an entry here. The entry stays for `release-extensions.sh` until `release.yml` runs the action.
 
 The allowlist alone is not the security boundary. The AWS role's trust policy, held in ai-release's
 Terraform (`terraform/modules/release-channels`), names the same repositories, and that trust is what

@@ -11,6 +11,8 @@
 #     hosts that load Native Federation remotes. Checked only when dist/extension.zip exists, i.e. after a build.
 #   - the manifest id or version cannot form a bucket key, which scripts/_publish.sh's publish_build refuses.
 #   - the manifest declares no resources, which the host refuses to install.
+#   - the frontend depends on ng-common-lib older than 0.5.1: light-only below 0.5.0, and without the token defaults
+#     older portals need below 0.5.1.
 #   - the built bundle is over EXTENSION_MAX_BYTES bytes (default 268435456), which the release job refuses to
 #     publish. Checked only after a build.
 #   - in one of Duplo's organizations, the manifest id is not in the extension publisher allowlist
@@ -65,6 +67,17 @@ for m in extensions/*/manifest.json extension/*/manifest.json extension/manifest
     jq -e --arg s "$s" 'any(.skills[]?.folder // ""; endswith("/skills/" + $s))' "$m" >/dev/null \
       || warn "$m" "$dir ships skills/$s but the manifest declares no skills[].folder for it, so the host never registers it."
   done
+
+  lib="$(jq -r '.dependencies["@duplocloud-internal/ng-common-lib"] // empty' "$dir/frontend/package.json" 2>/dev/null || true)"
+  lib_version="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' <<<"$lib" | head -1 || true)"
+  if [ -n "$lib_version" ] && [ "$(printf '%s\n' "$lib_version" 0.5.1 | sort -V | head -1)" != 0.5.1 ]; then
+    if [ "$(printf '%s\n' "$lib_version" 0.5.0 | sort -V | head -1)" != 0.5.0 ]; then
+      why="stays light in the portal's dark mode and repaints the portal's tables"
+    else
+      why="lacks the theme token defaults, so its components lose their backgrounds on portals without the dark theme"
+    fi
+    warn "$dir/frontend/package.json" "$dir uses ng-common-lib $lib_version, which $why. Migrate with the duplo-extension-theme-migration skill."
+  fi
 
   zip="$dir/dist/extension.zip"
   if [ -f "$zip" ]; then

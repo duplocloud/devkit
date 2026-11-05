@@ -15,16 +15,18 @@ reader takes.
 | [troubleshooting.md](troubleshooting.md) | Symptoms, causes, fixes |
 | [faq.md](faq.md) | Licensing, data, platform support, and what happens on upgrade |
 | [UPGRADING-ng-common-lib.md](UPGRADING-ng-common-lib.md) | Refreshing the vendored `@duplocloud-internal/ng-common-lib` tarball |
+| [theming.md](theming.md) | How extensions follow the portal's Light / Dark switch, and migrating an older extension |
 
 ## Writing extensions
 
-The authoring manual is the 20 numbered guides in
+The authoring manual is the 21 numbered guides in
 [`.claude/skills/duplo-extension-dev/reference/`](../.claude/skills/duplo-extension-dev/reference) —
 naming, architecture, the authoring path, base classes, hooks, custom actions, registration, scope
 credentials, parent/child and menus, the SDK API, deprovisioning, enrichment and live state, current user,
 forms and wizards, error handling, opt-in Ask AI sessions, the hand-written result content, access control,
-and the detail-page shell. They are the source of truth, and the `/duplo-extension` authoring command reads
-them directly.
+the detail-page shell, the UI library and theming. They are the source of truth, and the `/duplo-extension`
+authoring command reads them directly. To bring an older extension to the Light / Dark theme, use the
+[`duplo-extension-theme-migration`](../.claude/skills/duplo-extension-theme-migration/SKILL.md) skill.
 
 Worked examples live in [`samples/`](../samples) — start with
 [`samples/helloworld`](../samples/helloworld), the reference sample.

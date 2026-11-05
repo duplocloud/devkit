@@ -16,7 +16,6 @@
       "restSegment": "extensions/calcworkers",
       "subType": "calc-worker",
       "archetype": "typed",
-      "registrar": "DevOpsResource",
       "entityType": "Duplo.Extension.Calculator.Calculator",
       "specType": "Duplo.Extension.Calculator.CalculatorSpec",
       "resultType": "Duplo.Extension.Calculator.CalculatorResult",

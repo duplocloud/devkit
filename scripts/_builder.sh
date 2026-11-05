@@ -389,8 +389,34 @@ builder_studio_url() {
 #
 # EVERY FLAG BELOW MIRRORS THE `builder` SERVICE IN docker-compose.yml. That duplication is the price of
 # this path — change the service and change this with it.
+# builder_resolve_license: make ARMDOT_LICENSE_FILE_PATH absolute and refuse anything but a non-empty regular file.
+# Exported back, so every later consumer sees the same absolute path. Called before any `cd` by the build script,
+# so a relative path means relative to where the user ran it, and before any runtime is chosen by builder_dispatch,
+# so compose and the direct launch both refuse a bad path on the host with one clear message. Both container paths
+# need an absolute source: `-v` and compose's short volume syntax read a relative one as a named volume, and docker
+# creates a directory at a missing bind source, which `-s` alone would then accept. Empty is left alone, since the
+# compose service passes an empty value into the container when the host set none, and empty means a plain build.
+builder_resolve_license() {
+  [ -n "${ARMDOT_LICENSE_FILE_PATH:-}" ] || return 0
+  local p="$ARMDOT_LICENSE_FILE_PATH"
+  case "$p" in /*) ;; *) p="$PWD/$p" ;; esac
+  if [ ! -f "$p" ] || [ ! -s "$p" ]; then
+    echo "ERROR: ARMDOT_LICENSE_FILE_PATH names a missing or empty file: $ARMDOT_LICENSE_FILE_PATH" >&2
+    return 1
+  fi
+  export ARMDOT_LICENSE_FILE_PATH="$p"
+}
+
 builder_run_direct() {
   local script="$1"; shift
+
+  # The ArmDot license file, already absolute and checked by builder_resolve_license. Checked again here because
+  # tests and other callers may enter this function directly.
+  local armdot_license=""
+  if [ -n "${ARMDOT_LICENSE_FILE_PATH:-}" ]; then
+    builder_resolve_license || return 1
+    armdot_license="$ARMDOT_LICENSE_FILE_PATH"
+  fi
 
   # Seeded non-empty on purpose: macOS ships bash 3.2, where expanding an EMPTY array under `set -u`
   # ("${args[@]}") is an unbound-variable error.
@@ -401,6 +427,11 @@ builder_run_direct() {
   # and the compose path warm the SAME caches rather than each paying for a cold build.
   args+=(-v "duplo_devkit_nuget_$DUPLO_UID:/cache/nuget")
   args+=(-v "duplo_devkit_npm_$DUPLO_UID:/cache/npm")
+
+  # The license mounts read-only at a fixed in-container path, mirroring the compose volume entry.
+  if [ -n "$armdot_license" ]; then
+    args+=(-v "$armdot_license:/run/armdot/license.key:ro")
+  fi
 
   # extra_hosts: the route to a studio that is not on this compose network.
   args+=(--add-host "host.docker.internal:host-gateway")
@@ -427,6 +458,9 @@ builder_run_direct() {
   args+=(-e "DUPLO_HOST=${DUPLO_HOST:-}")
   args+=(-e "DUPLO_TOKEN=${DUPLO_TOKEN:-}")
   args+=(-e "DUPLO_ADMIN_TOKEN=${DUPLO_ADMIN_TOKEN:-}")
+  if [ -n "$armdot_license" ]; then
+    args+=(-e "ARMDOT_LICENSE_FILE_PATH=/run/armdot/license.key")
+  fi
 
   exec "$RUNTIME" "${args[@]}" "$BUILDER_IMAGE" "$script" "$@"
 }
@@ -442,6 +476,13 @@ builder_run_direct() {
 # script, above their traps and mktemps; that is a requirement, not a coincidence to preserve by luck.
 builder_dispatch() {
   local script="$1"; shift
+
+  # The license path is checked on the host before any runtime is chosen, so a bad value fails here with one
+  # message whichever way the build runs. .env is consulted like the other builder knobs, since compose reads it.
+  if [ -z "${ARMDOT_LICENSE_FILE_PATH:-}" ]; then
+    ARMDOT_LICENSE_FILE_PATH="$(builder_clean_value "$(_envv ARMDOT_LICENSE_FILE_PATH)")"
+  fi
+  builder_resolve_license || exit 1
 
   # Precedence: --native (which sets the variable) → the environment → .env → default containerized.
   # Reading .env matters because that is the only per-repo, per-user place to say "this laptop has the

@@ -14,7 +14,7 @@ For a top-level resource you write (rename `HelloWorld` to your resource):
 | | `HelloWorld` | `ResourceBase<Spec,Result>` | `[BsonCollection("extension_…")]`, `GetTicketOriginType()`, `GetTicketOriginSubType()` |
 | | `HelloWorldHooks` | `DefaultEntityHooks<>` (or `ResourceHooksBase<>`) | nothing, or `GetImmutableSpecFields`/`GetDeletableStatuses` |
 | | `HelloWorldService` | `ResourceServiceBase<Entity,Spec,Result>` | usually nothing (ctor only) |
-| `backend/HelloWorldController.cs` | `HelloWorldsController` | `ResourcesController<Entity,Spec,Result>` | the `[Route]` + the access-node declaration `[AccessControl(Parent = typeof(Workspace), ParentIdProperty = "OwnerWorkspaceId")]` ([18-access-control](18-access-control.md)) |
+| `backend/HelloWorldController.cs` | `HelloWorldsController` | `ResourcesController<Entity,Spec,Result>` — or `AdminResourcesController<Entity,Spec,Result>` for an [admin-scoped](21-admin-resources.md) resource | the `[Route]` + the access-node declaration `[AccessControl(Parent = typeof(Workspace), ParentIdProperty = "OwnerWorkspaceId")]` ([18-access-control](18-access-control.md)); an admin-scoped controller carries the same declaration (mandatory) |
 
 Every concrete Spec/Result/entity carries `[BsonIgnoreExtraElements]` ([12](12-enrichment-and-live-state.md)).
 The skeleton is in [03-base-classes.md](03-base-classes.md#minimal-typed-resource-what-an-extension-ships)
@@ -41,6 +41,13 @@ Most extensions override none. When you do, the usual ones:
 
 Decision table: [04-hooks.md](04-hooks.md#which-to-override--quick-guide).
 
+## Admin-scoped resources
+
+If the resource is platform-wide configuration only administrators manage, derive the controller from
+`AdminResourcesController<,,>` and route it at `v1/aiservicedesk/admin/data/environment/extensions/<…>`. The
+entity/spec/result/hooks/service do not change; the FE service, skill write-back URL and manifest `scope` do. See
+[21-admin-resources.md](21-admin-resources.md) and `samples/admin-settings`.
+
 ## Resource-group-scoped (env-child) resources
 
 First-party resources that live **under a Resource Group** (like a Kubernetes `Namespace`) use the DevOps
@@ -66,7 +73,7 @@ Ties the bundle together. For a typed extension (see the hello-world manifest):
                "entryAssembly": "Duplo.Extension.HelloWorld.dll" },
   "resources": [{
     "ticketOriginType": "HelloWorld", "restSegment": "extensions/helloworlds", "subType": "hello-world",
-    "archetype": "typed", "registrar": "DevOpsResource",
+    "archetype": "typed",
     "entityType": "Duplo.Extension.HelloWorld.HelloWorld",
     "specType":   "Duplo.Extension.HelloWorld.HelloWorldSpec",
     "resultType": "Duplo.Extension.HelloWorld.HelloWorldResult",
@@ -85,6 +92,8 @@ fully-qualified type names in your DLL; `backend.assemblyDir` is `<id>/<version>
 ([06](06-registration.md#reloading-changed-code--bump-manifestversion)) — you don't have to bump either path
 with it, since `build-extension.sh` derives both from `id` and `version` when it writes the bundle manifest.
 It prints a `NOTE:` if a checked-in value disagreed.
+Nothing in `resources[]` marks a resource as admin-scoped — the controller's route does; the frontend marks its
+admin menu tree and routes with `"scope": "admin"` ([21-admin-resources](21-admin-resources.md)).
 
 ### Naming
 
@@ -102,6 +111,11 @@ becomes a new top-level group; a root that matches an existing section (`DevOps`
 no nav entry. The author supplies titles; you fill each node's `id`, `relativeUrl` and the matching
 `frontend.routes[]`. Full rules, shapes and the legacy `frontend.menu` deprecation:
 [08-parent-child-and-menus](08-parent-child-and-menus.md#frontend-how-the-child-shows-up).
+
+**Admin vs workspace side.** A tree renders in AI DevOps by default. Set `"scope": "admin"` on a tree's
+**top-level** node to render it in AI Admin instead (titles merge into the admin menu the same way), and give each
+`routes[]` entry it links to `"scope": "admin"` too — those routes mount at `/ai/suite/admin/<path>` behind the admin
+guard. Use it for admin-scoped resources ([21-admin-resources](21-admin-resources.md)).
 
 ## Build, package, load
 
@@ -259,12 +273,12 @@ a plain `npm install` just works from a fresh clone. Two schemes coexist:
 
 - **The samples** share one copy at repo-root `packages/`, since they never leave this repo:
   ```json
-  "@duplocloud-internal/ng-common-lib": "file:../../../packages/duplocloud-internal-ng-common-lib-0.4.0.tgz",
+  "@duplocloud-internal/ng-common-lib": "file:../../../packages/duplocloud-internal-ng-common-lib-0.5.3.tgz",
   ```
 - **The skill template** (`templates/helloworld/frontend/`) keeps its **own** copy under `vendor/`, because it
   gets copied out to `extensions/<name>/` or a provisioning workdir and must stay self-contained:
   ```json
-  "@duplocloud-internal/ng-common-lib": "file:vendor/duplocloud-internal-ng-common-lib-0.4.0.tgz",
+  "@duplocloud-internal/ng-common-lib": "file:vendor/duplocloud-internal-ng-common-lib-0.5.3.tgz",
   ```
 
 Scaffolding from the template carries the tarball and the specifier with it — keep both when you copy.
@@ -364,7 +378,8 @@ It checks that `dist/remoteEntry.json` exists and is flat (no `dist/browser/`), 
 manifest's `remoteName`, that the exposed module is present, and — when given the host entry — that every shared
 package the remote declares is published by the host at the same major.
 
-Bootstrap 4 + the Vuexy theme are served globally by the host, so the remote ships no CSS. Build with a strict
+Bootstrap 4 + the Vuexy theme are served globally by the host, so the remote ships no CSS. Colours come only from
+the `$g-*` theme names so the extension follows Light/Dark — [21-theming](21-theming.md). Build with a strict
 `npm ci` / `npm install` — never npm's legacy peer-dependency flag.
 
 ### Viewing the result

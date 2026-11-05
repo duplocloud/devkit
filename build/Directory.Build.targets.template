@@ -1,0 +1,5 @@
+<Project>
+  <!-- Dropped beside the extension csproj by scripts/build-extension.sh for the duration of one build, so the
+       extension's own project file never changes. DuploDevkitBuildDir is the devkit's build/ directory. -->
+  <Import Project="$(DuploDevkitBuildDir)ArmDot.Obfuscation.targets" Condition="'$(DuploObfuscate)' == 'true'" />
+</Project>

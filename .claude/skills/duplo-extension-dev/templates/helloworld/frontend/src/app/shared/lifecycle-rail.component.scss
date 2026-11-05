@@ -59,7 +59,7 @@
     height: 20px;
     border-radius: 50%;
     border: 2px solid $g-neutral-400;
-    background: $g-white;
+    background: $g-surface;
     flex: none;
     position: relative;
     margin-top: 1px;
@@ -87,7 +87,7 @@
     background: transparent;
     padding: 0;
     font: inherit;
-    color: $g-primary;
+    color: $g-primary-text;
     font-weight: 600;
     cursor: pointer;
     margin-left: 4px;
@@ -183,7 +183,7 @@
 
     i,
     svg {
-      color: $g-warning;
+      color: $g-warning-text;
     }
   }
 
@@ -193,7 +193,7 @@
 
     i,
     svg {
-      color: $g-primary;
+      color: $g-primary-text;
     }
   }
 }

@@ -13,6 +13,11 @@
 #
 # Usage: ./scripts/build-extension.sh [--native] <extension-dir>   # e.g. ./extension or samples/helloworld
 set -euo pipefail
+# _builder.sh is sourced before the cd so the license path resolves against the caller's directory, not the repo
+# root. It defines functions only, and builder_dispatch (below) is what needs _target.sh sourced first.
+# shellcheck source=scripts/_builder.sh
+source "$(dirname "$0")/_builder.sh"  # → native, or re-launch this build in the builder container
+builder_resolve_license || exit 1
 cd "$(dirname "$0")/.."
 
 # Strip --native before the positional arg is read, so it works in either order.
@@ -22,8 +27,6 @@ DIR="${1:?usage: build-extension.sh [--native] <extension-dir>}"
 DIR="${DIR%/}"
 # shellcheck source=scripts/_target.sh
 source "$(dirname "$0")/_target.sh"   # → BASE_URL (+ TOKEN) from .env / env per DUPLO_TARGET
-# shellcheck source=scripts/_builder.sh
-source "$(dirname "$0")/_builder.sh"  # → native, or re-launch this build in the builder container
 # shellcheck source=scripts/_sdk_digest.sh
 source "$(dirname "$0")/_sdk_digest.sh"  # → sdk_digest, stamped into the bundle manifest beside sdkVersion
 BASE_URL="${BASE_URL%/}"               # tolerate a trailing slash in DUPLO_HOST (avoids // in URLs)
@@ -84,11 +87,79 @@ if [ -d "$DIR/skills" ]; then
         | grep -vE 'environment/(extensions/|extension-studio)' | grep -vE 'environment/\{' || true)
   [ -n "$bad" ] && { echo "  ! skill callback URL(s) not under 'environment/extensions/' — confirm they target this extension's restSegment:" >&2; printf '%s\n' "$bad" | sed 's/^/      /' >&2; }
 fi
+# Admin extension scope (reference/21-admin-resources.md). An AdminResourcesController serves a route with no
+# {workspaceId}, gated by the Admin Workspace's grants, and owns its rows in the system Admin Workspace; a workspace
+# controller must never sit under the admin prefix. The manifest marks admin surfaces with "scope": "admin" on the top-level menu node + its routes.
+has_admin=0; has_ws=0
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  # `|| true`: a file with no Route(" attribute (a child that only routes its actions via [HttpPost("~/…")], or
+  # one that names ResourcesController< in a comment) must not abort the script under pipefail.
+  route=$( { grep -oE 'Route\("[^"]*"\)' "$f" || true; } | head -1 | sed -E 's/Route\("([^"]*)"\)/\1/')
+  # A child controller often has no class-level [Route] and roots its actions instead (03-base-classes).
+  [ -n "$route" ] || route=$( { grep -oE 'Http[A-Za-z]+\("~/[^"]*"' "$f" || true; } | head -1 | sed -E 's/.*"~\/([^"]*)"/\1/')
+  if grep -qE ':[[:space:]]*AdminResourcesController<' "$f"; then
+    has_admin=1
+    case "$route" in v1/aiservicedesk/admin/data/environment/extensions/*) ;; *)
+      echo "  ✗ $(basename "$f"): an AdminResourcesController must be routed at 'v1/aiservicedesk/admin/data/environment/extensions/<…>' (got '$route')" >&2; viol=1 ;;
+    esac
+    # Mirrors the host's startup check: an admin controller whose entity is not a registered access node fails
+    # the access registry rebuild, and the extension load is rolled back.
+    grep -qE '^[[:space:]]*\[([^]/]*[,[:space:]])?AccessControl\(' "$f" || {
+      echo "  ✗ $(basename "$f"): an AdminResourcesController must declare its access node — [AccessControl(Parent = typeof(Workspace), ParentIdProperty = \"OwnerWorkspaceId\")] — or the host rejects the load" >&2; viol=1; }
+  elif grep -qE ':[[:space:]]*ChildResourceController<' "$f" && grep -qE 'override string GetWorkspaceIdFromRoute' "$f"; then
+    # Admin child: the SDK has no admin ChildResourceController, so the extension's child controller
+    # overrides GetWorkspaceIdFromRoute (+ the workspaceId actions) itself — see reference/21-admin-resources.md.
+    has_admin=1
+    case "$route" in v1/aiservicedesk/admin/data/environment/extensions/*) ;; *)
+      echo "  ✗ $(basename "$f"): an admin child controller (overrides GetWorkspaceIdFromRoute) must be routed under 'v1/aiservicedesk/admin/data/environment/extensions/<…>' (got '$route')" >&2; viol=1 ;;
+    esac
+    for a in CanDeprovision Deprovision ForceReconcile CreateTicket GetTicketStatus; do
+      grep -qE "override[[:space:]]+(async[[:space:]]+)?Task<IActionResult>[[:space:]]+$a\(" "$f" || {
+        echo "  ✗ $(basename "$f"): admin child controller must override $a with a [BindNever] string? workspaceId (the admin route has no {workspaceId}; otherwise it returns 400)" >&2; viol=1; }
+    done
+  elif grep -qE ':[[:space:]]*(ResourcesController|ChildResourceController)<' "$f"; then
+    has_ws=1
+    case "$route" in *aiservicedesk/admin/*)
+      echo "  ✗ $(basename "$f"): '$route' is an admin route — derive from AdminResourcesController (or, for a child, override GetWorkspaceIdFromRoute; see reference/21-admin-resources.md)" >&2; viol=1 ;;
+    esac
+  fi
+done < <(grep -rlE 'Controller<' "$DIR/backend" --include='*.cs' 2>/dev/null | grep -vE '/(bin|obj)/' || true)
+while IFS= read -r sc; do
+  echo "  ✗ frontend extension scope '$sc' must be 'workspace' or 'admin' (this is not a Provider scope)" >&2; viol=1
+done < <(jq -r '[.frontend.routes[]?.scope, .frontend.menus[]?.scope] | map(select(. != null and . != "workspace" and . != "admin")) | .[]' "$MANIFEST")
+while IFS= read -r n; do
+  echo "  ✗ frontend.menus node '$n' sets the extension 'scope' — only the TOP-LEVEL node of a menu tree may (the whole tree follows it)" >&2; viol=1
+done < <(jq -r '.frontend.menus // [] | .[] | (.children // []) | .. | objects | select(has("scope")) | (.id // .title)' "$MANIFEST")
+while IFS=$'\t' read -r u sc; do
+  [ -n "$u" ] || continue
+  echo "  ✗ menu link '$u' is in a '$sc'-extension-scope menu tree but no frontend.routes[] entry has path '$u' with that extension scope (omitted = workspace)" >&2; viol=1
+done < <(jq -r '(.frontend.routes // []) as $r | .frontend.menus // [] | .[] | (.scope // "workspace") as $s
+  | [.. | objects | .relativeUrl? // empty] | .[] as $u
+  | select(([$r[] | select(.path == $u) | (.scope // "workspace")] | index($s)) == null) | "\($u)\t\($s)"' "$MANIFEST")
+# A plain controller (ControllerBase/Controller, e.g. a read-only workspace view of an admin resource) gets no
+# authorization unless it says so: the host has no fallback policy, and only [Authorize] runs the tenant policy
+# (workspace membership; Admin Workspace grants on /aiservicedesk/admin). Resource controllers inherit it from their base.
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  # Attribute lines only (also `[ApiController, Authorize]`) — a doc comment mentioning [Authorize] must not count.
+  grep -qE '^[[:space:]]*\[([^]/]*[,[:space:]])?Authorize([](,[:space:]]|$)' "$f" || {
+    echo "  ✗ $(basename "$f"): a controller deriving from ControllerBase/Controller must carry [Authorize] — without it its routes are anonymous (see reference/21-admin-resources.md)" >&2; viol=1; }
+done < <(grep -rlE ':[[:space:]]*(ControllerBase|Controller)[[:space:]]*($|\{|,)' "$DIR/backend" --include='*.cs' 2>/dev/null | grep -vE '/(bin|obj)/' || true)
+if [ "$has_admin" = 1 ] && [ "$has_ws" = 0 ]; then
+  if [ -d "$DIR/frontend/src" ] && ! grep -rqF 'admin/data/environment' "$DIR/frontend/src" 2>/dev/null; then
+    echo "  ✗ the backend is admin-scoped but no frontend file calls '/v1/aiservicedesk/admin/data/environment/…' — point the FE service base() at the admin route" >&2; viol=1
+  fi
+  if [ -d "$DIR/skills" ] && grep -rqE 'user/data/workspaces/[^ ]*/environment/extensions/' "$DIR/skills" 2>/dev/null; then
+    echo "  ! skill callback URL(s) use '…/user/data/workspaces/…' but the resource is admin-scoped — post to '…/admin/data/environment/extensions/<…>/{id}/status|results'" >&2
+  fi
+fi
 # Frontend ↔ backend route parity: the FE service builds its data URL from REST_SEGMENT, which MUST be the full
 # 'extensions/<…>' path AND (for a single top-level resource) equal the manifest restSegment. A bare leaf 404s
 # every list/get/create/view-template call — the #1 scaffolding pitfall. See reference/00-naming.md.
 if [ -d "$DIR/frontend/src" ]; then
-  fe_segs=$(grep -rhoE "REST_SEGMENT[[:space:]]*=[[:space:]]*'[^']+'" "$DIR/frontend/src" 2>/dev/null \
+  # `|| true`: a frontend with no REST_SEGMENT constant must not abort the script silently under pipefail.
+  fe_segs=$( { grep -rhoE "REST_SEGMENT[[:space:]]*=[[:space:]]*'[^']+'" "$DIR/frontend/src" 2>/dev/null || true; } \
             | sed -E "s/.*'([^']+)'.*/\1/" | sort -u)
   while IFS= read -r seg; do
     [ -n "$seg" ] || continue
@@ -160,6 +231,18 @@ unzip -oq "$DIR/dist-sdk.zip" -d "$DIR/backend/sdk-packages" \
 SDK_FEED="$(mktemp -d)"
 unzip -oq "$DIR/dist-sdk.zip" -d "$SDK_FEED"
 SDK_DIGEST="$(sdk_digest "$SDK_FEED")" || { rm -rf "$SDK_FEED"; echo "ERROR: the SDK bundle from $BASE_URL is empty." >&2; exit 1; }
+# Admin scope needs a host SDK that ships AdminResourcesController. Probe for the type rather than compare
+# version numbers: the loader pins an extension to exactly the version the host reports, so a minimum-version
+# check says nothing about whether the feature is there. (Whole-archive unzip -p: path globs are not portable.
+# Not grep -q: it would stop reading early, SIGPIPE unzip, and pipefail would report a miss.)
+if [ "$has_admin" = 1 ]; then
+  found=0
+  for n in "$SDK_FEED"/Duplo.Ai.DataManagement.*.nupkg; do
+    [ -f "$n" ] && unzip -p "$n" 2>/dev/null | grep -a 'AdminResourcesController' >/dev/null && found=1
+  done
+  [ "$found" = 1 ] || { rm -rf "$SDK_FEED"; echo "ERROR: the host SDK ($SDK_VER) has no AdminResourcesController — this host cannot load admin-scoped extensions (reference/21-admin-resources.md)." >&2; exit 1; }
+  echo "    host SDK supports admin-scoped resources"
+fi
 rm -rf "$SDK_FEED" "$DIR/dist-sdk.zip"
 echo "    host SDK digest: $SDK_DIGEST"
 
@@ -173,8 +256,34 @@ BASELINE="$DIR/backend/_sdkbaseline"
 rm -rf "$BASELINE"
 trap 'rm -rf "$BASELINE" 2>/dev/null || true' EXIT
 
+# ArmDot obfuscation of the extension's own assembly, on only when ARMDOT_LICENSE_FILE_PATH names a license. The
+# builder container receives an empty value when the host set none, so -n is the test, not "is set". The import
+# rides in through a Directory.Build.targets dropped beside the csproj for this one build, so the extension's own
+# project file never changes. build/ArmDot.Obfuscation.props has why only two ArmDot features are on.
+OBFUSCATE=0
+OBFUSCATE_PROPS=(-p:DuploObfuscate=false)
+OBF_TARGETS="$DIR/backend/Directory.Build.targets"
+if [ -n "${ARMDOT_LICENSE_FILE_PATH:-}" ]; then
+  # Already absolute and checked by builder_resolve_license at the top, before the cd.
+  ARMDOT_VERSION="$(sed -nE 's/.*<ArmDotEngineVersion>([^<]+)<.*/\1/p' build/ArmDot.Obfuscation.props)"
+  [ -n "$ARMDOT_VERSION" ] || { echo "ERROR: no ArmDotEngineVersion in build/ArmDot.Obfuscation.props" >&2; exit 1; }
+  # A file identical to the template is this script's own leftover from a killed build, so it is replaced. Anything
+  # else is the extension's own and is never overwritten.
+  if [ -e "$OBF_TARGETS" ] && ! cmp -s build/Directory.Build.targets.template "$OBF_TARGETS"; then
+    echo "ERROR: $OBF_TARGETS already exists. The obfuscation import is dropped there for the build," >&2
+    echo "       so move the extension's own targets into its csproj first." >&2
+    exit 1
+  fi
+  trap 'rm -rf "$BASELINE" 2>/dev/null || true; rm -f "$OBF_TARGETS"' EXIT
+  cp build/Directory.Build.targets.template "$OBF_TARGETS"
+  OBFUSCATE=1
+  OBFUSCATE_PROPS=(-p:DuploObfuscate=true -p:ArmDotLicenseFile="$ARMDOT_LICENSE_FILE_PATH" -p:DuploDevkitBuildDir="$PWD/build/")
+  echo "==> Obfuscating the extension assembly with ArmDot $ARMDOT_VERSION"
+fi
+
 echo "==> Building backend ($(basename "$CSPROJ"))"
-( cd "$DIR/backend" && dotnet publish "$(basename "$CSPROJ")" -c Release -o ../dist/backend -p:DuploSdkVersion="$SDK_VER" )
+( cd "$DIR/backend" && dotnet publish "$(basename "$CSPROJ")" -c Release -o ../dist/backend -p:DuploSdkVersion="$SDK_VER" \
+    "${OBFUSCATE_PROPS[@]}" )
 
 echo "==> Building frontend"
 # Strict install, matching the host portal. Where a dependency has no Angular 22 release (ngx-toastr,
@@ -210,7 +319,10 @@ cat > "$BASELINE/_sdkbaseline.csproj" <<EOF
 </Project>
 EOF
 echo 'namespace _SdkBaseline; internal sealed class _ {}' > "$BASELINE/_.cs"
-if ! ( cd "$BASELINE" && dotnet publish _sdkbaseline.csproj -c Release -o ./out -p:DuploSdkVersion="$SDK_VER" ) > "$BASELINE/publish.log" 2>&1; then
+# Never obfuscated, since the baseline only lists what the host provides. It sits under backend/, so the
+# Directory.Build.targets dropped there reaches it unless told otherwise.
+if ! ( cd "$BASELINE" && dotnet publish _sdkbaseline.csproj -c Release -o ./out -p:DuploSdkVersion="$SDK_VER" \
+         -p:DuploObfuscate=false ) > "$BASELINE/publish.log" 2>&1; then
   echo "ERROR: failed to compute the host-provided SDK closure (baseline publish):" >&2
   tail -20 "$BASELINE/publish.log" >&2
   exit 1
@@ -239,9 +351,12 @@ rm -rf "$PKG"; mkdir -p "$PKG/backend" "$PKG/fe" "$PKG/skills"
 # Both are always <id>/<version>/…, so compute them here instead of trusting the checked-in values. The skill
 # tail varies per entry (skills/<name>), so only the first two segments are replaced; a manifest with no
 # skills array is left alone rather than given an empty one.
-jq --arg v "$SDK_VER" --arg d "$SDK_DIGEST" '
+# The obfuscation stamp says what this build did, so a stale one in the source manifest never survives: an
+# obfuscated build overwrites it and a plain build removes it. A release step reads it to refuse an unprotected build.
+jq --arg v "$SDK_VER" --arg d "$SDK_DIGEST" --arg ob "$([ "$OBFUSCATE" = 1 ] && echo "$ARMDOT_VERSION")" '
     .sdkVersion = $v
   | .sdkDigest = $d
+  | if $ob != "" then .obfuscation = {tool: "armdot", version: $ob} else del(.obfuscation) end
   | .backend.assemblyDir = (.id + "/" + .version + "/backend")
   | .id as $i | .version as $r
   | if (.skills | type) == "array" then

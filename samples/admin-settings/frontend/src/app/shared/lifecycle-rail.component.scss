@@ -1,0 +1,199 @@
+// Right-rail styles for <ext-lifecycle-rail> — the Studio page's `Lifecycle` / `Attached` / callout cards.
+// Source: view-extension.component.scss (.g-rail, .g-rcard, .g-rh, .g-tl-list, .g-ev, .g-att, .g-callout).
+@use './g-structure' as *;
+
+// The host element IS the rail column of the page's .g-cols grid.
+:host {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.g-rcard {
+  @extend %g-card;
+  padding: 11px 14px;
+}
+
+.g-rh {
+  @extend %g-h;
+  padding: 0 0 8px;
+  letter-spacing: 0.1em;
+  color: $g-muted;
+}
+
+.g-btn-ghost {
+  @extend %g-btn-ghost;
+  width: 100%;
+  justify-content: center;
+}
+
+// Lifecycle timeline rows: connector line + state dots.
+.g-tl-list {
+  position: relative;
+  margin: 0 0 12px;
+}
+
+.g-ev {
+  display: flex;
+  gap: 9px;
+  padding: 0 0 9px;
+  position: relative;
+
+  &::before {
+    content: "";
+    position: absolute;
+    left: 9px;
+    top: 20px;
+    bottom: -2px;
+    width: 2px;
+    background: $g-border;
+  }
+
+  &:last-child::before {
+    display: none;
+  }
+
+  .dot {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid $g-neutral-400;
+    background: $g-white;
+    flex: none;
+    position: relative;
+    margin-top: 1px;
+  }
+
+  b {
+    display: block;
+    font-size: 13px;
+    color: $g-headings;
+    font-weight: 600;
+  }
+
+  small {
+    display: block;
+    color: $g-muted;
+    font-size: 11px;
+    margin-top: 1px;
+    overflow-wrap: anywhere;
+  }
+
+  // Inline action on the active phase ("Review", "Open ticket") — a real <button> for keyboard access,
+  // reset to read as a link.
+  .g-ev-action {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    font: inherit;
+    color: $g-primary;
+    font-weight: 600;
+    cursor: pointer;
+    margin-left: 4px;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
+  // Filled inner dot for every non-pending state; the colour is the state.
+  &.done .dot,
+  &.now .dot,
+  &.warn .dot,
+  &.fail .dot {
+    &::after {
+      content: "";
+      position: absolute;
+      inset: 4px;
+      border-radius: 50%;
+    }
+  }
+
+  &.done .dot { border-color: $g-success; &::after { background: $g-success; } }
+  &.warn .dot { border-color: $g-warning; &::after { background: $g-warning; } }
+  &.fail .dot { border-color: $g-danger;  &::after { background: $g-danger; } }
+
+  &.now .dot {
+    border-color: $g-primary;
+    box-shadow: 0 0 0 4px color-mix(in srgb, $g-primary 12%, transparent);
+
+    &::after {
+      background: $g-primary;
+    }
+  }
+
+  &.todo b {
+    color: $g-muted;
+    font-weight: 500;
+  }
+}
+
+// "Attached" rows: label left, value right.
+.g-att {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 0;
+  border-bottom: 1px solid $g-border;
+  font-size: 13px;
+  color: $g-body;
+  gap: 8px;
+
+  &:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+
+  b {
+    color: $g-headings;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+}
+
+// Data-derived callout (drift, stale plan, missing scope, …).
+.g-callout {
+  display: flex;
+  gap: 9px;
+  padding: 11px 14px;
+  border-radius: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: $g-headings;
+
+  i,
+  svg {
+    flex: none;
+    margin-top: 3px;
+    width: 16px;
+    height: 16px;
+  }
+
+  .mono {
+    font-family: $g-mono;
+    font-size: 11px;
+    color: $g-body;
+    overflow-wrap: anywhere;
+  }
+
+  &.warn {
+    background: color-mix(in srgb, $g-warning 12%, transparent);
+    border: 1px solid color-mix(in srgb, $g-warning 35%, transparent);
+
+    i,
+    svg {
+      color: $g-warning;
+    }
+  }
+
+  &.info {
+    background: color-mix(in srgb, $g-primary 8%, transparent);
+    border: 1px solid color-mix(in srgb, $g-primary 25%, transparent);
+
+    i,
+    svg {
+      color: $g-primary;
+    }
+  }
+}

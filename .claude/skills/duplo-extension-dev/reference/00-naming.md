@@ -23,6 +23,19 @@ Mongo, ticket origin types) and does **not** auto-namespace you — collisions a
 `clouds/*` path resolves to the built-in module — your page renders blank or shows the wrong data. `extensions/*` is
 reserved for customer extensions and mounts at `/ai/suite/{tenant}/extensions/…`.
 
+## Admin scope (`AdminResourcesController`)
+An admin-scoped resource keeps every rule above (`extensions/<feature>-<resource>` everywhere, `extension_<entity>`
+collection) and changes only the route **prefix** and the frontend `scope`. Full detail:
+[21-admin-resources](21-admin-resources.md).
+
+| Surface | Admin value |
+|---|---|
+| Controller `[Route]` | `v1/aiservicedesk/admin/data/environment/extensions/<feature>-<resource>` (no `{workspaceId}`) |
+| FE service data-call URL | `/v1/aiservicedesk/admin/data/environment/${REST_SEGMENT}` |
+| Top-level `frontend.menus[]` node + the `routes[]` it links to | `"scope": "admin"` (omitted = `workspace`; never on a nested node) |
+| Mounted at | `/ai/suite/admin/extensions/…` |
+| Skill callbacks | `…/admin/data/environment/extensions/<feature>-<resource>/{id}/status\|results` |
+
 ## Parent / child (`ChildResourceController` — nested)
 - **Parent** is a normal top-level resource: `restSegment` = `extensions/<feature>-parents`.
 - **Child** is **nested under the parent**. Its backend controller declares the nested route
@@ -52,7 +65,12 @@ callbacks hit the wrong controller.
   reserved `environment/extension-studio` is the only other accepted prefix);
 - the FE service's `REST_SEGMENT` is the full `extensions/<…>` path **and**, for a single top-level resource,
   equals the manifest `resources[].restSegment` — so the FE data-call URL can't drift from the backend route;
-- a renamed extension ships no leftover `HelloWorld`/`HelloService`/`hw-` identifiers.
+- a renamed extension ships no leftover `HelloWorld`/`HelloService`/`hw-` identifiers;
+- **admin scope:** an `AdminResourcesController` (or an admin child controller) is routed under
+  `admin/data/environment/extensions/`, no workspace controller uses an admin route, every `scope` is
+  `workspace` or `admin` and sits only on a top-level menu node, every menu link has a route of the same scope,
+  and an admin backend's frontend calls the admin route. A skill posting to `…/user/data/workspaces/…` for an
+  admin resource is warned about, not failed.
 
 Two rows in the table are **not** enforced by it. `ticketOriginType` is checked nowhere — a name that collides
 with a built-in is caught only at review. `frontend.remote.remoteEntry` is `verify-remote-federation.js`'s job,
