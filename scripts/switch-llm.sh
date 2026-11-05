@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Switch the running dev-kit agent between LLM providers (anthropic / bedrock / bedrock-instance-role /
-# gateway) without ./run.sh --reset — no DB wipe, no re-licensing. Just an .env rewrite, an agent
+# bedrock-iam-anywhere / gateway) without ./run.sh --reset — no DB wipe, no re-licensing. Just an .env rewrite, an agent
 # container recreate, and an LLM re-registration in the studio.
 #
 # WHY a separate script: run.sh's provider arms only run once, on first setup — the values they write
@@ -13,6 +13,7 @@
 #   ./scripts/switch-llm.sh bedrock   [--aws-access-key-id ..] [--aws-secret-access-key ..] \
 #                                     [--aws-session-token ..] [--aws-region ..]
 #   ./scripts/switch-llm.sh bedrock-instance-role [--aws-region ..]
+#   ./scripts/switch-llm.sh bedrock-iam-anywhere [--aws-region ..]   (needs `ra-creds serve` running on this machine)
 #   ./scripts/switch-llm.sh subscription [--subscription-token T] [--subscription-model M]
 #   ./scripts/switch-llm.sh gateway   [--gateway-url U] [--gateway-token T] [--gateway-model M] \
 #                                     [--gateway-disable-betas 1] [--gateway-max-context-tokens N] \
@@ -94,6 +95,7 @@ resolve() { # flagval envkey prompt secret?
 KEYS_anthropic=(ANTHROPIC_API_KEY CLAUDE_MODEL CLAUDE_EXTRA_MODELS)
 KEYS_bedrock=(AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_REGION CLAUDE_MODEL CLAUDE_EXTRA_MODELS)
 KEYS_bedrock_instance_role=(AWS_REGION CLAUDE_MODEL CLAUDE_EXTRA_MODELS)
+KEYS_bedrock_iam_anywhere=(AWS_REGION AWS_EC2_METADATA_SERVICE_ENDPOINT CLAUDE_MODEL CLAUDE_EXTRA_MODELS)
 # GATEWAY_KEYS comes from _provider_gateway.sh; CLAUDE_MODEL is set by provider_gateway_configure too.
 KEYS_gateway=("${GATEWAY_KEYS[@]}" CLAUDE_MODEL CLAUDE_EXTRA_MODELS)
 # SUBSCRIPTION_KEYS comes from _provider_subscription.sh; CLAUDE_MODEL is set by its configure too.
@@ -104,12 +106,13 @@ keys_for() { # provider -> prints the array name to nameref
     anthropic) printf '%s\n' "${KEYS_anthropic[@]}" ;;
     bedrock) printf '%s\n' "${KEYS_bedrock[@]}" ;;
     bedrock-instance-role) printf '%s\n' "${KEYS_bedrock_instance_role[@]}" ;;
+    bedrock-iam-anywhere) printf '%s\n' "${KEYS_bedrock_iam_anywhere[@]}" ;;
     gateway) printf '%s\n' "${KEYS_gateway[@]}" ;;
     subscription) printf '%s\n' "${KEYS_subscription[@]}" ;;
   esac
 }
 
-known_providers="anthropic bedrock bedrock-instance-role gateway subscription"
+known_providers="anthropic bedrock bedrock-instance-role bedrock-iam-anywhere gateway subscription"
 
 # Stash keys are namespaced by provider because some keys are owned by more than one provider —
 # CLAUDE_MODEL above all, whose id format differs per provider (us.anthropic.… on Bedrock,
@@ -150,10 +153,21 @@ status() {
   done
 }
 
-[ -n "$TARGET" ] || { echo "Usage: ./scripts/switch-llm.sh <anthropic|bedrock|bedrock-instance-role|gateway|subscription|status> [flags]" >&2; exit 1; }
+[ -n "$TARGET" ] || { echo "Usage: ./scripts/switch-llm.sh <anthropic|bedrock|bedrock-instance-role|bedrock-iam-anywhere|gateway|subscription|status> [flags]" >&2; exit 1; }
 TARGET="$(printf '%s' "$TARGET" | tr '[:upper:]' '[:lower:]')"
 [ "$TARGET" = status ] && { status; exit 0; }
-case " $known_providers " in *" $TARGET "*) ;; *) echo "Unknown provider '$TARGET' (use anthropic, bedrock, bedrock-instance-role, gateway, subscription, or status)." >&2; exit 1 ;; esac
+case " $known_providers " in *" $TARGET "*) ;; *) echo "Unknown provider '$TARGET' (use anthropic, bedrock, bedrock-instance-role, bedrock-iam-anywhere, gateway, subscription, or status)." >&2; exit 1 ;; esac
+
+# bedrock-iam-anywhere: probe ra-creds BEFORE stashing/blanking anything, so a missing endpoint leaves .env untouched.
+if [ "$TARGET" = bedrock-iam-anywhere ]; then
+  RA_PORT="${RA_CREDS_PORT:-$(getenv RA_CREDS_PORT)}"; RA_PORT="${RA_PORT:-9911}"
+  echo "==> Checking ra-creds endpoint on 127.0.0.1:${RA_PORT}…"
+  if ! curl -sf -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' "http://127.0.0.1:$RA_PORT/latest/api/token" >/dev/null 2>&1; then
+    echo "ra-creds is not answering on 127.0.0.1:$RA_PORT." >&2
+    echo "Start it first in another terminal: ra-creds serve --account ${RA_CREDS_ACCOUNT:-<alias>} --role admin" >&2
+    exit 1
+  fi
+fi
 
 CURRENT="$(getenv DEVKIT_MODEL)"
 if [ "$CURRENT" = "$TARGET" ]; then
@@ -211,6 +225,17 @@ case "$TARGET" in
     echo "    using EC2 instance role for Bedrock in $RG — no keys stored in .env."
     LLM_DESC="AWS Bedrock via EC2 instance role"
     ;;
+  bedrock-iam-anywhere)
+    # Creds come from `ra-creds serve` on this machine; see run.sh's arm of the same name. Static keys
+    # are blanked (a leftover real key would win the chain), the endpoint is set below the case.
+    RG="$F_AWS_REGION"; [ -z "$RG" ] && RG="$(getenv AWS_REGION)"; [ -z "$RG" ] && RG="us-west-2"
+    for k in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN ANTHROPIC_API_KEY ANTHROPIC_BASE_URL; do setenv "$k" ""; done
+    setenv AWS_REGION "$RG"
+    setenv CLAUDE_MODEL "$BEDROCK_MODEL"
+    setenv CLAUDE_EXTRA_MODELS "$BEDROCK_EXTRA_MODELS"
+    echo "    using IAM Roles Anywhere creds from ra-creds for Bedrock in $RG — no keys stored in .env."
+    LLM_DESC="AWS Bedrock via IAM Roles Anywhere (ra-creds)"
+    ;;
   gateway)
     provider_gateway_configure || exit 1
     LLM_DESC="LLM Gateway"
@@ -221,6 +246,13 @@ case "$TARGET" in
     ;;
 esac
 
+# The endpoint is owned by bedrock-iam-anywhere alone. Blank it for every other target so containers
+# are never left pointed at ra-creds (it would shadow a real instance role); that arm sets it here.
+if [ "$TARGET" = bedrock-iam-anywhere ]; then
+  setenv AWS_EC2_METADATA_SERVICE_ENDPOINT "http://host.docker.internal:$RA_PORT"
+else
+  setenv AWS_EC2_METADATA_SERVICE_ENDPOINT ""
+fi
 setenv DEVKIT_MODEL "$TARGET"
 
 if ! runtime_compose_running_services | grep -qx claude-code-agent; then
@@ -235,7 +267,7 @@ echo "==> Registering $(getenv CLAUDE_MODEL) ($LLM_DESC) as the System default L
 if LLM_PROVIDER_LABEL="$LLM_DESC" ./scripts/register-llm.sh; then
   case "$TARGET" in
     gateway) echo "✔ agent now on LLM gateway @ $(getenv ANTHROPIC_BASE_URL) (model: $(getenv CLAUDE_MODEL))" ;;
-    bedrock-instance-role) echo "✔ agent now on $LLM_DESC @ $(getenv AWS_REGION)" ;;
+    bedrock-instance-role|bedrock-iam-anywhere) echo "✔ agent now on $LLM_DESC @ $(getenv AWS_REGION)" ;;
     subscription) echo "✔ agent now on your Claude Code subscription (model: $(getenv CLAUDE_MODEL)) — local dev only" ;;
     *) echo "✔ agent now on $LLM_DESC (model: $(getenv CLAUDE_MODEL))" ;;
   esac

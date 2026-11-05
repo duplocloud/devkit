@@ -27,7 +27,7 @@ it is safe and silent.
 ```
 
 On an EC2 host the provider prompt first probes whether the instance role can actually invoke Bedrock
-(see [`detect-bedrock.sh`](#platform-registration)) and, if so, offers it as a fourth, keyless option.
+(see [`detect-bedrock.sh`](#platform-registration)) and, if so, offers it as a fourth, keyless option. (A separate option 6, `bedrock-iam-anywhere`, is always offered and uses credentials from `ra-creds` on your machine instead of an instance role.)
 
 | Flag | Effect |
 | --- | --- |

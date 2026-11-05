@@ -71,6 +71,8 @@ services:
       - ./.env
     # host.docker.internal -> the host, so containers can reach `ra-creds serve` (bedrock-iam-anywhere, port
     # 9911) via AWS_EC2_METADATA_SERVICE_ENDPOINT. A no-op on Docker Desktop, where the name already resolves.
+    # bedrock-iam-anywhere is Mac/Docker Desktop only for now: ra-creds binds host loopback, which a Linux
+    # host-gateway address does not reach, so this line alone does not make it work on Linux.
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:

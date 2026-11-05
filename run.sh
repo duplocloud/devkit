@@ -1093,7 +1093,7 @@ elif [ "$MODEL" = bedrock-iam-anywhere ]; then
   # AWS_EC2_METADATA_SERVICE_ENDPOINT override points its IMDS client there instead of 169.254.169.254.
   # As with bedrock-instance-role the static keys are blanked, not unset: empty values don't
   # short-circuit the credential chain, but a leftover real key would win and the endpoint never be read.
-  RA_PORT="${RA_CREDS_PORT:-9911}"
+  RA_PORT="${RA_CREDS_PORT:-$(getenv RA_CREDS_PORT)}"; RA_PORT="${RA_PORT:-9911}"   # shell env, then .env, then default
   RG="$F_AWS_REGION"; [ -z "$RG" ] && RG="$(getenv AWS_REGION)"; [ -z "$RG" ] && RG="us-west-2"
   echo "==> Checking ra-creds endpoint on 127.0.0.1:${RA_PORT}…"
   if ! curl -sf -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' "http://127.0.0.1:$RA_PORT/latest/api/token" >/dev/null 2>&1; then
@@ -1327,7 +1327,7 @@ esac
 
 PROVIDER_DESC="$MODEL"
 [ "$MODEL" = bedrock-instance-role ] && PROVIDER_DESC="bedrock via EC2 instance role${AWS_ROLE:+ ($AWS_ROLE)} @ $(getenv AWS_REGION) — no keys in .env"
-[ "$MODEL" = bedrock-iam-anywhere ] && PROVIDER_DESC="bedrock via IAM Roles Anywhere (ra-creds @ host:${RA_CREDS_PORT:-9911}) @ $(getenv AWS_REGION) — no keys in .env"
+[ "$MODEL" = bedrock-iam-anywhere ] && PROVIDER_DESC="bedrock via IAM Roles Anywhere (ra-creds @ host:${RA_PORT:-9911}) @ $(getenv AWS_REGION) — no keys in .env"
 [ "$MODEL" = gateway ] && PROVIDER_DESC="LLM gateway @ $(getenv ANTHROPIC_BASE_URL)"
 [ "$MODEL" = subscription ] && PROVIDER_DESC="Claude Code subscription (model $(getenv CLAUDE_MODEL)) — your own token, local dev only"
 
