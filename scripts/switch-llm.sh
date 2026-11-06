@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Switch the running dev-kit agent between LLM providers (anthropic / bedrock / bedrock-instance-role /
 # bedrock-iam-anywhere / gateway) without ./run.sh --reset — no DB wipe, no re-licensing. Just an .env rewrite, an agent
-# container recreate, and an LLM re-registration in the studio.
+# container recreate (plus the studio when the AWS keys/region/metadata endpoint change — it reads .env too),
+# and an LLM re-registration in the studio.
 #
 # WHY a separate script: run.sh's provider arms only run once, on first setup — the values they write
 # are then "configured" and later runs never touch them (see run.sh's own header). --reset is the only
@@ -169,6 +170,13 @@ if [ "$TARGET" = bedrock-iam-anywhere ]; then
   fi
 fi
 
+# The studio reads the whole .env through env_file, so it holds its own copy of the AWS keys, region and
+# metadata endpoint (it calls Bedrock too). Remember them so the studio is recreated below whenever they
+# change — otherwise it keeps the old provider's keys/endpoint until the next ./run.sh.
+AWS_ENV_KEYS=(AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_REGION AWS_EC2_METADATA_SERVICE_ENDPOINT)
+aws_env_snapshot() { local k; for k in "${AWS_ENV_KEYS[@]}"; do printf '%s=%s\n' "$k" "$(getenv "$k")"; done; }
+AWS_ENV_BEFORE="$(aws_env_snapshot)"
+
 CURRENT="$(getenv DEVKIT_MODEL)"
 if [ "$CURRENT" = "$TARGET" ]; then
   echo "Already on $TARGET — reconfiguring in place (existing values reused unless flags override)." >&2
@@ -255,13 +263,28 @@ else
 fi
 setenv DEVKIT_MODEL "$TARGET"
 
-if ! runtime_compose_running_services | grep -qx claude-code-agent; then
+RUNNING="$(runtime_compose_running_services)"
+if ! printf '%s\n' "$RUNNING" | grep -qx claude-code-agent; then
   echo "==> Agent container isn't running — .env is updated; start the stack with ./run.sh to apply it." >&2
   exit 0
 fi
 
-echo "==> Recreating the agent with the new provider…"
-"$RUNTIME" compose up -d claude-code-agent
+SERVICES=(claude-code-agent)
+RECREATE_STUDIO=0
+if [ "$(aws_env_snapshot)" != "$AWS_ENV_BEFORE" ] && printf '%s\n' "$RUNNING" | grep -qx duplo-ai-studio; then
+  SERVICES+=(duplo-ai-studio); RECREATE_STUDIO=1
+fi
+echo "==> Recreating ${SERVICES[*]} with the new provider…"
+"$RUNTIME" compose up -d "${SERVICES[@]}"
+if [ "$RECREATE_STUDIO" = 1 ]; then
+  # register-llm.sh below talks to the studio, so wait for it to come back (same probe run.sh uses).
+  STUDIO_PORT="$(getenv STUDIO_PORT)"; [ -z "$STUDIO_PORT" ] && STUDIO_PORT=60021
+  echo -n "==> Waiting for studio at http://localhost:$STUDIO_PORT "
+  for _ in $(seq 1 90); do
+    curl -fsS --max-time 4 "http://localhost:$STUDIO_PORT/healthz" >/dev/null 2>&1 && { echo " ready."; break; }
+    echo -n "."; sleep 3
+  done
+fi
 
 echo "==> Registering $(getenv CLAUDE_MODEL) ($LLM_DESC) as the System default LLM…"
 if LLM_PROVIDER_LABEL="$LLM_DESC" ./scripts/register-llm.sh; then

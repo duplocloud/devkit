@@ -1089,8 +1089,9 @@ elif [ "$MODEL" = bedrock-iam-anywhere ]; then
   # Credentials come from `ra-creds serve` running on THIS machine (IAM Roles Anywhere): an
   # IMDSv2-compatible endpoint on the host loopback that renews short-lived creds itself, so the key
   # never lands in .env. The containers reach it through host.docker.internal (Docker Desktop forwards
-  # it to host loopback; extra_hosts in docker-compose.yml covers Linux), and the AWS SDK's
-  # AWS_EC2_METADATA_SERVICE_ENDPOINT override points its IMDS client there instead of 169.254.169.254.
+  # it to host loopback), and the AWS SDK's AWS_EC2_METADATA_SERVICE_ENDPOINT override points its IMDS
+  # client there instead of 169.254.169.254. Mac/Docker Desktop only: on Linux, extra_hosts'
+  # host-gateway is the bridge address, which does not reach ra-creds bound to host loopback.
   # As with bedrock-instance-role the static keys are blanked, not unset: empty values don't
   # short-circuit the credential chain, but a leftover real key would win and the endpoint never be read.
   RA_PORT="${RA_CREDS_PORT:-$(getenv RA_CREDS_PORT)}"; RA_PORT="${RA_PORT:-9911}"   # shell env, then .env, then default
