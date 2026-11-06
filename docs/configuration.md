@@ -17,6 +17,7 @@ Everything the dev kit reads comes from `.env` in the repo root. Copy it from `.
 - [Authentication and platform](#authentication-and-platform)
 - [LLM provider](#llm-provider)
 - [Created by `run.sh`](#created-by-runsh)
+- [Cloud credential store](#cloud-credential-store)
 
 ## How `.env` is maintained
 
@@ -289,6 +290,47 @@ Written on first run. You should not need to set these by hand.
 The permission set and group exist because the UI's accessible-workspace list is permission-set based with
 no superuser bypass. Without them, login lands on `/app/auth/no-tenant-access` even though the admin token
 works against the API.
+
+## Cloud connections
+
+Connections made with `scripts/connect-cloud.sh` (see [cli-reference.md](cli-reference.md#platform-registration)).
+
+**AWS** stores the resolved (temporary) keys on the provider credential itself — the shape the UI's **Access
+Key** credential type uses.
+
+**GCP** uses the published backend's stock Application Default Credentials lookup. `docker-compose.yml` binds
+your **whole gcloud directory read-only** into `duplo-ai-studio` at `/devkit-gcloud` and sets
+`GOOGLE_APPLICATION_CREDENTIALS=/devkit-gcloud/application_default_credentials.json`; the credential on the
+platform carries only `cloudRoleToAssume`. Nothing is copied, no key exists, and no backend patch is involved.
+
+If no local ADC file exists at startup, `GOOGLE_APPLICATION_CREDENTIALS` is left empty so the standard Google
+metadata fallback remains available. After login, `connect-cloud.sh` automatically applies the native
+environment variable and mount and resets the backend's credential cache.
+
+| Setting | Where | Effect |
+| --- | --- | --- |
+| `DEVKIT_GCLOUD_DIR` | environment or `.env` | The host directory to bind. Default: an explicitly exported `CLOUDSDK_CONFIG`, else `~/.config/gcloud` (a `CLOUDSDK_CONFIG` only in `.env` is ignored, as gcloud ignores it). Absolute path. `run.sh` creates it with plain `mkdir -p`; the kit never chmods or chowns it. For a non-default directory log in with `CLOUDSDK_CONFIG=<dir> gcloud auth application-default login`. |
+| `.devkit-cloud/connections.json` | repo root, gitignored | Non-secret records per connection. Dropped by `--reset`. |
+| `.devkit-cloud/gcp-runtime.json` | repo root, gitignored | Private, hash-only record: sha256 of the ADC file the backend last saw, the backend's container id and start marker. It decides when the backend must restart. |
+
+Why the backend restarts: Google's .NET client caches the **first** credential lookup for the life of the process
+(a "no ADC" failure included, and the credential read before a later login). Replacing the file cannot clear
+that, so `connect-cloud.sh gcp` restarts **only the backend** (`compose up -d --no-deps --no-build --pull never`
+when the mount is missing, otherwise `compose restart duplo-ai-studio`) on the first native connection and again
+after a new ADC login, then waits (bounded) for health. A repeat run or a new target project on the same ADC does
+not restart; a backend restarted by something else is restarted once more because what it cached is unknown. This
+is not a promise that the backend never restarts. All GCP connections share the one host ADC identity.
+
+Before registering, the kit probes with a disposable busybox helper that runs as the backend's exact uid:gid and
+confirms it reads the same file (sha256) the host proof used. On native Linux a `0700` directory / `0600` file
+owned by you is unreadable to another uid; the kit reports that as a permissions failure and never loosens
+permissions or runs the backend as root. Only Docker Desktop has been verified; native Linux and rootless podman
+may need uid mapping or an ACL you grant yourself.
+
+The older design copied ADC into the `cloud_auth` volume (`/devkit-auth`) and used `adcRef` /
+`AIStudio__GcpAdcRoot`. The published image ignores those; they remain in compose, with the volume and its data,
+only so a rollback finds its files. New connections write nothing there, and an existing credential's `adcRef` is
+ignored and migrated away in place on the next `connect-cloud.sh gcp` run.
 
 ## Usage metrics
 
