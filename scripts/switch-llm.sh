@@ -10,7 +10,7 @@
 # provider swap.
 #
 # Usage:
-#   ./scripts/switch-llm.sh anthropic [--anthropic-key K]
+#   ./scripts/switch-llm.sh anthropic [--anthropic-key K] [--keep-aws-endpoint [--aws-region ..]]
 #   ./scripts/switch-llm.sh bedrock   [--aws-access-key-id ..] [--aws-secret-access-key ..] \
 #                                     [--aws-session-token ..] [--aws-region ..]
 #   ./scripts/switch-llm.sh bedrock-instance-role [--aws-region ..]
@@ -20,6 +20,15 @@
 #                                     [--gateway-disable-betas 1] [--gateway-max-context-tokens N] \
 #                                     [--gateway-compact-window N]
 #   ./scripts/switch-llm.sh status
+#
+# --keep-aws-endpoint (any target except bedrock-iam-anywhere, which always sets it, and
+# bedrock-instance-role, which it would shadow): keep the containers' AWS credentials coming from
+# `iamra-creds serve` (AWS_EC2_METADATA_SERVICE_ENDPOINT) while the agent's LLM uses another provider —
+# e.g. Anthropic for the LLM, IAM Roles Anywhere for the studio's provider/scope access. Without it the
+# endpoint is blanked for every target other than bedrock-iam-anywhere.
+#
+# AWS_REGION is never left blank by a switch: when the target doesn't set one, the previous value is kept.
+# The agent builds a Bedrock client at startup (ticket titles) and an empty AWS_REGION crashes it.
 #
 # Each provider owns a fixed set of .env keys. Switching AWAY from a provider stashes its current,
 # non-empty keys into _STASH_<PROVIDER>_<KEY>= lines (so switching back later needs no re-entry) and blanks the
@@ -42,6 +51,7 @@ F_ANTHROPIC=""; F_AWS_KEY=""; F_AWS_SECRET=""; F_AWS_TOKEN=""; F_AWS_REGION=""
 F_GATEWAY_URL=""; F_GATEWAY_TOKEN=""; F_GATEWAY_MODEL=""
 F_GATEWAY_DISABLE_BETAS=""; F_GATEWAY_MAX_CONTEXT=""; F_GATEWAY_COMPACT_WINDOW=""
 F_SUBSCRIPTION_TOKEN=""; F_SUBSCRIPTION_MODEL=""
+F_KEEP_AWS_ENDPOINT=0
 
 TARGET="${1-}"; [ $# -gt 0 ] && shift || true
 while [ $# -gt 0 ]; do
@@ -52,6 +62,7 @@ while [ $# -gt 0 ]; do
     --aws-secret-access-key) F_AWS_SECRET="$2"; shift ;;
     --aws-session-token) F_AWS_TOKEN="$2"; shift ;;
     --aws-region) F_AWS_REGION="$2"; shift ;;
+    --keep-aws-endpoint) F_KEEP_AWS_ENDPOINT=1 ;;
     --subscription-token) F_SUBSCRIPTION_TOKEN="$2"; shift ;;
     --subscription-model) F_SUBSCRIPTION_MODEL="$2"; shift ;;
     --gateway-url) F_GATEWAY_URL="$2"; shift ;;
@@ -159,8 +170,15 @@ TARGET="$(printf '%s' "$TARGET" | tr '[:upper:]' '[:lower:]')"
 [ "$TARGET" = status ] && { status; exit 0; }
 case " $known_providers " in *" $TARGET "*) ;; *) echo "Unknown provider '$TARGET' (use anthropic, bedrock, bedrock-instance-role, bedrock-iam-anywhere, gateway, subscription, or status)." >&2; exit 1 ;; esac
 
-# bedrock-iam-anywhere: probe iamra-creds BEFORE stashing/blanking anything, so a missing endpoint leaves .env untouched.
-if [ "$TARGET" = bedrock-iam-anywhere ]; then
+if [ "$F_KEEP_AWS_ENDPOINT" = 1 ] && [ "$TARGET" = bedrock-instance-role ]; then
+  echo "--keep-aws-endpoint can't be combined with bedrock-instance-role: the iamra-creds endpoint would shadow the instance role." >&2
+  exit 1
+fi
+USE_IAMRA_ENDPOINT=0
+{ [ "$TARGET" = bedrock-iam-anywhere ] || [ "$F_KEEP_AWS_ENDPOINT" = 1 ]; } && USE_IAMRA_ENDPOINT=1
+
+# Probe iamra-creds BEFORE stashing/blanking anything, so a missing endpoint leaves .env untouched.
+if [ "$USE_IAMRA_ENDPOINT" = 1 ]; then
   RA_PORT="${IAMRA_PORT:-$(getenv IAMRA_PORT)}"; RA_PORT="${RA_PORT:-9911}"
   echo "==> Checking iamra-creds endpoint on 127.0.0.1:${RA_PORT}…"
   if ! curl -sf -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' "http://127.0.0.1:$RA_PORT/latest/api/token" >/dev/null 2>&1; then
@@ -176,6 +194,7 @@ fi
 AWS_ENV_KEYS=(AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_REGION AWS_EC2_METADATA_SERVICE_ENDPOINT)
 aws_env_snapshot() { local k; for k in "${AWS_ENV_KEYS[@]}"; do printf '%s=%s\n' "$k" "$(getenv "$k")"; done; }
 AWS_ENV_BEFORE="$(aws_env_snapshot)"
+REGION_BEFORE="$(getenv AWS_REGION)"
 
 CURRENT="$(getenv DEVKIT_MODEL)"
 if [ "$CURRENT" = "$TARGET" ]; then
@@ -254,18 +273,31 @@ case "$TARGET" in
     ;;
 esac
 
-# The endpoint is owned by bedrock-iam-anywhere alone. Blank it for every other target so containers
-# are never left pointed at iamra-creds (it would shadow a real instance role); that arm sets it here.
-if [ "$TARGET" = bedrock-iam-anywhere ]; then
+# The endpoint is set for bedrock-iam-anywhere, or for any other target with --keep-aws-endpoint, and
+# blanked otherwise so containers are never left pointed at iamra-creds by accident (it would shadow a
+# real instance role).
+if [ "$USE_IAMRA_ENDPOINT" = 1 ]; then
   setenv AWS_EC2_METADATA_SERVICE_ENDPOINT "http://host.docker.internal:$RA_PORT"
 else
   setenv AWS_EC2_METADATA_SERVICE_ENDPOINT ""
 fi
+# Never leave AWS_REGION blank: an empty value (not unset) crashes the agent at startup, because it builds
+# a Bedrock client for ticket titles with os.getenv("AWS_REGION", default) and the default never applies.
+if [ -z "$(getenv AWS_REGION)" ]; then
+  RG="$F_AWS_REGION"; [ -z "$RG" ] && RG="$REGION_BEFORE"
+  [ -z "$RG" ] && [ "$USE_IAMRA_ENDPOINT" = 1 ] && RG="us-west-2"
+  [ -z "$RG" ] && RG="us-east-1"   # the agent's own default for its title client
+  setenv AWS_REGION "$RG"
+fi
+[ "$USE_IAMRA_ENDPOINT" = 1 ] && [ "$TARGET" != bedrock-iam-anywhere ] && \
+  echo "    keeping AWS credentials from iamra-creds (127.0.0.1:$RA_PORT) for the studio and agent tooling @ $(getenv AWS_REGION)."
 setenv DEVKIT_MODEL "$TARGET"
 
-RUNNING="$(runtime_compose_running_services)"
+# `|| true`: runtime_compose_running_services fails when the container runtime can't be queried (e.g.
+# Docker Desktop stopped). Under set -e that would exit 1 silently after .env was already rewritten.
+RUNNING="$(runtime_compose_running_services || true)"
 if ! printf '%s\n' "$RUNNING" | grep -qx claude-code-agent; then
-  echo "==> Agent container isn't running — .env is updated; start the stack with ./run.sh to apply it." >&2
+  echo "==> Agent container isn't running (or the container runtime isn't reachable) — .env is updated; start the stack with ./run.sh to apply it." >&2
   exit 0
 fi
 
