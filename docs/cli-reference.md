@@ -25,6 +25,10 @@ it is safe and silent.
 ./run.sh --model subscription --subscription-token sk-ant-oat01-... [--subscription-model claude-sonnet-5]
 ```
 
+`--anthropic-key` and the `--aws-*` keys can instead come from the environment (`ANTHROPIC_API_KEY`,
+`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`) when `.env` has none; such values are used
+but not saved. See [Secrets from the environment](configuration.md#secrets-from-the-environment).
+
 On an EC2 host the provider prompt first probes whether the instance role can actually invoke Bedrock
 (see [`detect-bedrock.sh`](#platform-registration)) and, if so, offers it as a fourth, keyless option.
 

@@ -25,6 +25,9 @@
 #                                  get out of a mistyped email whose verification link you never received.
 #   ./run.sh --email a@b.com --password 'pw' --model anthropic --anthropic-key sk-...   non-interactive.
 #   ./run.sh --model bedrock --aws-access-key-id AKIA... --aws-secret-access-key ... [--aws-session-token ...] [--aws-region us-west-2]
+#   ANTHROPIC_API_KEY=... ./run.sh  provider secrets (ANTHROPIC_API_KEY, AWS_*) exported in the environment are
+#                                  used when .env has none, and are never written to .env — e.g. with
+#                                  `op run`, a keychain lookup or a CI secret. A value in .env still wins.
 #   ./run.sh --model bedrock-instance-role [--aws-region us-east-1]   Bedrock via this EC2 instance's IAM role (no keys).
 #   ./run.sh --model subscription --subscription-token sk-ant-oat01-...   run on your own Claude Code
 #                                  subscription instead of a billed API key (mint the token with
@@ -53,6 +56,7 @@ ENV=.env
 . ./scripts/_runtime.sh          # → $RUNTIME (docker | podman); resolved in preflight
 . ./scripts/_provider_gateway.sh
 . ./scripts/_provider_subscription.sh
+. ./scripts/_env_secrets.sh      # → env_supplied/env_take/env_isolate: provider secrets from the environment
 . ./scripts/_studio_api.sh
 
 # ── flags ────────────────────────────────────────────────────────────────────
@@ -1028,8 +1032,13 @@ setenv AIStudio__IsMasterDisabled true
 [ -n "$(getenv Authentication__JwtSharedSecret)" ] || setenv Authentication__JwtSharedSecret "$(openssl rand -hex 32)"
 
 if [ "$MODEL" = anthropic ]; then
-  KEY="$(resolve "$F_ANTHROPIC" ANTHROPIC_API_KEY 'Anthropic API key' secret)"
-  setenv ANTHROPIC_API_KEY "$KEY"
+  if env_supplied "$F_ANTHROPIC" ANTHROPIC_API_KEY; then
+    env_take ANTHROPIC_API_KEY
+    echo "    using ANTHROPIC_API_KEY from the environment — not saved to .env; set it again to restart the stack."
+  else
+    KEY="$(resolve "$F_ANTHROPIC" ANTHROPIC_API_KEY 'Anthropic API key' secret)"
+    setenv ANTHROPIC_API_KEY "$KEY"
+  fi
   setenv CLAUDE_MODEL "claude-sonnet-5"
   setenv CLAUDE_EXTRA_MODELS "claude-opus-5"
   # A gateway URL left over from a previous provider choice would make the agent send this key to the
@@ -1083,11 +1092,18 @@ elif [ "$MODEL" = bedrock-instance-role ]; then
   setenv CLAUDE_EXTRA_MODELS "$BEDROCK_EXTRA_MODELS"
   echo "    using EC2 instance role${AWS_ROLE:+ ($AWS_ROLE)} for Bedrock in $RG — no keys stored in .env."
 elif [ "$MODEL" = bedrock ]; then
-  AK="$(resolve "$F_AWS_KEY" AWS_ACCESS_KEY_ID 'AWS access key id')"
-  SK="$(resolve "$F_AWS_SECRET" AWS_SECRET_ACCESS_KEY 'AWS secret access key' secret)"
-  ST="$F_AWS_TOKEN"; [ -z "$ST" ] && ST="$(getenv AWS_SESSION_TOKEN)"
+  if env_supplied "$F_AWS_KEY" AWS_ACCESS_KEY_ID && env_supplied "$F_AWS_SECRET" AWS_SECRET_ACCESS_KEY; then
+    env_take AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+    env_take_session_token "$F_AWS_TOKEN"
+    echo "    using AWS credentials from the environment — not saved to .env; set them again to restart the stack."
+  else
+    AK="$(resolve "$F_AWS_KEY" AWS_ACCESS_KEY_ID 'AWS access key id')"
+    SK="$(resolve "$F_AWS_SECRET" AWS_SECRET_ACCESS_KEY 'AWS secret access key' secret)"
+    ST="$F_AWS_TOKEN"; [ -z "$ST" ] && ST="$(getenv AWS_SESSION_TOKEN)"
+    setenv AWS_ACCESS_KEY_ID "$AK"; setenv AWS_SECRET_ACCESS_KEY "$SK"; setenv AWS_SESSION_TOKEN "$ST"
+  fi
   RG="$F_AWS_REGION"; [ -z "$RG" ] && RG="$(getenv AWS_REGION)"; [ -z "$RG" ] && RG="us-west-2"
-  setenv AWS_ACCESS_KEY_ID "$AK"; setenv AWS_SECRET_ACCESS_KEY "$SK"; setenv AWS_SESSION_TOKEN "$ST"; setenv AWS_REGION "$RG"
+  setenv AWS_REGION "$RG"
   setenv CLAUDE_MODEL "$BEDROCK_PROBE_MODEL"
   setenv CLAUDE_EXTRA_MODELS "$BEDROCK_EXTRA_MODELS"
   # The agent picks its provider by precedence ANTHROPIC_API_KEY → gateway → Azure → Bedrock (docker-compose.yml),
@@ -1121,6 +1137,7 @@ echo "==> Pulling images…"; "$RUNTIME" compose pull
 # The installer mounts extensions/. A bind source the runtime has to create comes out root-owned under rootful docker
 # on Linux, which neither fetch-terraform-extension.sh below nor a build could then write.
 mkdir -p extensions
+env_isolate   # only provider keys this run took from the environment reach the agent
 echo "==> Starting…"; "$RUNTIME" compose up -d
 
 STUDIO_PORT="$(getenv STUDIO_PORT)"; [ -z "$STUDIO_PORT" ] && STUDIO_PORT=60021

@@ -57,4 +57,4 @@ if [ -n "$WS" ]; then
 else
   echo "    (no workspace id given — attach later with: POST …/Workspaces/<id>/agents/$AGENT_ID)"
 fi
-echo "==> Done. Ensure the agent has an LLM credential in .env (ANTHROPIC_API_KEY or AWS Bedrock) for provisioning to run."
+echo "==> Done. Ensure the agent has an LLM credential in .env or the environment (ANTHROPIC_API_KEY or AWS Bedrock) for provisioning to run."
