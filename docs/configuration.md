@@ -184,6 +184,10 @@ DUPLO_TARGET=remote but DUPLO_HOST is unset in .env.
 DUPLO_TARGET=remote but DUPLO_TOKEN is unset in .env.
 ```
 
+`run.sh`, `switch-llm.sh` and the `register-*` scripts (agent, persona, LLM models, knowledge base) configure the
+local stack only. `run.sh` and `switch-llm.sh` pin `DUPLO_TARGET=local` for their own run, and each `register-*` script exits with an error if the target
+resolves to `remote`: a remote platform manages its own agents, LLM models and model mappings.
+
 Real environment variables win over the file, so CI can supply `DUPLO_HOST` and `DUPLO_TOKEN` as secrets
 with no `.env` present at all. `DUPLO_ENV_FILE=<path>` points the scripts at a different env file, and
 `DUPLO_BASE` forces the base URL outright.

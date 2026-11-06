@@ -1126,6 +1126,9 @@ echo "==> Starting…"; "$RUNTIME" compose up -d
 STUDIO_PORT="$(getenv STUDIO_PORT)"; [ -z "$STUDIO_PORT" ] && STUDIO_PORT=60021
 UI_PORT="$(getenv UI_PORT)"; [ -z "$UI_PORT" ] && UI_PORT=4200
 API="http://localhost:$STUDIO_PORT"
+# Everything below configures the local stack. Pin the target so a remote DUPLO_TARGET/DUPLO_BASE in .env or the
+# shell cannot redirect the register-* scripts (they would rewrite the remote platform's agents and LLM mapping).
+export DUPLO_TARGET=local DUPLO_BASE="$API"
 echo -n "==> Waiting for studio at $API "
 for _ in $(seq 1 90); do
   curl -fsS --max-time 4 "$API/healthz" >/dev/null 2>&1 && { echo " ready."; break; }
@@ -1222,7 +1225,7 @@ echo "    UI access granted to $EMAIL (permission set $PS) — re-login if the w
 # ── register + attach the agent to the extension-dev workspace (idempotent) ──────
 # Provisioning tickets are assigned from the workspace's agent list, so the workspace needs an agent.
 echo "==> Registering + attaching agent to extension-dev workspace…"
-./scripts/register-agent.sh "$WS" || echo "    (agent registration failed — run ./scripts/register-agent.sh $WS manually)"
+./scripts/register-agent.sh "$WS" || echo "    (agent registration failed — run DUPLO_TARGET=local ./scripts/register-agent.sh $WS manually)"
 
 # ── starter devops skill + persona, attached to the workspace (idempotent) ───────
 # A workspace with no persona gives the agent no role, so seed one worked example of the
@@ -1234,7 +1237,7 @@ if ./scripts/register-persona.sh "$WS"; then
   PERSONA_LINE="
   Persona   devops (skill: devops) → attached — edit both under AI Admin → Skills / Personas"
 else
-  echo "    (persona registration failed — run ./scripts/register-persona.sh $WS manually)"
+  echo "    (persona registration failed — run DUPLO_TARGET=local ./scripts/register-persona.sh $WS manually)"
 fi
 
 # ── vendor the Terraform extension's source (idempotent, never fatal) ────────────
@@ -1272,7 +1275,7 @@ if LLM_PROVIDER_LABEL="$LLM_DESC" ./scripts/register-llm.sh; then
   LLM       System default → $(getenv CLAUDE_MODEL) ($LLM_DESC)"
   [ -z "$(getenv CLAUDE_EXTRA_MODELS)" ] || LLM_LINE="$LLM_LINE; also available: $(getenv CLAUDE_EXTRA_MODELS)"
 else
-  echo "    (LLM registration failed — run ./scripts/register-llm.sh manually)"
+  echo "    (LLM registration failed — run DUPLO_TARGET=local ./scripts/register-llm.sh manually)"
 fi
 
 # ── wire the local Qdrant into a usable Knowledge Base (idempotent) ───────────
@@ -1288,8 +1291,8 @@ case "$KB_RC" in
   # 3 = provider and scope created, collection skipped (no embedding model seeded yet). Not a failure,
   # but the collection does not exist, so the banner must not claim it.
   3) KB_LINE="
-  KB        local-qdrant registered; collection skipped — re-run ./scripts/register-qdrant.sh" ;;
-  *) echo "    (knowledge base setup failed — run ./scripts/register-qdrant.sh manually)" ;;
+  KB        local-qdrant registered; collection skipped — re-run DUPLO_TARGET=local ./scripts/register-qdrant.sh" ;;
+  *) echo "    (knowledge base setup failed — run DUPLO_TARGET=local ./scripts/register-qdrant.sh manually)" ;;
 esac
 
 PROVIDER_DESC="$MODEL"
@@ -1314,6 +1317,6 @@ Build & deploy your extension (scripts read the target from .env — no DUPLO_BA
   # or build a bundled sample:   ./scripts/build-extension.sh samples/helloworld
   #   then load it, since the installer reads only extensions/:
   #   ./scripts/deploy-extension.sh samples/helloworld/dist/extension.zip
-  # re-attach the agent to another workspace: ./scripts/register-agent.sh <workspace-id>
-  # attach the devops persona elsewhere:       ./scripts/register-persona.sh <workspace-id>
+  # re-attach the agent to another workspace: DUPLO_TARGET=local ./scripts/register-agent.sh <workspace-id>
+  # attach the devops persona elsewhere:       DUPLO_TARGET=local ./scripts/register-persona.sh <workspace-id>
 EOF
