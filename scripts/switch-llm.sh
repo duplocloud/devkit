@@ -14,7 +14,7 @@
 #   ./scripts/switch-llm.sh bedrock   [--aws-access-key-id ..] [--aws-secret-access-key ..] \
 #                                     [--aws-session-token ..] [--aws-region ..]
 #   ./scripts/switch-llm.sh bedrock-instance-role [--aws-region ..]
-#   ./scripts/switch-llm.sh bedrock-iam-anywhere [--aws-region ..]   (needs `ra-creds serve` running on this machine)
+#   ./scripts/switch-llm.sh bedrock-iam-anywhere [--aws-region ..]   (needs `iamra-creds serve` running on this machine)
 #   ./scripts/switch-llm.sh subscription [--subscription-token T] [--subscription-model M]
 #   ./scripts/switch-llm.sh gateway   [--gateway-url U] [--gateway-token T] [--gateway-model M] \
 #                                     [--gateway-disable-betas 1] [--gateway-max-context-tokens N] \
@@ -159,13 +159,13 @@ TARGET="$(printf '%s' "$TARGET" | tr '[:upper:]' '[:lower:]')"
 [ "$TARGET" = status ] && { status; exit 0; }
 case " $known_providers " in *" $TARGET "*) ;; *) echo "Unknown provider '$TARGET' (use anthropic, bedrock, bedrock-instance-role, bedrock-iam-anywhere, gateway, subscription, or status)." >&2; exit 1 ;; esac
 
-# bedrock-iam-anywhere: probe ra-creds BEFORE stashing/blanking anything, so a missing endpoint leaves .env untouched.
+# bedrock-iam-anywhere: probe iamra-creds BEFORE stashing/blanking anything, so a missing endpoint leaves .env untouched.
 if [ "$TARGET" = bedrock-iam-anywhere ]; then
-  RA_PORT="${RA_CREDS_PORT:-$(getenv RA_CREDS_PORT)}"; RA_PORT="${RA_PORT:-9911}"
-  echo "==> Checking ra-creds endpoint on 127.0.0.1:${RA_PORT}…"
+  RA_PORT="${IAMRA_PORT:-$(getenv IAMRA_PORT)}"; RA_PORT="${RA_PORT:-9911}"
+  echo "==> Checking iamra-creds endpoint on 127.0.0.1:${RA_PORT}…"
   if ! curl -sf -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' "http://127.0.0.1:$RA_PORT/latest/api/token" >/dev/null 2>&1; then
-    echo "ra-creds is not answering on 127.0.0.1:$RA_PORT." >&2
-    echo "Start it first in another terminal: ra-creds serve --account ${RA_CREDS_ACCOUNT:-<alias>} --role admin" >&2
+    echo "iamra-creds is not answering on 127.0.0.1:$RA_PORT." >&2
+    echo "Start it first in another terminal: iamra-creds serve --account ${IAMRA_ACCOUNT:-<alias>} --role admin" >&2
     exit 1
   fi
 fi
@@ -234,15 +234,15 @@ case "$TARGET" in
     LLM_DESC="AWS Bedrock via EC2 instance role"
     ;;
   bedrock-iam-anywhere)
-    # Creds come from `ra-creds serve` on this machine; see run.sh's arm of the same name. Static keys
+    # Creds come from `iamra-creds serve` on this machine; see run.sh's arm of the same name. Static keys
     # are blanked (a leftover real key would win the chain), the endpoint is set below the case.
     RG="$F_AWS_REGION"; [ -z "$RG" ] && RG="$(getenv AWS_REGION)"; [ -z "$RG" ] && RG="us-west-2"
     for k in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN ANTHROPIC_API_KEY ANTHROPIC_BASE_URL; do setenv "$k" ""; done
     setenv AWS_REGION "$RG"
     setenv CLAUDE_MODEL "$BEDROCK_MODEL"
     setenv CLAUDE_EXTRA_MODELS "$BEDROCK_EXTRA_MODELS"
-    echo "    using IAM Roles Anywhere creds from ra-creds for Bedrock in $RG — no keys stored in .env."
-    LLM_DESC="AWS Bedrock via IAM Roles Anywhere (ra-creds)"
+    echo "    using IAM Roles Anywhere creds from iamra-creds for Bedrock in $RG — no keys stored in .env."
+    LLM_DESC="AWS Bedrock via IAM Roles Anywhere (iamra-creds)"
     ;;
   gateway)
     provider_gateway_configure || exit 1
@@ -255,7 +255,7 @@ case "$TARGET" in
 esac
 
 # The endpoint is owned by bedrock-iam-anywhere alone. Blank it for every other target so containers
-# are never left pointed at ra-creds (it would shadow a real instance role); that arm sets it here.
+# are never left pointed at iamra-creds (it would shadow a real instance role); that arm sets it here.
 if [ "$TARGET" = bedrock-iam-anywhere ]; then
   setenv AWS_EC2_METADATA_SERVICE_ENDPOINT "http://host.docker.internal:$RA_PORT"
 else

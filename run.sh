@@ -26,9 +26,9 @@
 #   ./run.sh --email a@b.com --password 'pw' --model anthropic --anthropic-key sk-...   non-interactive.
 #   ./run.sh --model bedrock --aws-access-key-id AKIA... --aws-secret-access-key ... [--aws-session-token ...] [--aws-region us-west-2]
 #   ./run.sh --model bedrock-instance-role [--aws-region us-east-1]   Bedrock via this EC2 instance's IAM role (no keys).
-#   ./run.sh --model bedrock-iam-anywhere [--aws-region us-west-2]   Bedrock via short-lived creds served by `ra-creds serve`
+#   ./run.sh --model bedrock-iam-anywhere [--aws-region us-west-2]   Bedrock via short-lived creds served by `iamra-creds serve`
 #                                  on this machine (IAM Roles Anywhere; no static keys). Start it first, in another terminal:
-#                                  ra-creds serve --account <alias> --role admin   (port: RA_CREDS_PORT, default 9911)
+#                                  iamra-creds serve --account <alias> --role admin   (port: IAMRA_PORT, default 9911)
 #   ./run.sh --model subscription --subscription-token sk-ant-oat01-...   run on your own Claude Code
 #                                  subscription instead of a billed API key (mint the token with
 #                                  `claude setup-token` on this machine). Local development only: it
@@ -997,7 +997,7 @@ if [ -z "$MODEL" ]; then
           printf '      could not confirm containers can reach IMDS (%s); if the agent later fails to\n' "${CONTAINER_IMDS#unknown:}" >&2
           printf '      authenticate, raise the IMDSv2 hop limit to 2 (see README).\n' >&2 ;;
     esac
-    printf 'Select LLM provider:\n  1) anthropic (API key)\n  2) bedrock (AWS keys)\n  3) LLM gateway (OpenRouter, Bifrost, LiteLLM, … — any Anthropic-compatible endpoint)\n  4) bedrock via this EC2 instance role — %s @ %s, no keys%s\n  5) Claude Code subscription (your own, via `claude setup-token`)\n  6) bedrock via IAM Roles Anywhere (`ra-creds serve` running on this machine, no keys)\n' \
+    printf 'Select LLM provider:\n  1) anthropic (API key)\n  2) bedrock (AWS keys)\n  3) LLM gateway (OpenRouter, Bifrost, LiteLLM, … — any Anthropic-compatible endpoint)\n  4) bedrock via this EC2 instance role — %s @ %s, no keys%s\n  5) Claude Code subscription (your own, via `claude setup-token`)\n  6) bedrock via IAM Roles Anywhere (`iamra-creds serve` running on this machine, no keys)\n' \
       "$AWS_ROLE" "$BEDROCK_REGION" "$IMDS_CAVEAT" >&2
     prompt MODEL 'Enter 1, 2, 3, 4, 5 or 6'
   else
@@ -1009,7 +1009,7 @@ if [ -z "$MODEL" ]; then
     else
       echo "    ✗ no usable instance-role Bedrock access${BEDROCK_REASON:+ ($BEDROCK_REASON)}." >&2
     fi
-    printf 'Select LLM provider:\n  1) anthropic (API key)\n  2) bedrock (AWS keys)\n  3) LLM gateway (OpenRouter, Bifrost, LiteLLM, … — any Anthropic-compatible endpoint)\n  5) Claude Code subscription (your own, via `claude setup-token`)\n  6) bedrock via IAM Roles Anywhere (`ra-creds serve` running on this machine, no keys)\n' >&2
+    printf 'Select LLM provider:\n  1) anthropic (API key)\n  2) bedrock (AWS keys)\n  3) LLM gateway (OpenRouter, Bifrost, LiteLLM, … — any Anthropic-compatible endpoint)\n  5) Claude Code subscription (your own, via `claude setup-token`)\n  6) bedrock via IAM Roles Anywhere (`iamra-creds serve` running on this machine, no keys)\n' >&2
     prompt MODEL 'Enter 1, 2, 3, 5 or 6'
   fi
 fi
@@ -1086,20 +1086,20 @@ elif [ "$MODEL" = bedrock-instance-role ]; then
   setenv CLAUDE_EXTRA_MODELS "$BEDROCK_EXTRA_MODELS"
   echo "    using EC2 instance role${AWS_ROLE:+ ($AWS_ROLE)} for Bedrock in $RG — no keys stored in .env."
 elif [ "$MODEL" = bedrock-iam-anywhere ]; then
-  # Credentials come from `ra-creds serve` running on THIS machine (IAM Roles Anywhere): an
+  # Credentials come from `iamra-creds serve` running on THIS machine (IAM Roles Anywhere): an
   # IMDSv2-compatible endpoint on the host loopback that renews short-lived creds itself, so the key
   # never lands in .env. The containers reach it through host.docker.internal (Docker Desktop forwards
   # it to host loopback), and the AWS SDK's AWS_EC2_METADATA_SERVICE_ENDPOINT override points its IMDS
   # client there instead of 169.254.169.254. Mac/Docker Desktop only: on Linux, extra_hosts'
-  # host-gateway is the bridge address, which does not reach ra-creds bound to host loopback.
+  # host-gateway is the bridge address, which does not reach iamra-creds bound to host loopback.
   # As with bedrock-instance-role the static keys are blanked, not unset: empty values don't
   # short-circuit the credential chain, but a leftover real key would win and the endpoint never be read.
-  RA_PORT="${RA_CREDS_PORT:-$(getenv RA_CREDS_PORT)}"; RA_PORT="${RA_PORT:-9911}"   # shell env, then .env, then default
+  RA_PORT="${IAMRA_PORT:-$(getenv IAMRA_PORT)}"; RA_PORT="${RA_PORT:-9911}"   # shell env, then .env, then default
   RG="$F_AWS_REGION"; [ -z "$RG" ] && RG="$(getenv AWS_REGION)"; [ -z "$RG" ] && RG="us-west-2"
-  echo "==> Checking ra-creds endpoint on 127.0.0.1:${RA_PORT}…"
+  echo "==> Checking iamra-creds endpoint on 127.0.0.1:${RA_PORT}…"
   if ! curl -sf -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' "http://127.0.0.1:$RA_PORT/latest/api/token" >/dev/null 2>&1; then
-    echo "ra-creds is not answering on 127.0.0.1:$RA_PORT." >&2
-    echo "Start it first in another terminal: ra-creds serve --account ${RA_CREDS_ACCOUNT:-<alias>} --role admin" >&2
+    echo "iamra-creds is not answering on 127.0.0.1:$RA_PORT." >&2
+    echo "Start it first in another terminal: iamra-creds serve --account ${IAMRA_ACCOUNT:-<alias>} --role admin" >&2
     exit 1
   fi
   # Not probed: Bedrock model invocation. detect-bedrock.sh reads the EC2 IMDS and signs with the
@@ -1110,7 +1110,7 @@ elif [ "$MODEL" = bedrock-iam-anywhere ]; then
   setenv AWS_EC2_METADATA_SERVICE_ENDPOINT "http://host.docker.internal:$RA_PORT"
   setenv CLAUDE_MODEL "$BEDROCK_PROBE_MODEL"
   setenv CLAUDE_EXTRA_MODELS "$BEDROCK_EXTRA_MODELS"
-  echo "    using IAM Roles Anywhere creds from ra-creds for Bedrock in $RG — no keys stored in .env."
+  echo "    using IAM Roles Anywhere creds from iamra-creds for Bedrock in $RG — no keys stored in .env."
 elif [ "$MODEL" = bedrock ]; then
   AK="$(resolve "$F_AWS_KEY" AWS_ACCESS_KEY_ID 'AWS access key id')"
   SK="$(resolve "$F_AWS_SECRET" AWS_SECRET_ACCESS_KEY 'AWS secret access key' secret)"
@@ -1134,7 +1134,7 @@ else
   echo "Unknown model '$MODEL' (use anthropic, bedrock, gateway, bedrock-instance-role, bedrock-iam-anywhere, or subscription)." >&2; exit 1
 fi
 
-# Every other provider must not leave containers pointed at ra-creds: a stale endpoint would make the
+# Every other provider must not leave containers pointed at iamra-creds: a stale endpoint would make the
 # SDK's IMDS client call a host service that may not be running (and shadow a real instance role).
 [ "$MODEL" = bedrock-iam-anywhere ] || setenv AWS_EC2_METADATA_SERVICE_ENDPOINT ""
 
@@ -1298,7 +1298,7 @@ case "$MODEL" in
   gateway)               LLM_DESC="LLM Gateway" ;;
   subscription)          LLM_DESC="Claude Code subscription" ;;
   bedrock-instance-role) LLM_DESC="AWS Bedrock via EC2 instance role" ;;
-  bedrock-iam-anywhere)  LLM_DESC="AWS Bedrock via IAM Roles Anywhere (ra-creds)" ;;
+  bedrock-iam-anywhere)  LLM_DESC="AWS Bedrock via IAM Roles Anywhere (iamra-creds)" ;;
 esac
 echo "==> Registering $(getenv CLAUDE_MODEL) ($LLM_DESC) as the System default LLM…"
 if LLM_PROVIDER_LABEL="$LLM_DESC" ./scripts/register-llm.sh; then
@@ -1328,7 +1328,7 @@ esac
 
 PROVIDER_DESC="$MODEL"
 [ "$MODEL" = bedrock-instance-role ] && PROVIDER_DESC="bedrock via EC2 instance role${AWS_ROLE:+ ($AWS_ROLE)} @ $(getenv AWS_REGION) — no keys in .env"
-[ "$MODEL" = bedrock-iam-anywhere ] && PROVIDER_DESC="bedrock via IAM Roles Anywhere (ra-creds @ host:${RA_PORT:-9911}) @ $(getenv AWS_REGION) — no keys in .env"
+[ "$MODEL" = bedrock-iam-anywhere ] && PROVIDER_DESC="bedrock via IAM Roles Anywhere (iamra-creds @ host:${RA_PORT:-9911}) @ $(getenv AWS_REGION) — no keys in .env"
 [ "$MODEL" = gateway ] && PROVIDER_DESC="LLM gateway @ $(getenv ANTHROPIC_BASE_URL)"
 [ "$MODEL" = subscription ] && PROVIDER_DESC="Claude Code subscription (model $(getenv CLAUDE_MODEL)) — your own token, local dev only"
 

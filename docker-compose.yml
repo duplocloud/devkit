@@ -69,9 +69,9 @@ services:
       - "${STUDIO_PORT:-60021}:60021"
     env_file:
       - ./.env
-    # host.docker.internal -> the host, so containers can reach `ra-creds serve` (bedrock-iam-anywhere, port
+    # host.docker.internal -> the host, so containers can reach `iamra-creds serve` (bedrock-iam-anywhere, port
     # 9911) via AWS_EC2_METADATA_SERVICE_ENDPOINT. A no-op on Docker Desktop, where the name already resolves.
-    # bedrock-iam-anywhere is Mac/Docker Desktop only for now: ra-creds binds host loopback, which a Linux
+    # bedrock-iam-anywhere is Mac/Docker Desktop only for now: iamra-creds binds host loopback, which a Linux
     # host-gateway address does not reach, so this line alone does not make it work on Linux.
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -148,7 +148,7 @@ services:
     restart: unless-stopped
     ports:
       - "${AGENT_PORT:-8000}:8000"
-    # host.docker.internal -> the host, so containers can reach `ra-creds serve` (bedrock-iam-anywhere, port
+    # host.docker.internal -> the host, so containers can reach `iamra-creds serve` (bedrock-iam-anywhere, port
     # 9911) via AWS_EC2_METADATA_SERVICE_ENDPOINT. A no-op on Docker Desktop, where the name already resolves.
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -186,7 +186,7 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
-      # bedrock-iam-anywhere: points the AWS SDK's IMDS client at `ra-creds serve` on the host
+      # bedrock-iam-anywhere: points the AWS SDK's IMDS client at `iamra-creds serve` on the host
       # (http://host.docker.internal:9911) instead of 169.254.169.254. Blank for every other provider.
       - AWS_EC2_METADATA_SERVICE_ENDPOINT=${AWS_EC2_METADATA_SERVICE_ENDPOINT:-}
       # Docker-in-Docker: the dind service shares this container's network namespace, so its daemon

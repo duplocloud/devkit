@@ -21,13 +21,13 @@ it is safe and silent.
 ./run.sh --email you@yourcompany.com --password 'pw' --model anthropic --anthropic-key sk-ant-...
 ./run.sh --model bedrock --aws-access-key-id AKIA... --aws-secret-access-key ... [--aws-session-token ...] [--aws-region us-west-2]
 ./run.sh --model bedrock-instance-role [--aws-region us-east-1]
-./run.sh --model bedrock-iam-anywhere [--aws-region us-west-2]   # needs `ra-creds serve --account <alias> --role admin` running on this machine
+./run.sh --model bedrock-iam-anywhere [--aws-region us-west-2]   # needs `iamra-creds serve --account <alias> --role admin` running on this machine
 ./run.sh --model gateway --gateway-url https://openrouter.ai/api --gateway-token sk-or-... [--gateway-model anthropic/claude-sonnet-5]
 ./run.sh --model subscription --subscription-token sk-ant-oat01-... [--subscription-model claude-sonnet-5]
 ```
 
 On an EC2 host the provider prompt first probes whether the instance role can actually invoke Bedrock
-(see [`detect-bedrock.sh`](#platform-registration)) and, if so, offers it as a fourth, keyless option. (A separate option 6, `bedrock-iam-anywhere`, is always offered and uses credentials from `ra-creds` on your machine instead of an instance role.)
+(see [`detect-bedrock.sh`](#platform-registration)) and, if so, offers it as a fourth, keyless option. (A separate option 6, `bedrock-iam-anywhere`, is always offered and uses credentials from `iamra-creds` on your machine instead of an instance role.)
 
 | Flag | Effect |
 | --- | --- |
@@ -37,7 +37,7 @@ On an EC2 host the provider prompt first probes whether the instance role can ac
 | `--non-interactive`, `-y` | Never prompt. A missing required value is an error instead: `Missing <KEY> — pass its flag (non-interactive).` |
 | `--email <addr>` | Admin email (your UI login, and the address the license is issued to). Work or personal addresses both work; privacy-relay and disposable domains are rejected by the license server. |
 | `--password <pw>` | Admin password. |
-| `--model <1\|2\|3\|4\|5\|anthropic\|bedrock\|gateway\|bedrock-instance-role\|subscription\|bedrock-iam-anywhere>` | LLM provider. `6` is bedrock-iam-anywhere (Bedrock with auto-renewing IAM Roles Anywhere credentials served by `ra-creds` on your machine at `127.0.0.1:${RA_CREDS_PORT:-9911}`; run.sh probes it and exits if it is not running; containers reach it via `AWS_EC2_METADATA_SERVICE_ENDPOINT`). `1` is anthropic, `2` is bedrock, `3` is gateway, `4` is bedrock-instance-role, `5` is subscription. Option `4` is only offered at the prompt when the probe proves the role can invoke Bedrock, but `--model bedrock-instance-role` can be passed directly — it then probes and **fails** rather than falling back, since you asked for it explicitly. |
+| `--model <1\|2\|3\|4\|5\|anthropic\|bedrock\|gateway\|bedrock-instance-role\|subscription\|bedrock-iam-anywhere>` | LLM provider. `6` is bedrock-iam-anywhere (Bedrock with auto-renewing IAM Roles Anywhere credentials served by `iamra-creds` on your machine at `127.0.0.1:${IAMRA_PORT:-9911}`; run.sh probes it and exits if it is not running; containers reach it via `AWS_EC2_METADATA_SERVICE_ENDPOINT`). `1` is anthropic, `2` is bedrock, `3` is gateway, `4` is bedrock-instance-role, `5` is subscription. Option `4` is only offered at the prompt when the probe proves the role can invoke Bedrock, but `--model bedrock-instance-role` can be passed directly — it then probes and **fails** rather than falling back, since you asked for it explicitly. |
 | `--anthropic-key <key>` | Anthropic API key. |
 | `--subscription-token <token>` | `subscription` only. A long-lived Claude Code token, minted with `claude setup-token` on your own machine — it opens a browser, so it cannot be done from inside the dev kit. Expect `sk-ant-oat01-…`; an `sk-ant-api…` key pasted here is caught with a note, since it would otherwise be sent as a bearer token and fail with a puzzling 401. |
 | `--subscription-model <id>` | `subscription` only. A **bare** first-party model id (`claude-sonnet-5`, `claude-opus-5`). Defaults to `claude-sonnet-5`. A `us.anthropic.*` inference-profile id left over from a Bedrock run is rejected by the first-party API, so it is swapped for the default with a note rather than failing. |
