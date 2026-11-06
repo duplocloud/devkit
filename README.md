@@ -18,6 +18,13 @@ hot-loads into the running platform with no restart.
 - **AI-guided authoring.** `/duplo-extension` in Claude Code scaffolds and builds an Agent from a
   plain-language requirement.
 
+## .NET 10 extension builds
+
+This branch targets .NET 10 and defaults to a .NET 10 platform image. New backend builds require
+SDK 10, supplied by the builder container, or installed locally for `--native` builds. The build script
+fetches the SDK packages and version from the running host. See [upgrading](docs/upgrading.md#net-10-extension-builds)
+for existing projects and compiled extensions.
+
 ## Quick start
 
 You need **a container runtime with Compose v2** (docker or podman — set `RUNTIME`

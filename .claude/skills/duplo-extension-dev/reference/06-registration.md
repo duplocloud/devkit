@@ -71,11 +71,13 @@ The host serves its own SDK as a NuGet feed:
 
 ## SDK version pinning — why exactness matters
 
-`ExtensionStudioLoader` **rejects** a bundle whose `manifest.sdkVersion` ≠ the host's running SDK version. The host
-version is read from the running `Duplo.Ai.Model` assembly, and the SDK feed is packed at that same version, so
-host runtime == feed == your extension's pin. A skew surfaces as `Could not load file or assembly
-'Duplo.Ai.DataManagement, Version=…'`. Always set `manifest.sdkVersion` from `sdk-version`, and build against
-the matching `sdk-bundle`.
+For new builds, always set `manifest.sdkVersion` from `sdk-version` and compile against the matching
+`sdk-bundle`. The .NET 10 host also accepts older compiled bundles within its supported SDK range
+(same SDK major, at least the minimum supported version, and no newer than the host), subject to its
+referenced-API compatibility checks. An older manifest does not need an artificial version bump solely
+because the host runtime changed. Test existing bundles on the upgraded host before release.
+
+New `net10.0` builds require a .NET 10 host. In-platform builds also require an agent with SDK 10.
 
 ## Reloading changed code — bump `manifest.version`
 
@@ -88,7 +90,7 @@ studio.
 
 ## What a local run needs (checklist)
 - Base URL + an Administrator bearer token.
-- .NET 8 SDK + Node 22 (Angular 22 requires `^22.22.3 || ^24.15.0 || >=26.0.0`) + npm `>= 10.9.0` locally
+- .NET 10 SDK + Node 22 (Angular 22 requires `^22.22.3 || ^24.15.0 || >=26.0.0`) + npm `>= 10.9.0` locally
   (or use the in-platform agent image, which has all of them).
 - This skill dir (with `templates/helloworld/` + `reference/`).
 - Network access to the platform for `sdk-version`/`sdk-bundle` and `load-bundle`.

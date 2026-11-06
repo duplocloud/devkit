@@ -114,3 +114,21 @@ The tarball is proprietary and is **not** covered by the Apache license on the r
 
 3. If a build fails right after an upgrade, start with
    [the host-SDK entry in troubleshooting](troubleshooting.md#the-extension-build-cannot-reach-the-host-sdk).
+
+## .NET 10 extension builds
+
+The bundled samples and scaffolding now target `net10.0`. For your own source projects under
+`extensions/`, change the backend `<TargetFramework>` to `net10.0` before rebuilding. Framework updates
+do not rewrite customer-owned projects. Build against a .NET 10 host and its matching SDK feed;
+a new `net10.0` extension cannot run on a .NET 8 host.
+
+The default builder builds `build/Dockerfile.builder` locally because the previous public digest
+contains SDK 8. Subsequent builds use the layer cache. Clear an old explicit `BUILDER_IMAGE` or
+`BUILDER_TAG` override, or replace it with a validated .NET 10 builder. For native builds, install
+SDK 10. In-platform builds also require an agent image with SDK 10; upgrading the local builder
+does not upgrade an independently deployed agent image.
+
+Already compiled .NET 8 extensions do not require a rebuild solely to change their target framework.
+The upgraded host still checks their declared SDK compatibility range and referenced APIs at load time.
+Validate your existing bundles on the upgraded host, especially if they use private dependencies or
+native libraries. New builds should always use the SDK version returned by the running host.

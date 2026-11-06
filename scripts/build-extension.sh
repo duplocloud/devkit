@@ -2,7 +2,7 @@
 # Build an extension into <dir>/dist/extension.zip, against the locally-running platform's SDK feed.
 # Mirrors the duplo-extension-dev skill (fetch SDK → dotnet publish → npm build → zip).
 #
-# The build runs inside the builder container (.NET SDK 8 + Node 22) so Docker Compose is the only
+# The build runs inside the builder container (.NET SDK 10 + Node 22) so Docker Compose is the only
 # prerequisite. Pass --native, or set DUPLO_BUILD_NATIVE=1, to use a toolchain you installed yourself.
 # A build already running inside a container (e.g. the agent's) stays native automatically — see
 # scripts/_builder.sh.
@@ -309,7 +309,7 @@ rm -rf "$BASELINE"; mkdir -p "$BASELINE"   # BASELINE defined + trap-guarded nea
 cat > "$BASELINE/_sdkbaseline.csproj" <<EOF
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <UseAppHost>false</UseAppHost>
   </PropertyGroup>
   <ItemGroup>

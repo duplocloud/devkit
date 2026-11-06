@@ -11,7 +11,7 @@
     SDK type identity at load time (ExtensionLoadContext resolves SDK assemblies from the host).
   -->
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseAppHost>false</UseAppHost>

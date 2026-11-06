@@ -1,4 +1,4 @@
-# Toolchain image for building dev-kit extensions: .NET SDK 8 (the backend targets net8.0) + Node 22
+# Toolchain image for building dev-kit extensions: .NET SDK 10 (the backend targets net10.0) + Node 22
 # plus the shell tools scripts/build-extension.sh needs.
 #
 # Node 22 tracks the frontend, it is not a preference. The samples are Angular 22, whose declared engines
@@ -15,7 +15,7 @@
 # package source. Both tags float, so this is not a reproducible build; pinning is a separate concern.
 FROM node:22-bookworm-slim AS node
 
-FROM mcr.microsoft.com/dotnet/sdk:8.0-bookworm-slim
+FROM mcr.microsoft.com/dotnet/sdk:10.0-noble
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
@@ -62,3 +62,7 @@ ENV DOTNET_NOLOGO=1 \
 # tempting /work/**/node_modules volume (to dodge slow virtiofs on macOS) needs a matching mkdir+chmod
 # above before it will work.
 WORKDIR /work
+
+# .NET 10 first-run initialization needs these homes to exist before taking its NuGet mutex.
+# Create them as the invoking uid, rather than baking root-owned CLI state into the image.
+ENTRYPOINT ["bash", "-c", "mkdir -p \"$HOME\" \"$DOTNET_CLI_HOME\" && exec \"$@\"", "--"]

@@ -62,7 +62,7 @@ builder_mode() {
   fi
 
   # A host with a working runtime: containerize, even if a local toolchain exists, so that laptop, CI
-  # and agent builds all use one pinned toolchain. `--native` is there for anyone who wants their own.
+  # builds use the container toolchain. `--native` is there for anyone who wants their own.
   [ "$have_runtime" = 1 ] && { echo container; return; }
 
   # No runtime. A complete local toolchain still works, so degrade gracefully rather than fail (this
@@ -228,10 +228,9 @@ builder_clean_value() {
 # one means compose silently falls back to the `${BUILDER_IMAGE:-quay…}` default in docker-compose.yml —
 # i.e. runs a different image than the one that was just resolved.
 #
-# Caching: an image that is already local is used as-is, without contacting the registry, so a warm build
-# never pays for a pull. The cost is that a MOVING tag is never refreshed — and BUILDER_TAG=latest, our
-# default, is exactly that, on an image whose content is a .NET SDK. BUILDER_PULL=1 forces the re-pull;
-# without it the only recourse would be `$RUNTIME rmi`.
+# The local default always asks the runtime to build, so Dockerfile changes invalidate cached layers.
+# Explicit registry images reuse a local copy; BUILDER_PULL=1 refreshes them. For the local default,
+# BUILDER_PULL=1 passes --pull to the build so base images are refreshed too.
 #
 # Both knobs are read from the environment AND from .env (via _envv), because compose interpolates
 # docker-compose.yml against .env too: if .env's BUILDER_IMAGE were ignored here, compose would honour it
@@ -245,12 +244,28 @@ builder_keep_local_copy() { # builder_keep_local_copy <pull-error-text>
   echo "         $RUNTIME pull said: $(printf '%s' "${1-}" | tail -1)" >&2
 }
 
-# The toolchain image a build uses when neither BUILDER_IMAGE nor BUILDER_TAG is set, pinned by digest so two
-# builds of one extension version compile with the same toolchain. `:latest` moves on every toolchain publish,
-# which would let two builds of one version differ. The digest is the multi-arch index, so it resolves on amd64
-# and arm64 alike. .github/workflows/builder-image.yml prints the new digest after each publish. Moving this pin
-# (and docker-compose.yml's matching default) is a reviewed change, since it changes what every extension builds with.
-_BUILDER_PINNED_IMAGE="quay.io/duplocloud/duplo-extension-builder@sha256:8185e6a74379ae99e145f55608b3bc17e3037e95e64a612a226fe0eb15c0dbcd"
+# The previously published digest contains SDK 8 and cannot build net10.0 extensions.
+# Build this checkout's .NET 10 Dockerfile by default until its multi-arch registry
+# image is published. A reviewed release can set _BUILDER_DEFAULT_IMAGE (and the
+# matching compose default) to that new digest. Explicit image/tag overrides remain.
+_BUILDER_LOCAL_IMAGE="duplo-extension-builder:dotnet10-local"
+_BUILDER_DEFAULT_IMAGE="$_BUILDER_LOCAL_IMAGE"
+
+builder_build_local_image() {
+  local force_pull="${1:-0}" platform
+  local args=(build)
+  [ "$force_pull" = 1 ] && args+=(--pull)
+  platform="$(builder_clean_value "${BUILDER_PLATFORM:-$(_envv BUILDER_PLATFORM)}")"
+  [ -n "$platform" ] && args+=(--platform "$platform")
+  args+=(-q -f build/Dockerfile.builder -t "$BUILDER_IMAGE" build)
+  echo "==> Building the .NET 10 toolchain from build/Dockerfile.builder (cached after the first build)" >&2
+  # Always ask the runtime to build: its layer cache is cheap, and a changed Dockerfile
+  # must invalidate an old local toolchain instead of reusing its tag indefinitely.
+  "$RUNTIME" "${args[@]}" >/dev/null || {
+    echo "ERROR: could not build the .NET 10 builder from build/Dockerfile.builder" >&2
+    return 1
+  }
+}
 
 builder_resolve_image() {
   # The raw value is kept for the error message: BUILDER_PULL may have come from .env rather than the
@@ -277,10 +292,10 @@ builder_resolve_image() {
   fi
 
   local tag; tag="$(builder_clean_value "$(_envv BUILDER_TAG)")"
-  # `latest` was the default before the pin, so older .env files still carry it. Reading it as unset keeps those
-  # repos on the pinned toolchain. BUILDER_IMAGE=...:latest still selects the moving tag on purpose.
+  # `latest` was a historical default, so older .env files still carry it. Reading it as unset keeps those
+  # repos on the .NET 10 default. BUILDER_IMAGE=...:latest still selects that tag explicitly.
   if [ -z "$tag" ] || [ "$tag" = latest ]; then
-    BUILDER_IMAGE="$_BUILDER_PINNED_IMAGE"
+    BUILDER_IMAGE="$_BUILDER_DEFAULT_IMAGE"
   else
     # OCI tag grammar: [A-Za-z0-9_][A-Za-z0-9._-]{0,127}. Checked here because the alternative is
     # a pull that fails for an unobvious reason and a silent fall-through to building something else.
@@ -294,6 +309,10 @@ builder_resolve_image() {
     BUILDER_IMAGE="quay.io/duplocloud/duplo-extension-builder:$tag"
   fi
   export BUILDER_IMAGE
+  if [ "$BUILDER_IMAGE" = "$_BUILDER_LOCAL_IMAGE" ]; then
+    builder_build_local_image "$force_pull"
+    return $?
+  fi
   if [ "$force_pull" != 1 ] && "$RUNTIME" image inspect "$BUILDER_IMAGE" >/dev/null 2>&1; then return 0; fi
 
   echo "==> Fetching the build toolchain image ($BUILDER_IMAGE)" >&2
@@ -308,11 +327,8 @@ builder_resolve_image() {
   # limit all land here, and they are the difference between "the image isn't published yet" (fine, build
   # it) and "your credentials expired" (which a two-minute local build silently papers over).
   echo "    pull failed: $(printf '%s' "$pull_err" | tail -1)" >&2
-  BUILDER_IMAGE="duplo-extension-builder:local"; export BUILDER_IMAGE
-  "$RUNTIME" image inspect "$BUILDER_IMAGE" >/dev/null 2>&1 && return 0
-  echo "    building it locally from build/Dockerfile.builder instead (one time, ~2 min)" >&2
-  "$RUNTIME" build -q -f build/Dockerfile.builder -t "$BUILDER_IMAGE" build >/dev/null \
-    || { echo "ERROR: could not build the builder image from build/Dockerfile.builder" >&2; return 1; }
+  BUILDER_IMAGE="$_BUILDER_LOCAL_IMAGE"; export BUILDER_IMAGE
+  builder_build_local_image "$force_pull"
 }
 
 # --- Dispatch ------------------------------------------------------------------------------------
@@ -514,7 +530,7 @@ builder_dispatch() {
     error:toolchain)
       echo "ERROR: missing build tool(s): $(builder_missing_tools)" >&2
       echo "       This is running inside a container with no reachable runtime, so the build cannot be" >&2
-      echo "       delegated. Use an image that ships the toolchain (.NET SDK 8 + Node 22), e.g." >&2
+      echo "       delegated. Use an image that ships the toolchain (.NET SDK 10 + Node 22), e.g." >&2
       echo "       build/Dockerfile.builder in this repo." >&2
       exit 1 ;;
     error:runtime)

@@ -11,7 +11,7 @@
     SDK type identity at load time (ExtensionLoadContext resolves SDK assemblies from the host).
   -->
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseAppHost>false</UseAppHost>
@@ -29,7 +29,7 @@
     <!-- EnrichResultAsync's live-subnet read (DescribeSubnets). Compile-only: the host's SDK closure
          already ships AWSSDK.EC2 (it backs AwsHostOperations — see reference/10-sdk-api.md gotchas),
          so the extension must NOT bundle a second copy. -->
-    <PackageReference Include="AWSSDK.EC2" Version="4.0.116" ExcludeAssets="runtime" />
+    <!-- Use the AWSSDK.EC2 compile dependency supplied by the host SDK feed. -->
   </ItemGroup>
 
 </Project>
