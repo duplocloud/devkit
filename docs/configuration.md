@@ -106,7 +106,7 @@ Pin the published images the stack runs.
 
 | Variable | Default in `.env.example` | Effect |
 | --- | --- | --- |
-| `STUDIO_TAG` | `branch-refs-pull-548-merge-663a7586` | The AI HelpDesk studio image (the platform API). Format is `branch-<sanitized-branch>-<short-sha>`. Pinned to a build that enforces `Licensing:Token` — do not roll it back to a pre-licensing tag. |
+| `STUDIO_TAG` | `branch-feature-DUPLOAI-4928-dotnet-10-a7015c2ff` | The AI HelpDesk studio image (the platform API). Format is `branch-<sanitized-branch>-<short-sha>`. Pinned to a build that enforces `Licensing:Token` — do not roll it back to a pre-licensing tag. |
 | `AGENT_TAG` | `main-d27e511` | The `claude-code-agent` image that executes provisioning tickets. A `main` build — it carries no extension-specific changes. |
 | `UI_TAG` | `2a949c536be71efd4501dd60ca6fdda4f7b4676a` | The Angular portal image. A `duplo-ui` git SHA, pinned to a build that renders the license state. |
 | `XTERM_TAG` | `main-d323e0b` | The in-browser terminal image. |

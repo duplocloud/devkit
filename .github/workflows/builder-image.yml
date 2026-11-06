@@ -1,15 +1,14 @@
-# Publishes the extension build toolchain image (.NET SDK 8 + Node 22) that scripts/build-extension.sh
+# Publishes the extension build toolchain image (.NET SDK 10 + Node 22) that scripts/build-extension.sh
 # runs builds in. Multi-arch so it works on CI (amd64) and Apple Silicon laptops (arm64).
 #
 # Auth comes from the org-level secrets QUAY_USERNAME / QUAY_PASSWORD, which every repo in the
 # duplocloud org already inherits — the same pair the other image pipelines use. They need push access to
 # quay.io/duplocloud/duplo-extension-builder.
 #
-# Both tags are load-bearing on the consumer side. `:latest` is the default scripts/_builder.sh resolves
-# (BUILDER_TAG defaults to latest), so it must exist or every default build falls back to compiling the
-# image locally. The commit tag is the pin: BUILDER_TAG=<sha> — or BUILDER_IMAGE=<full ref> — selects it.
-# Note that `:latest` MOVES while _builder.sh short-circuits on an image that is already local, so a
-# laptop keeps its cached toolchain after a publish here until someone runs a build with BUILDER_PULL=1.
+# Publishes :latest and a commit tag for explicit BUILDER_IMAGE / BUILDER_TAG overrides.
+# The .NET 10 migration defaults to building this checkout locally until a new multi-arch
+# digest is published and validated. Then update _BUILDER_DEFAULT_IMAGE in scripts/_builder.sh
+# and the matching docker-compose.yml default to the reported digest.
 name: Builder image
 
 on:
@@ -62,7 +61,7 @@ jobs:
           tags: |
             quay.io/duplocloud/duplo-extension-builder:latest
             quay.io/duplocloud/duplo-extension-builder:${{ github.sha }}
-      # scripts/_builder.sh pins the default toolchain by digest, so a publish here changes nothing until that pin
+      # Publishing does not change the default local toolchain until _BUILDER_DEFAULT_IMAGE
       # moves in a reviewed PR. Hand the reviewer the exact value.
       - name: Report the digest to pin
         env:

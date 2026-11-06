@@ -79,9 +79,10 @@ machine, because the build runs in a container. See [Prerequisites](getting-star
 
 ### Do I need .NET and Node installed to build an extension?
 
-No. `./scripts/build-extension.sh` runs the build inside a toolchain container that ships .NET SDK 8 and
-Node 22, and starts it for you; the first build pulls that image, or builds it locally from
-`build/Dockerfile.builder` if the pull fails. If you already have a toolchain and would rather use it, pass
+No. `./scripts/build-extension.sh` runs the build inside a toolchain container that ships .NET SDK 10 and
+Node 22, and starts it for you. The default builds `build/Dockerfile.builder` locally and reuses the
+container layer cache on later builds. This avoids the older published SDK 8 builder; you can select a
+validated registry image with `BUILDER_IMAGE`. If you already have a toolchain and would rather use it, pass
 `--native` or set `DUPLO_BUILD_NATIVE=1`.
 
 ### Will this clash with a DuploCloud platform I already run locally?
