@@ -53,6 +53,9 @@ jobs:
       DUPLO_TARGET: remote
       DUPLO_HOST: ${{ secrets.DUPLO_HOST }}
       DUPLO_TOKEN: ${{ secrets.DUPLO_TOKEN }}
+      # Comma-separated SDK versions to build against from the package feed, one bundle and one release per version.
+      # Empty builds one bundle from the host's SDK.
+      DUPLO_SDK_VERSIONS: ${{ vars.DUPLO_SDK_VERSIONS }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

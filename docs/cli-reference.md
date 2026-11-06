@@ -160,7 +160,7 @@ Your `extensions/` directory is **never** touched by any of these — it is only
 
 | Script | What it does |
 | --- | --- |
-| `build-extension.sh <extension-dir>` | Validate naming, fetch the host SDK, `dotnet publish`, `npm build`, and zip to `<dir>/dist/extension.zip`. |
+| `build-extension.sh <extension-dir>` | Validate naming, fetch the host SDK, `dotnet publish`, `npm build`, and zip to `<dir>/dist/extension.zip`. With `DUPLO_SDK_VERSIONS` set to a comma-separated list, it restores each of those SDK versions from the package feed instead, with no host, and writes one `<dir>/dist/sdk-<v>/extension.zip` per version. |
 | `build-all.sh` | Build every `extensions/<name>/manifest.json` in the repo. What CI runs. |
 | `deploy-extension.sh <path-to-extension.zip>` | Hot-load one bundle onto the platform — no restart. |
 | `deploy-all.sh` | Hot-load every built bundle. Run after `build-all.sh`. |
@@ -202,10 +202,12 @@ dev-kit URL used by upgrades. Both are sourced, not run.
 | `.github/workflows/extension-ci.yml` | push | Builds `extensions/`. Can hot-load on a manual run. |
 | `.github/workflows/release.yml` | push to `main`, or manual | Releases every extension through `duplocloud/actions/release-extension`: builds each one, cuts a GitHub Release per build tagged `<name>-v<version>-sdk-<sdkVersion>`, uploads it and registers it with the console as an unpublished version. Bumping `manifest.version` is how you release a new version. It does not hot-load. |
 
-Both need repo secrets `DUPLO_HOST` and `DUPLO_TOKEN`. The build fetches the host SDK feed from
-`DUPLO_HOST`, so it must be reachable from CI — a real platform, not `localhost`. `release.yml` also needs
-`CONSOLE_API_KEY`, and the signing, license and role values inside DuploCloud's organizations.
-[Releasing extensions](releasing-extensions.md) has the full list.
+Both need repo secrets `DUPLO_HOST` and `DUPLO_TOKEN`. By default the build fetches the host SDK feed from
+`DUPLO_HOST`, so it must be reachable from CI — a real platform, not `localhost`. With the repository variable
+`DUPLO_SDK_VERSIONS` set, `extension-ci.yml` builds one bundle per listed SDK version from the package feed
+and needs the host only to deploy. `release.yml` still needs the host, plus `CONSOLE_API_KEY` and the signing,
+license and role values inside DuploCloud's organizations. [Releasing extensions](releasing-extensions.md) has
+the full list.
 
 It is your repo: commit `extensions/` and push. `dist/`, `node_modules/`, and `backend/sdk-packages/` are
 gitignored, and `.env` is never committed.

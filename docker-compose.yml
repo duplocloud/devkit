@@ -353,6 +353,7 @@ services:
       - DUPLO_TOKEN=${DUPLO_TOKEN:-}
       - DUPLO_ADMIN_TOKEN=${DUPLO_ADMIN_TOKEN:-}
       - ARMDOT_LICENSE_FILE_PATH=${ARMDOT_LICENSE_FILE_PATH:+/run/armdot/license.key}
+      - DUPLO_SDK_VERSIONS=${DUPLO_SDK_VERSIONS:-}
 
 volumes:
   nginx_conf:

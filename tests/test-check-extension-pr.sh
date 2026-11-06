@@ -33,10 +33,12 @@ set_manifest() {
 
 change() { echo "$1" > "$D/code.txt"; git -C "$REPO" commit -qam "$1"; }
 
-# bundle <fe entry file>: the dist/extension.zip a build leaves, with its frontend entry under fe/.
+# bundle <fe entry file> [sdk]: the dist/extension.zip a host-mode build leaves, or dist/sdk-<sdk>/extension.zip for a
+# per-version build, with its frontend entry under fe/.
 bundle() {
-  local p; p="$(mktemp -d)"; mkdir -p "$p/fe"; cp "$D/manifest.json" "$p/"; echo x > "$p/fe/$1"
-  mkdir -p "$D/dist"; rm -f "$D/dist/extension.zip"; ( cd "$p" && zip -qr "$D/dist/extension.zip" . ); rm -rf "$p"
+  local p out; p="$(mktemp -d)"; mkdir -p "$p/fe"; cp "$D/manifest.json" "$p/"; echo x > "$p/fe/$1"
+  out="$D/dist/${2:+sdk-$2/}extension.zip"
+  mkdir -p "$(dirname "$out")"; rm -f "$out"; ( cd "$p" && zip -qr "$out" . ); rm -rf "$p"
 }
 
 # The script resolves the repo from its own path, as it does when devkit copies it into an extension repo.
@@ -84,6 +86,11 @@ t "warns about a webpack frontend (fe/remoteEntry.js) in the built bundle"
 new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'; change two; bundle remoteEntry.js
 OUT="$(run)"; RC=$?
 if [ "$RC" = 0 ] && grep -q "::warning.*remoteEntry.js" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
+
+t "warns about a webpack frontend in a per-SDK-version bundle (dist/sdk-<v>/extension.zip)"
+new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'; change two; bundle remoteEntry.js 1.0.6
+OUT="$(run)"; RC=$?
+if [ "$RC" = 0 ] && grep -q "::warning.*sdk-1.0.6/extension.zip" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
 
 t "is quiet about a Native Federation frontend (fe/remoteEntry.json)"
 new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'; change two; bundle remoteEntry.json

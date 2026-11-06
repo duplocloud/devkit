@@ -202,73 +202,50 @@ if [ "$viol" -ne 0 ]; then
 fi
 echo "    naming OK"
 
-echo "==> Fetching SDK feed from $BASE_URL"
-auth=()
-[ -n "${TOKEN:-}" ] && auth=(-H "Authorization: Bearer $TOKEN")
-# Capture the response first (don't pipe straight to jq) so a non-JSON body yields a clear error, not a
-# cryptic "jq: parse error". No -f: an HTTP error's body + status are the diagnostic, keep them.
-# -L follows http→https redirects.
-SDK_CODE=$(curl -sSL -m 30 -o /tmp/sdk-version-resp.$$ -w '%{http_code}' "${auth[@]}" \
-  "$BASE_URL/v1/aiservicedesk/extensions/sdk-version" 2>/dev/null || echo 000)
-SDK_RESP=$(cat /tmp/sdk-version-resp.$$ 2>/dev/null || true); rm -f /tmp/sdk-version-resp.$$
-SDK_VER=$(printf '%s' "$SDK_RESP" | jq -r '.version // empty' 2>/dev/null || true)
-if [ -z "$SDK_VER" ]; then
-  echo "ERROR: could not read the host SDK version from $BASE_URL/v1/aiservicedesk/extensions/sdk-version" >&2
-  echo "       HTTP $SDK_CODE — response (first 300 chars): $(printf '%s' "$SDK_RESP" | tr -d '\r' | head -c 300)" >&2
-  echo "       Check DUPLO_HOST is the AI Helpdesk studio base URL (serving /v1/aiservicedesk), is reachable," >&2
-  echo "       has no trailing path — and that TOKEN is set: in a platform ticket that means DUPLO_TOKEN in the" >&2
-  echo "       env plus DUPLO_TARGET=remote (auto-detected when DUPLO_HOST+DUPLO_TOKEN are both set)." >&2
-  exit 1
-fi
-echo "    host SDK version: $SDK_VER"
-mkdir -p "$DIR/backend/sdk-packages"
-curl -fsSL -m 120 "${auth[@]}" "$BASE_URL/v1/aiservicedesk/extensions/sdk-bundle" -o "$DIR/dist-sdk.zip" \
-  || { echo "ERROR: failed to download the SDK bundle from $BASE_URL/v1/aiservicedesk/extensions/sdk-bundle" >&2; exit 1; }
-unzip -oq "$DIR/dist-sdk.zip" -d "$DIR/backend/sdk-packages" \
-  || { echo "ERROR: SDK bundle is not a valid zip — got $(file -b "$DIR/dist-sdk.zip" 2>/dev/null). Check DUPLO_HOST." >&2; exit 1; }
-# Digest a fresh extraction, not sdk-packages/: that directory accumulates packages from earlier builds, and the
-# digest must describe only the SDK this build compiled against. See scripts/_sdk_digest.sh for the definition.
-SDK_FEED="$(mktemp -d)"
-unzip -oq "$DIR/dist-sdk.zip" -d "$SDK_FEED"
-SDK_DIGEST="$(sdk_digest "$SDK_FEED")" || { rm -rf "$SDK_FEED"; echo "ERROR: the SDK bundle from $BASE_URL is empty." >&2; exit 1; }
-# Admin scope needs a host SDK that ships AdminResourcesController. Probe for the type rather than compare
-# version numbers: the loader pins an extension to exactly the version the host reports, so a minimum-version
-# check says nothing about whether the feature is there. (Whole-archive unzip -p: path globs are not portable.
-# Not grep -q: it would stop reading early, SIGPIPE unzip, and pipefail would report a miss.)
-if [ "$has_admin" = 1 ]; then
-  found=0
-  for n in "$SDK_FEED"/Duplo.Ai.DataManagement.*.nupkg; do
-    [ -f "$n" ] && unzip -p "$n" 2>/dev/null | grep -a 'AdminResourcesController' >/dev/null && found=1
-  done
-  [ "$found" = 1 ] || { rm -rf "$SDK_FEED"; echo "ERROR: the host SDK ($SDK_VER) has no AdminResourcesController — this host cannot load admin-scoped extensions (reference/21-admin-resources.md)." >&2; exit 1; }
-  echo "    host SDK supports admin-scoped resources"
-fi
-rm -rf "$SDK_FEED" "$DIR/dist-sdk.zip"
-echo "    host SDK digest: $SDK_DIGEST"
+# --- Which SDKs to build against. ----------------------------------------------------------------------------
+# Empty (the default) keeps today's single build from the running host's SDK, stamped with its digest, at
+# dist/extension.zip. A non-empty DUPLO_SDK_VERSIONS (comma-separated) builds one bundle per version, each
+# restored from the package feed (nuget.config's nuget.org source) rather than a host, so no DUPLO_HOST is
+# needed to build. Each goes to dist/sdk-<version>/extension.zip, which is what release-extensions.sh walks.
+IFS=',' read -r -a _raw_versions <<<"${DUPLO_SDK_VERSIONS:-}"
+SDK_VERSIONS=()
+for v in "${_raw_versions[@]:-}"; do
+  v="$(printf '%s' "$v" | tr -d '[:space:]')"
+  [ -n "$v" ] && SDK_VERSIONS+=("$v")
+done
 
 CSPROJ=$(find "$DIR/backend" -maxdepth 1 -name '*.csproj' | head -1)
 [ -n "$CSPROJ" ] || { echo "No .csproj under $DIR/backend" >&2; exit 1; }
+# The nuget.config local SDK source resolves against backend/, so the directory has to exist even in feed mode
+# (where it stays empty and restore falls through to nuget.org).
+mkdir -p "$DIR/backend/sdk-packages"
 
-# The host-provided-assembly baseline (created later) lives under backend/, inside this extension's compile
-# root. A copy left by a prior interrupted run would dupe AssemblyInfo and fail the publish below with CS0579,
-# so purge any leftover up-front and guarantee removal on exit (success OR failure) via a trap.
+# --- Frontend: built once and shared by every SDK bundle (it is SDK-independent). ----------------------------
+echo "==> Building frontend"
+# Strict install, matching the host portal. npm ci when a lock exists (deterministic), plain npm install only as
+# the no-lock fallback. NEVER delete package-lock.json, and NOT `npm ci || npm install`: a failing ci must fail
+# the build rather than silently fall back and rewrite the lock.
+( cd "$DIR/frontend" \
+  && if [ -f package-lock.json ]; then npm ci; else npm install; fi \
+  && npm run build )
+
+# --- Obfuscation setup: once, SDK-independent (it depends only on ARMDOT_LICENSE_FILE_PATH). -----------------
+# The baseline (built per version inside build_one) lives under backend/, inside the compile root. A copy left by
+# a prior interrupted run, or by the previous version of a feed build, would dupe AssemblyInfo and fail the publish
+# with CS0579, so purge it up-front, after each version's use, and on exit via the trap. ArmDot obfuscation of the
+# extension's own assembly is on only when ARMDOT_LICENSE_FILE_PATH names a license. The import rides in through a
+# Directory.Build.targets dropped beside the csproj for this build, so the extension's own project file never changes.
 BASELINE="$DIR/backend/_sdkbaseline"
 rm -rf "$BASELINE"
-trap 'rm -rf "$BASELINE" 2>/dev/null || true' EXIT
-
-# ArmDot obfuscation of the extension's own assembly, on only when ARMDOT_LICENSE_FILE_PATH names a license. The
-# builder container receives an empty value when the host set none, so -n is the test, not "is set". The import
-# rides in through a Directory.Build.targets dropped beside the csproj for this one build, so the extension's own
-# project file never changes. build/ArmDot.Obfuscation.props has why only two ArmDot features are on.
 OBFUSCATE=0
 OBFUSCATE_PROPS=(-p:DuploObfuscate=false)
 OBF_TARGETS="$DIR/backend/Directory.Build.targets"
+trap 'rm -rf "$BASELINE" 2>/dev/null || true' EXIT
 if [ -n "${ARMDOT_LICENSE_FILE_PATH:-}" ]; then
-  # Already absolute and checked by builder_resolve_license at the top, before the cd.
   ARMDOT_VERSION="$(sed -nE 's/.*<ArmDotEngineVersion>([^<]+)<.*/\1/p' build/ArmDot.Obfuscation.props)"
   [ -n "$ARMDOT_VERSION" ] || { echo "ERROR: no ArmDotEngineVersion in build/ArmDot.Obfuscation.props" >&2; exit 1; }
-  # A file identical to the template is this script's own leftover from a killed build, so it is replaced. Anything
-  # else is the extension's own and is never overwritten.
+  # A file identical to the template is this script's own leftover from a killed build, so it is replaced.
+  # Anything else is the extension's own and is never overwritten.
   if [ -e "$OBF_TARGETS" ] && ! cmp -s build/Directory.Build.targets.template "$OBF_TARGETS"; then
     echo "ERROR: $OBF_TARGETS already exists. The obfuscation import is dropped there for the build," >&2
     echo "       so move the extension's own targets into its csproj first." >&2
@@ -278,35 +255,30 @@ if [ -n "${ARMDOT_LICENSE_FILE_PATH:-}" ]; then
   cp build/Directory.Build.targets.template "$OBF_TARGETS"
   OBFUSCATE=1
   OBFUSCATE_PROPS=(-p:DuploObfuscate=true -p:ArmDotLicenseFile="$ARMDOT_LICENSE_FILE_PATH" -p:DuploDevkitBuildDir="$PWD/build/")
-  echo "==> Obfuscating the extension assembly with ArmDot $ARMDOT_VERSION"
 fi
 
-echo "==> Building backend ($(basename "$CSPROJ"))"
-( cd "$DIR/backend" && dotnet publish "$(basename "$CSPROJ")" -c Release -o ../dist/backend -p:DuploSdkVersion="$SDK_VER" \
-    "${OBFUSCATE_PROPS[@]}" )
+# build_one <sdk-version> <sdk-digest> <out-dir>: publish the backend against one SDK version (obfuscated when a
+# license is set), compute the host-provided assembly set for that version, and assemble <out-dir>/extension.zip
+# with the shared frontend. The SDK is resolved through nuget.config: the host bundle under backend/sdk-packages
+# in host mode, else nuget.org. An empty digest is omitted from the manifest; nothing consumes sdkDigest, and a
+# feed build has no host bundle to fingerprint.
+build_one() {
+  local sdk_ver="$1" sdk_digest="$2" out="$3"
+  # The backend publish runs from backend/, so its -o has to be absolute, not relative to the repo root.
+  case "$out" in /*) ;; *) out="$PWD/$out" ;; esac
+  rm -rf "$out"; mkdir -p "$out"
 
-echo "==> Building frontend"
-# Strict install, matching the host portal. Where a dependency has no Angular 22 release (ngx-toastr,
-# at time of writing), the frontend's package.json pins it with an `overrides` block rather than
-# loosening the whole install. If a new conflict appears, add an override; do not restore the
-# legacy peer-deps flag.
-# npm ci when a lock exists (deterministic — the committed lock is what makes the strict install
-# reproducible); plain npm install only as the no-lock fallback. NEVER delete package-lock.json.
-( cd "$DIR/frontend" \
-  && if [ -f package-lock.json ]; then npm ci; else npm install; fi \
-  && npm run build )
-# (if/else, NOT `npm ci || npm install`: a FAILING npm ci must fail the build, never silently fall back
-#  to npm install and rewrite the lock.)
+  [ "$OBFUSCATE" = 1 ] && echo "==> [$sdk_ver] Obfuscating the extension assembly with ArmDot $ARMDOT_VERSION"
+  echo "==> [$sdk_ver] Building backend ($(basename "$CSPROJ"))"
+  ( cd "$DIR/backend" && dotnet publish "$(basename "$CSPROJ")" -c Release -o "$out/backend" -p:DuploSdkVersion="$sdk_ver" \
+      "${OBFUSCATE_PROPS[@]}" )
 
-# The extension is hot-loaded into a child AssemblyLoadContext whose Resolving hook serves any assembly the
-# host already has (the WHOLE SDK closure — Duplo.Ai.*, Mongo, AWS, AspNetCore, …) from the host's Default
-# context, for shared type identity. Those DLLs in the publish output are therefore never loaded from the
-# bundle; shipping them only bloats it past the load-bundle ingress body limit (HTTP 413). Compute the
-# host-provided set by publishing a minimal project that references ONLY the SDK meta-package (full runtime
-# closure) against the same feed, then ship just the assemblies the host does NOT provide.
-echo "==> Computing host-provided assembly set (to keep the bundle to extension-private DLLs)"
-rm -rf "$BASELINE"; mkdir -p "$BASELINE"   # BASELINE defined + trap-guarded near the top
-cat > "$BASELINE/_sdkbaseline.csproj" <<EOF
+  # The extension is hot-loaded into a child AssemblyLoadContext that serves the whole SDK closure from the host's
+  # Default context, so those DLLs must not ship in the bundle (they only bloat it past the ingress limit). Compute
+  # the host-provided set by publishing a project that references only the SDK meta-package against the same feed.
+  echo "==> [$sdk_ver] Computing host-provided assembly set"
+  rm -rf "$BASELINE"; mkdir -p "$BASELINE"
+  cat > "$BASELINE/_sdkbaseline.csproj" <<CSPROJ_EOF
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -314,105 +286,123 @@ cat > "$BASELINE/_sdkbaseline.csproj" <<EOF
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <PackageReference Include="Duplocloud.AiHelpdesk.Sdk" Version="[$SDK_VER]" />
+    <PackageReference Include="Duplocloud.AiHelpdesk.Sdk" Version="[$sdk_ver]" />
   </ItemGroup>
 </Project>
-EOF
-echo 'namespace _SdkBaseline; internal sealed class _ {}' > "$BASELINE/_.cs"
-# Never obfuscated, since the baseline only lists what the host provides. It sits under backend/, so the
-# Directory.Build.targets dropped there reaches it unless told otherwise.
-if ! ( cd "$BASELINE" && dotnet publish _sdkbaseline.csproj -c Release -o ./out -p:DuploSdkVersion="$SDK_VER" \
-         -p:DuploObfuscate=false ) > "$BASELINE/publish.log" 2>&1; then
-  echo "ERROR: failed to compute the host-provided SDK closure (baseline publish):" >&2
-  tail -20 "$BASELINE/publish.log" >&2
-  exit 1
-fi
-PROVIDED=$(mktemp)
-( cd "$BASELINE/out" && ls -1 *.dll 2>/dev/null ) | sort -u > "$PROVIDED"
-echo "    host provides $(wc -l < "$PROVIDED" | tr -d ' ') assemblies (excluded from the bundle)"
+CSPROJ_EOF
+  echo 'namespace _SdkBaseline; internal sealed class _ {}' > "$BASELINE/_.cs"
+  # Never obfuscated: the baseline only lists what the host provides. It sits under backend/, so the dropped
+  # Directory.Build.targets reaches it unless told otherwise.
+  if ! ( cd "$BASELINE" && dotnet publish _sdkbaseline.csproj -c Release -o ./out -p:DuploSdkVersion="$sdk_ver" \
+           -p:DuploObfuscate=false ) > "$BASELINE/publish.log" 2>&1; then
+    echo "ERROR: [$sdk_ver] failed to compute the host-provided SDK closure (baseline publish):" >&2
+    tail -20 "$BASELINE/publish.log" >&2
+    return 1
+  fi
+  local provided; provided=$(mktemp)
+  ( cd "$BASELINE/out" && ls -1 ./*.dll 2>/dev/null | sed 's|^\./||' ) | sort -u > "$provided"
+  echo "    host provides $(wc -l < "$provided" | tr -d ' ') assemblies (excluded from the bundle)"
 
-echo "==> Assembling bundle"
-PKG="$DIR/dist/pkg"
-rm -rf "$PKG"; mkdir -p "$PKG/backend" "$PKG/fe" "$PKG/skills"
-# Bundle manifest with the real host SDK version and the digest of the SDK feed it was compiled against pinned
-# in, and both <id>/<version>/ paths derived from id+version. The host stages the bundle to
-# <ExtensionStudioPath>/<id>/<version>/ but reads the entry assembly from backend.assemblyDir and each
-# provisioning skill from skills[].folder, so all three have to agree.
-# Maintained by hand they drift the moment you bump version alone, and what that breaks depends on the target:
-#
-#   backend.assemblyDir  a host that still has the old version on disk keeps running the OLD backend DLL and
-#                        says nothing; a host that's never seen it refuses the install outright with
-#                        "Extension entry assembly not found: .../<old version>/backend/<dll>".
-#   skills[].folder      quieter in both directions. The loader's seeder returns early on a missing directory,
-#                        so a fresh host loads fine with the skill silently absent — Agent-mode provisioning
-#                        then fails later with a confusing "no skill" — and a host holding the old version
-#                        seeds the OLD skill.
-#
-# Both are always <id>/<version>/…, so compute them here instead of trusting the checked-in values. The skill
-# tail varies per entry (skills/<name>), so only the first two segments are replaced; a manifest with no
-# skills array is left alone rather than given an empty one.
-# The obfuscation stamp says what this build did, so a stale one in the source manifest never survives: an
-# obfuscated build overwrites it and a plain build removes it. A release step reads it to refuse an unprotected build.
-jq --arg v "$SDK_VER" --arg d "$SDK_DIGEST" --arg ob "$([ "$OBFUSCATE" = 1 ] && echo "$ARMDOT_VERSION")" '
-    .sdkVersion = $v
-  | .sdkDigest = $d
-  | if $ob != "" then .obfuscation = {tool: "armdot", version: $ob} else del(.obfuscation) end
-  | .backend.assemblyDir = (.id + "/" + .version + "/backend")
-  | .id as $i | .version as $r
-  | if (.skills | type) == "array" then
-      .skills = [ .skills[]
-        | if ((.folder | split("/") | length) > 2)
-          then .folder = ($i + "/" + $r + "/" + (.folder | split("/") | .[2:] | join("/")))
-          else . end ]
-    else . end
-' "$DIR/manifest.json" > "$PKG/manifest.json"
-# Report drift rather than repairing it silently, so the checked-in value gets fixed at the source too.
-_ad_src=$(jq -r '.backend.assemblyDir // ""' "$MANIFEST")
-_ad_out=$(jq -r '.backend.assemblyDir' "$PKG/manifest.json")
-[ "$_ad_src" = "$_ad_out" ] || echo "    NOTE: stale backend.assemblyDir '$_ad_src' in $MANIFEST — bundled as '$_ad_out'"
-_sk_src=$(jq -r '[.skills[]?.folder] | join(", ")' "$MANIFEST")
-_sk_out=$(jq -r '[.skills[]?.folder] | join(", ")' "$PKG/manifest.json")
-[ "$_sk_src" = "$_sk_out" ] || echo "    NOTE: stale skills[].folder '$_sk_src' in $MANIFEST — bundled as '$_sk_out'"
-# Ship only backend assemblies the host does NOT already provide, plus each kept DLL's sidecars. Native
-# runtimes/ are host-provided too (Mongo/AWS natives load via the host's Default-ALC copies), so skip them.
-kept=0; dropped=0
-shopt -s nullglob
-for f in "$DIR"/dist/backend/*.dll; do
-  base=$(basename "$f")
-  if grep -qxF "$base" "$PROVIDED"; then dropped=$((dropped+1)); continue; fi
-  cp "$f" "$PKG/backend/"; kept=$((kept+1))
-  stem="${base%.dll}"
-  for side in "$stem.pdb" "$stem.deps.json" "$stem.runtimeconfig.json"; do
-    [ -f "$DIR/dist/backend/$side" ] && cp "$DIR/dist/backend/$side" "$PKG/backend/"
+  echo "==> [$sdk_ver] Assembling bundle"
+  local pkg="$out/pkg"
+  rm -rf "$pkg"; mkdir -p "$pkg/backend" "$pkg/fe" "$pkg/skills"
+  # Stamp the real SDK version and digest, the obfuscation marker, and the id/version-derived paths the loader
+  # reads (backend.assemblyDir and skills[].folder), computed here so they never drift from id+version.
+  jq --arg v "$sdk_ver" --arg d "$sdk_digest" --arg ob "$([ "$OBFUSCATE" = 1 ] && echo "$ARMDOT_VERSION")" '
+      .sdkVersion = $v
+    | if $d != "" then .sdkDigest = $d else del(.sdkDigest) end
+    | if $ob != "" then .obfuscation = {tool: "armdot", version: $ob} else del(.obfuscation) end
+    | .backend.assemblyDir = (.id + "/" + .version + "/backend")
+    | .id as $i | .version as $r
+    | if (.skills | type) == "array" then
+        .skills = [ .skills[]
+          | if ((.folder | split("/") | length) > 2)
+            then .folder = ($i + "/" + $r + "/" + (.folder | split("/") | .[2:] | join("/")))
+            else . end ]
+      else . end
+  ' "$MANIFEST" > "$pkg/manifest.json"
+
+  # Ship only backend assemblies the host does NOT provide, plus each kept DLL's sidecars.
+  local kept=0 dropped=0 f base stem side
+  shopt -s nullglob
+  for f in "$out"/backend/*.dll; do
+    base=$(basename "$f")
+    if grep -qxF "$base" "$provided"; then dropped=$((dropped+1)); continue; fi
+    cp "$f" "$pkg/backend/"; kept=$((kept+1))
+    stem="${base%.dll}"
+    for side in "$stem.pdb" "$stem.deps.json" "$stem.runtimeconfig.json"; do
+      [ -f "$out/backend/$side" ] && cp "$out/backend/$side" "$pkg/backend/"
+    done
   done
-done
-shopt -u nullglob
-rm -f "$PROVIDED"; rm -rf "$BASELINE"
-[ "$kept" -gt 0 ] || { echo "ERROR: nothing left to ship after excluding host-provided assemblies — aborting (the extension's own DLL was unexpectedly treated as host-provided)." >&2; exit 1; }
-echo "    backend: shipped $kept assembly file(s), dropped $dropped host-provided"
-# Sanity check: native runtimes/ (5x libmongocrypt ≈ 33MB, AWS/Mongo natives) are host-provided and
-# normally should not ship — their presence usually means an old/untrimmed publish leaked in and the
-# bundle balloons. Warn (do not fail) so the bundle still builds; investigate with a sample if it appears.
-if [ -d "$PKG/backend/runtimes" ]; then
-  echo "    WARNING: native runtimes/ present in the bundle backend/ — the host usually provides these." >&2
-  echo "             If the bundle is unexpectedly large, check <ExcludeAssets>runtime</ExcludeAssets> on the SDK ref." >&2
+  shopt -u nullglob
+  rm -f "$provided"; rm -rf "$BASELINE"
+  [ "$kept" -gt 0 ] || { echo "ERROR: [$sdk_ver] nothing left to ship after excluding host-provided assemblies (the extension's own DLL was treated as host-provided)." >&2; return 1; }
+  echo "    backend: shipped $kept assembly file(s), dropped $dropped host-provided"
+  if [ -d "$pkg/backend/runtimes" ]; then
+    echo "    WARNING: [$sdk_ver] native runtimes/ present in the bundle backend/ — the host usually provides these." >&2
+  fi
+
+  cp -r "$DIR/frontend/dist/." "$pkg/fe/"
+  [ -d "$DIR/skills" ] && cp -r "$DIR/skills/." "$pkg/skills/"
+  [ -d "$DIR/resources-frontend-templates" ] && cp -r "$DIR/resources-frontend-templates" "$pkg/resources-frontend-templates"
+  # Replace, don't append: zip updates in place, so a stale archive would keep entries no longer in $pkg.
+  rm -f "$out/extension.zip"
+  ( cd "$pkg" && zip -rq "$out/extension.zip" . )
+  echo "==> [$sdk_ver] Done: $out/extension.zip"
+  du -sh "$pkg/backend" "$pkg/fe" "$out/extension.zip" 2>/dev/null | sed 's/^/    /'
+}
+
+if [ "${#SDK_VERSIONS[@]}" -eq 0 ]; then
+  # Host mode (unchanged behaviour): fetch the running host's SDK, stamp its digest, write dist/extension.zip.
+  echo "==> Fetching SDK feed from $BASE_URL"
+  auth=()
+  [ -n "${TOKEN:-}" ] && auth=(-H "Authorization: Bearer $TOKEN")
+  # Capture the response first (don't pipe to jq) so a non-JSON body gives a clear error. No -f: the body + status
+  # are the diagnostic. -L follows http->https redirects.
+  SDK_CODE=$(curl -sSL -m 30 -o /tmp/sdk-version-resp.$$ -w '%{http_code}' "${auth[@]}" \
+    "$BASE_URL/v1/aiservicedesk/extensions/sdk-version" 2>/dev/null || echo 000)
+  SDK_RESP=$(cat /tmp/sdk-version-resp.$$ 2>/dev/null || true); rm -f /tmp/sdk-version-resp.$$
+  SDK_VER=$(printf '%s' "$SDK_RESP" | jq -r '.version // empty' 2>/dev/null || true)
+  if [ -z "$SDK_VER" ]; then
+    echo "ERROR: could not read the host SDK version from $BASE_URL/v1/aiservicedesk/extensions/sdk-version" >&2
+    echo "       HTTP $SDK_CODE — response (first 300 chars): $(printf '%s' "$SDK_RESP" | tr -d '\r' | head -c 300)" >&2
+    echo "       Check DUPLO_HOST is the AI Helpdesk studio base URL (serving /v1/aiservicedesk), is reachable," >&2
+    echo "       has no trailing path, and that TOKEN is set. To build without a host, set DUPLO_SDK_VERSIONS." >&2
+    exit 1
+  fi
+  echo "    host SDK version: $SDK_VER"
+  curl -fsSL -m 120 "${auth[@]}" "$BASE_URL/v1/aiservicedesk/extensions/sdk-bundle" -o "$DIR/dist-sdk.zip" \
+    || { echo "ERROR: failed to download the SDK bundle from $BASE_URL/v1/aiservicedesk/extensions/sdk-bundle" >&2; exit 1; }
+  unzip -oq "$DIR/dist-sdk.zip" -d "$DIR/backend/sdk-packages" \
+    || { echo "ERROR: SDK bundle is not a valid zip — got $(file -b "$DIR/dist-sdk.zip" 2>/dev/null). Check DUPLO_HOST." >&2; exit 1; }
+  # Digest a fresh extraction, not sdk-packages/, which accumulates packages from earlier builds.
+  SDK_FEED="$(mktemp -d)"
+  unzip -oq "$DIR/dist-sdk.zip" -d "$SDK_FEED"
+  SDK_DIGEST="$(sdk_digest "$SDK_FEED")" || { rm -rf "$SDK_FEED"; echo "ERROR: the SDK bundle from $BASE_URL is empty." >&2; exit 1; }
+  # Admin scope needs a host SDK that ships AdminResourcesController. Probe for the type rather than compare
+  # version numbers: the loader pins an extension to exactly the version the host reports, so a minimum-version
+  # check says nothing about whether the feature is there. (Whole-archive unzip -p: path globs are not portable.
+  # Not grep -q: it would stop reading early, SIGPIPE unzip, and pipefail would report a miss.)
+  if [ "$has_admin" = 1 ]; then
+    found=0
+    for n in "$SDK_FEED"/Duplo.Ai.DataManagement.*.nupkg; do
+      [ -f "$n" ] && unzip -p "$n" 2>/dev/null | grep -a 'AdminResourcesController' >/dev/null && found=1
+    done
+    [ "$found" = 1 ] || { rm -rf "$SDK_FEED"; echo "ERROR: the host SDK ($SDK_VER) has no AdminResourcesController — this host cannot load admin-scoped extensions (reference/21-admin-resources.md)." >&2; exit 1; }
+    echo "    host SDK supports admin-scoped resources"
+  fi
+  rm -rf "$SDK_FEED" "$DIR/dist-sdk.zip"
+  echo "    host SDK digest: $SDK_DIGEST"
+
+  build_one "$SDK_VER" "$SDK_DIGEST" "$DIR/dist"
+else
+  # Feed mode: one bundle per listed SDK version, restored from nuget.org (nuget.config), no host needed. The
+  # admin-scope probe above is host-mode only, since here the owner names the SDK versions to compile against.
+  echo "==> Building ${#SDK_VERSIONS[@]} bundle(s) from the SDK feed: ${SDK_VERSIONS[*]}"
+  # Start from an empty dist/, as build_one does in host mode, so a host bundle or a per-version bundle from a
+  # version no longer listed cannot survive and be deployed by deploy-all.sh.
+  rm -rf "$DIR/dist"
+  for v in "${SDK_VERSIONS[@]}"; do
+    build_one "$v" "" "$DIR/dist/sdk-$v"
+  done
 fi
-cp -r "$DIR/frontend/dist/." "$PKG/fe/"
-[ -d "$DIR/skills" ] && cp -r "$DIR/skills/." "$PKG/skills/"
-# LEGACY: declarative Result view-templates are not supported (reference/09-result-templates.md); an older
-# extension may still carry a resources-frontend-templates/ dir, so keep copying it to the bundle root where the loader's
-# RegisterViewTemplatesRoot registers {Type}/{subType}.view-template.json for the inherited
-# GET …/view-template endpoint (otherwise that endpoint 404s and the FE only has its
-# local fallback). See reference/09-result-templates.md.
-[ -d "$DIR/resources-frontend-templates" ] && cp -r "$DIR/resources-frontend-templates" "$PKG/resources-frontend-templates"
-# Replace, don't append — `zip` updates in place, so a stale archive from a prior build keeps entries no
-# longer in $PKG (e.g. the old full backend closure) and the bundle never shrinks.
-rm -f "$DIR/dist/extension.zip"
-( cd "$PKG" && zip -rq ../extension.zip . )
-
-# Size report — a healthy bundle is single-digit MB. If the zip is hundreds of MB, the backend closure or
-# natives leaked in (rebuild with this script; keep <ExcludeAssets>runtime</ExcludeAssets> on the SDK ref).
-echo "==> Bundle size"
-du -sh "$PKG/backend" "$PKG/fe" "$DIR/dist/extension.zip" 2>/dev/null | sed 's/^/    /'
-
-echo "==> Done: $DIR/dist/extension.zip"

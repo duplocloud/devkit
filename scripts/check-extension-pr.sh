@@ -70,14 +70,17 @@ for m in extensions/*/manifest.json extension/*/manifest.json extension/manifest
     warn "$dir/frontend/package.json" "$dir uses ng-common-lib $lib_version, which $why. Migrate with the duplo-extension-theme-migration skill."
   fi
 
-  zip="$dir/dist/extension.zip"
-  if [ -f "$zip" ]; then
-    [ "$(wc -c < "$zip")" -le "$max_bytes" ] || warn "$m" "$dir builds a bundle over $max_bytes bytes, which the release job refuses."
+  # A build leaves dist/extension.zip (host mode) or one dist/sdk-<v>/extension.zip per SDK version, so check each.
+  for zip in "$dir/dist/extension.zip" "$dir"/dist/sdk-*/extension.zip; do
+    [ -f "$zip" ] || continue
+    [ "$(wc -c < "$zip")" -le "$max_bytes" ] \
+      || warn "$m" "$dir builds a bundle over $max_bytes bytes ($zip), which the release job refuses."
     entries="$(unzip -Z1 "$zip")"
     if grep -qx 'fe/remoteEntry.js' <<<"$entries" && ! grep -qx 'fe/remoteEntry.json' <<<"$entries"; then
-      warn "$m" "$dir builds a webpack frontend (fe/remoteEntry.js). Its pages do not open on hosts that load Native Federation remotes. Migrate with the duplo-extension-ng22-migration skill."
+      warn "$m" "$dir builds a webpack frontend (fe/remoteEntry.js in $zip). Its pages do not open on hosts that load Native Federation remotes. \
+Migrate with the duplo-extension-ng22-migration skill."
     fi
-  fi
+  done
 done
 
 echo "==> $warned release warning(s)."
