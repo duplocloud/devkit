@@ -393,7 +393,7 @@ private readonly session = inject<any>(REMOTE_UserSession as any);
 
 | Token | Gives you | Covered in |
 |---|---|---|
-| `REMOTE_UserSession` | The logged-in user, current workspace, `getTenantRefreshTimer()` | [02](02-authoring-guide.md#frontend), [13-current-user](13-current-user.md) |
+| `REMOTE_UserSession` | The logged-in user, current workspace, `getTenantRefreshTimer()` / `getRefreshTimer()` | [02](02-authoring-guide.md#frontend), [13-current-user](13-current-user.md) |
 | `REMOTE_DuploHttpClient` | The host's HTTP client, with auth attached | [02](02-authoring-guide.md#frontend) |
 | `REMOTE_SystemFeatures` | Feature flags | — |
 | `REMOTE_CoreConfigService` | Host layout config, breadcrumbs | [breadcrumbs](#breadcrumbs) |

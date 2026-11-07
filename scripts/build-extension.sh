@@ -87,11 +87,79 @@ if [ -d "$DIR/skills" ]; then
         | grep -vE 'environment/(extensions/|extension-studio)' | grep -vE 'environment/\{' || true)
   [ -n "$bad" ] && { echo "  ! skill callback URL(s) not under 'environment/extensions/' — confirm they target this extension's restSegment:" >&2; printf '%s\n' "$bad" | sed 's/^/      /' >&2; }
 fi
+# Admin extension scope (reference/21-admin-resources.md). An AdminResourcesController serves a route with no
+# {workspaceId}, gated by the Admin Workspace's grants, and owns its rows in the system Admin Workspace; a workspace
+# controller must never sit under the admin prefix. The manifest marks admin surfaces with "scope": "admin" on the top-level menu node + its routes.
+has_admin=0; has_ws=0
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  # `|| true`: a file with no Route(" attribute (a child that only routes its actions via [HttpPost("~/…")], or
+  # one that names ResourcesController< in a comment) must not abort the script under pipefail.
+  route=$( { grep -oE 'Route\("[^"]*"\)' "$f" || true; } | head -1 | sed -E 's/Route\("([^"]*)"\)/\1/')
+  # A child controller often has no class-level [Route] and roots its actions instead (03-base-classes).
+  [ -n "$route" ] || route=$( { grep -oE 'Http[A-Za-z]+\("~/[^"]*"' "$f" || true; } | head -1 | sed -E 's/.*"~\/([^"]*)"/\1/')
+  if grep -qE ':[[:space:]]*AdminResourcesController<' "$f"; then
+    has_admin=1
+    case "$route" in v1/aiservicedesk/admin/data/environment/extensions/*) ;; *)
+      echo "  ✗ $(basename "$f"): an AdminResourcesController must be routed at 'v1/aiservicedesk/admin/data/environment/extensions/<…>' (got '$route')" >&2; viol=1 ;;
+    esac
+    # Mirrors the host's startup check: an admin controller whose entity is not a registered access node fails
+    # the access registry rebuild, and the extension load is rolled back.
+    grep -qE '^[[:space:]]*\[([^]/]*[,[:space:]])?AccessControl\(' "$f" || {
+      echo "  ✗ $(basename "$f"): an AdminResourcesController must declare its access node — [AccessControl(Parent = typeof(Workspace), ParentIdProperty = \"OwnerWorkspaceId\")] — or the host rejects the load" >&2; viol=1; }
+  elif grep -qE ':[[:space:]]*ChildResourceController<' "$f" && grep -qE 'override string GetWorkspaceIdFromRoute' "$f"; then
+    # Admin child: the SDK has no admin ChildResourceController, so the extension's child controller
+    # overrides GetWorkspaceIdFromRoute (+ the workspaceId actions) itself — see reference/21-admin-resources.md.
+    has_admin=1
+    case "$route" in v1/aiservicedesk/admin/data/environment/extensions/*) ;; *)
+      echo "  ✗ $(basename "$f"): an admin child controller (overrides GetWorkspaceIdFromRoute) must be routed under 'v1/aiservicedesk/admin/data/environment/extensions/<…>' (got '$route')" >&2; viol=1 ;;
+    esac
+    for a in CanDeprovision Deprovision ForceReconcile CreateTicket GetTicketStatus; do
+      grep -qE "override[[:space:]]+(async[[:space:]]+)?Task<IActionResult>[[:space:]]+$a\(" "$f" || {
+        echo "  ✗ $(basename "$f"): admin child controller must override $a with a [BindNever] string? workspaceId (the admin route has no {workspaceId}; otherwise it returns 400)" >&2; viol=1; }
+    done
+  elif grep -qE ':[[:space:]]*(ResourcesController|ChildResourceController)<' "$f"; then
+    has_ws=1
+    case "$route" in *aiservicedesk/admin/*)
+      echo "  ✗ $(basename "$f"): '$route' is an admin route — derive from AdminResourcesController (or, for a child, override GetWorkspaceIdFromRoute; see reference/21-admin-resources.md)" >&2; viol=1 ;;
+    esac
+  fi
+done < <(grep -rlE 'Controller<' "$DIR/backend" --include='*.cs' 2>/dev/null | grep -vE '/(bin|obj)/' || true)
+while IFS= read -r sc; do
+  echo "  ✗ frontend extension scope '$sc' must be 'workspace' or 'admin' (this is not a Provider scope)" >&2; viol=1
+done < <(jq -r '[.frontend.routes[]?.scope, .frontend.menus[]?.scope] | map(select(. != null and . != "workspace" and . != "admin")) | .[]' "$MANIFEST")
+while IFS= read -r n; do
+  echo "  ✗ frontend.menus node '$n' sets the extension 'scope' — only the TOP-LEVEL node of a menu tree may (the whole tree follows it)" >&2; viol=1
+done < <(jq -r '.frontend.menus // [] | .[] | (.children // []) | .. | objects | select(has("scope")) | (.id // .title)' "$MANIFEST")
+while IFS=$'\t' read -r u sc; do
+  [ -n "$u" ] || continue
+  echo "  ✗ menu link '$u' is in a '$sc'-extension-scope menu tree but no frontend.routes[] entry has path '$u' with that extension scope (omitted = workspace)" >&2; viol=1
+done < <(jq -r '(.frontend.routes // []) as $r | .frontend.menus // [] | .[] | (.scope // "workspace") as $s
+  | [.. | objects | .relativeUrl? // empty] | .[] as $u
+  | select(([$r[] | select(.path == $u) | (.scope // "workspace")] | index($s)) == null) | "\($u)\t\($s)"' "$MANIFEST")
+# A plain controller (ControllerBase/Controller, e.g. a read-only workspace view of an admin resource) gets no
+# authorization unless it says so: the host has no fallback policy, and only [Authorize] runs the tenant policy
+# (workspace membership; Admin Workspace grants on /aiservicedesk/admin). Resource controllers inherit it from their base.
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  # Attribute lines only (also `[ApiController, Authorize]`) — a doc comment mentioning [Authorize] must not count.
+  grep -qE '^[[:space:]]*\[([^]/]*[,[:space:]])?Authorize([](,[:space:]]|$)' "$f" || {
+    echo "  ✗ $(basename "$f"): a controller deriving from ControllerBase/Controller must carry [Authorize] — without it its routes are anonymous (see reference/21-admin-resources.md)" >&2; viol=1; }
+done < <(grep -rlE ':[[:space:]]*(ControllerBase|Controller)[[:space:]]*($|\{|,)' "$DIR/backend" --include='*.cs' 2>/dev/null | grep -vE '/(bin|obj)/' || true)
+if [ "$has_admin" = 1 ] && [ "$has_ws" = 0 ]; then
+  if [ -d "$DIR/frontend/src" ] && ! grep -rqF 'admin/data/environment' "$DIR/frontend/src" 2>/dev/null; then
+    echo "  ✗ the backend is admin-scoped but no frontend file calls '/v1/aiservicedesk/admin/data/environment/…' — point the FE service base() at the admin route" >&2; viol=1
+  fi
+  if [ -d "$DIR/skills" ] && grep -rqE 'user/data/workspaces/[^ ]*/environment/extensions/' "$DIR/skills" 2>/dev/null; then
+    echo "  ! skill callback URL(s) use '…/user/data/workspaces/…' but the resource is admin-scoped — post to '…/admin/data/environment/extensions/<…>/{id}/status|results'" >&2
+  fi
+fi
 # Frontend ↔ backend route parity: the FE service builds its data URL from REST_SEGMENT, which MUST be the full
 # 'extensions/<…>' path AND (for a single top-level resource) equal the manifest restSegment. A bare leaf 404s
 # every list/get/create/view-template call — the #1 scaffolding pitfall. See reference/00-naming.md.
 if [ -d "$DIR/frontend/src" ]; then
-  fe_segs=$(grep -rhoE "REST_SEGMENT[[:space:]]*=[[:space:]]*'[^']+'" "$DIR/frontend/src" 2>/dev/null \
+  # `|| true`: a frontend with no REST_SEGMENT constant must not abort the script silently under pipefail.
+  fe_segs=$( { grep -rhoE "REST_SEGMENT[[:space:]]*=[[:space:]]*'[^']+'" "$DIR/frontend/src" 2>/dev/null || true; } \
             | sed -E "s/.*'([^']+)'.*/\1/" | sort -u)
   while IFS= read -r seg; do
     [ -n "$seg" ] || continue
@@ -163,6 +231,18 @@ unzip -oq "$DIR/dist-sdk.zip" -d "$DIR/backend/sdk-packages" \
 SDK_FEED="$(mktemp -d)"
 unzip -oq "$DIR/dist-sdk.zip" -d "$SDK_FEED"
 SDK_DIGEST="$(sdk_digest "$SDK_FEED")" || { rm -rf "$SDK_FEED"; echo "ERROR: the SDK bundle from $BASE_URL is empty." >&2; exit 1; }
+# Admin scope needs a host SDK that ships AdminResourcesController. Probe for the type rather than compare
+# version numbers: the loader pins an extension to exactly the version the host reports, so a minimum-version
+# check says nothing about whether the feature is there. (Whole-archive unzip -p: path globs are not portable.
+# Not grep -q: it would stop reading early, SIGPIPE unzip, and pipefail would report a miss.)
+if [ "$has_admin" = 1 ]; then
+  found=0
+  for n in "$SDK_FEED"/Duplo.Ai.DataManagement.*.nupkg; do
+    [ -f "$n" ] && unzip -p "$n" 2>/dev/null | grep -a 'AdminResourcesController' >/dev/null && found=1
+  done
+  [ "$found" = 1 ] || { rm -rf "$SDK_FEED"; echo "ERROR: the host SDK ($SDK_VER) has no AdminResourcesController — this host cannot load admin-scoped extensions (reference/21-admin-resources.md)." >&2; exit 1; }
+  echo "    host SDK supports admin-scoped resources"
+fi
 rm -rf "$SDK_FEED" "$DIR/dist-sdk.zip"
 echo "    host SDK digest: $SDK_DIGEST"
 

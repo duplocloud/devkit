@@ -11,7 +11,11 @@ services:
     image: mongo:7.0.14
     restart: unless-stopped
     ports:
-      - "${MONGO_PORT:-27017}:27017"
+      # Bound to 127.0.0.1 deliberately: the root credentials below are fixed and public, and the dev kit
+      # is documented as running on EC2 hosts, so a bare "27017:27017" would hand full read/write on every
+      # database to anything that can reach the host. The studio reaches mongo in-network at mongo:27017.
+      # The loopback port stays published so mongosh and Compass work from the host.
+      - "127.0.0.1:${MONGO_PORT:-27017}:27017"
     environment:
       - MONGO_INITDB_ROOT_USERNAME=authuser
       - MONGO_INITDB_ROOT_PASSWORD=authpass
@@ -27,9 +31,8 @@ services:
     image: qdrant/qdrant:v1.18.2
     restart: unless-stopped
     ports:
-      # Bound to 127.0.0.1 deliberately, unlike the mongo line above: the fixed API key below is only
-      # safe because nothing off this host can reach Qdrant, and the dev kit is documented as running on
-      # EC2 hosts. A bare "6333:6333" would publish it on every interface.
+      # Bound to 127.0.0.1 for the same reason as mongo above: the fixed API key below is only safe
+      # because nothing off this host can reach Qdrant.
       - "127.0.0.1:${QDRANT_PORT:-6333}:6333"
     environment:
       # Fixed, and deliberately not a secret — Qdrant is reachable only on the compose network and
@@ -137,11 +140,12 @@ services:
       init-perms:
         condition: service_completed_successfully
 
+  # No published port. The agent API has no authentication and its exec endpoint runs scripts inside
+  # this container, which holds the LLM and cloud credentials and reaches the privileged dind daemon.
+  # The studio reaches it in-network at http://claude-code-agent:8000, which is all anything needs.
   claude-code-agent:
     image: quay.io/duplocloud/duplo-agent:${AGENT_TAG}
     restart: unless-stopped
-    ports:
-      - "${AGENT_PORT:-8000}:8000"
     environment:
       - PERSISTENT_VOLUME_STORAGE=/data
       - AGENT_CALLBACK_BASE_URL=http://duplo-ai-studio:60021

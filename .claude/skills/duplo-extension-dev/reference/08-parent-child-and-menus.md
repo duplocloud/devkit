@@ -93,13 +93,13 @@ DI container** (`ExtensionRegistrar.RegisterExtension` registers each resource's
 "resources": [
   {
     "ticketOriginType": "HelloParent", "restSegment": "extensions/hello-parents", "subType": "hello-parent",
-    "archetype": "typed", "registrar": "DevOpsResource",
+    "archetype": "typed",
     "entityType": "…HelloParent", "specType": "…HelloParentSpec", "resultType": "…HelloParentResult",
     "hooksType": "…HelloParentHooks", "serviceType": "…HelloParentService"
   },
   {
     "ticketOriginType": "HelloChild", "restSegment": "hello-children", "subType": "hello-child",   // CHILD restSegment is BARE by design — the extensions/ namespacing comes from the parent route (00-naming carve-out)
-    "archetype": "typed", "registrar": "DevOpsResource",
+    "archetype": "typed",
     "parent": {                                  // ← links child to parent (nested under it)
       "ticketOriginType": "HelloParent",
       "routeSegment": "extensions/hello-parents",   // namespaced; MUST equal the parent's restSegment
@@ -149,6 +149,12 @@ title** and recurses (`mergeExtensionMenuItems`/`upsertMenuNodeByTitle` in `src/
   }
 ]
 ```
+
+**AI Admin menus.** Put `"scope": "admin"` on a tree's **top-level** node to merge it into the AI Admin nav
+instead of AI DevOps (title matching works the same there); nested nodes never carry `scope`. Every link in an admin
+tree needs a `routes[]` entry with the same `path` and `"scope": "admin"` (mounted at `/ai/suite/admin/<path>`). An
+extension that surfaces on both sides declares one tree per side. An admin-scoped parent's child controller applies
+the admin overrides itself — see [21-admin-resources](21-admin-resources.md#backend).
 
 > Legacy: a single `frontend.menu = { parentGroupId, node }` still loads (merged into a group by id) but is
 > **deprecated** — new extensions MUST use `menus[]`.

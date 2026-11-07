@@ -1,21 +1,15 @@
 # Releasing extensions
 
-`.github/workflows/release.yml` runs on every push to `main` and on a manual dispatch. For each
-`extensions/*/manifest.json`, plus the single-extension layouts `extension/manifest.json` and
-`extension/*/manifest.json`, it builds the bundle and hands it to `scripts/release-extensions.sh`, which
-publishes one GitHub Release per build. This page covers what that run does, in any organization, and the
-extra steps that apply only inside DuploCloud's own organizations, `duplocloud` and `duplocloud-internal`.
+`.github/workflows/release.yml` runs on every push to `main` and on a manual dispatch. It calls
+[duplocloud/actions/release-extension](https://github.com/duplocloud/actions/tree/main/release-extension), which
+builds every `extensions/*/manifest.json`, plus the single-extension layouts `extension/manifest.json` and
+`extension/*/manifest.json`, with `scripts/build-all.sh`, then signs each bundle, publishes one GitHub Release
+per build, uploads it and registers it with the console in one run. The action's README has its inputs and
+the rules it enforces. This page covers what that run does, in any organization, and the extra steps that
+apply only inside DuploCloud's own organizations, `duplocloud` and `duplocloud-internal`.
 
 Only one release run executes for a repository at a time. A run that starts while another is still in
 flight queues behind it rather than overlapping or being canceled mid-write.
-
-The same steps are also one reusable action,
-[duplocloud/actions/release-extension](https://github.com/duplocloud/actions/tree/main/release-extension), which
-builds, signs, releases, uploads and registers in one run and is what `release.yml` will call. Until it does, a
-repository that wants the action adds a `workflow_dispatch` workflow from the action's README, with `publish` left
-false, and disables `release.yml` while both exist, since a push to `main` would otherwise cut the tag first and
-turn the action's run into a resume. `scripts/upgrade_dev_kit.sh` removes a workflow devkit did not ship, so the
-hand-added one goes back after each upgrade until then.
 
 ## What a release produces
 
@@ -34,13 +28,14 @@ moved, when a `skills/` folder has no matching `skills[].folder` entry in the ma
 frontend bundle ships without the file that Native Federation hosts need, and when the frontend uses an
 ng-common-lib older than 0.5.1 (see the `duplo-extension-theme-migration` skill).
 
-In `duplocloud` and `duplocloud-internal`, the release also carries `extension.zip.sig`, and, for an id the
-allowlist maps to this repository, the build is uploaded to the channels bucket and registered as a new,
-unpublished version with the license server. A version stays unpublished, for a platform owner to publish
-once the build has been verified, unless the extension opts in to publishing (see "Publishing on register").
-
-Outside those two organizations, a release ships the zip alone. A customer's copy of this workflow holds no
-DuploCloud signing credential, so it signs nothing, uploads nothing, and registers nothing.
+In every organization the build is uploaded and registered with the console as a new, unpublished version
+of the record whose manifest id equals the bundle's. A version stays unpublished, for a platform owner to
+publish once the build has been verified, unless the run was dispatched with `publish` (see "Publishing on
+register"). In `duplocloud` and `duplocloud-internal` the release also carries `extension.zip.sig`, the
+bundle is obfuscated, and the upload goes to the channels bucket through the publisher role. Elsewhere the
+bundle is plain, signed only when the repository supplies its own key and certificate, and the upload goes
+through a URL the console issues for the console key, so a customer's repository needs nothing from
+DuploCloud beyond that key.
 
 ## Signing a build
 
@@ -89,9 +84,8 @@ a non-empty file is refused before anything compiles. A license file ArmDot reje
 
 An obfuscated bundle's `manifest.json` carries `"obfuscation": {"tool": "armdot", "version": "<engine
 version>"}`, and a plain bundle carries no `obfuscation` key, so a release step can tell the two apart. The
-reusable release action refuses a bundle from a DuploCloud organization that carries no `obfuscation` key, so
-once `release.yml` runs that action every DuploCloud release ships obfuscated. The license is DuploCloud's, so
-a customer's build is plain and needs nothing.
+release action refuses a bundle from a DuploCloud organization that carries no `obfuscation` key, so every
+DuploCloud release ships obfuscated. The license is DuploCloud's, so a customer's build is plain and needs nothing.
 
 ## In DuploCloud's organizations
 
@@ -106,120 +100,70 @@ organization variables:
 | `EXTENSION_PUBLISHER_ROLE_ARN` | Organization variable | The AWS role the workflow assumes, by name, to write to the channels bucket |
 | `ARMDOT_LICENSE_KEY` | Organization secret | Base64 of DuploCloud's ArmDot license file. The reusable release action decodes it to the file `build-extension.sh` reads, so every build it runs obfuscates |
 
-The workflow maps `CONSOLE_SIGNING_KEY` onto `EXTENSION_SIGNING_KEY` and `CONSOLE_SIGNING_CERT` onto
-`EXTENSION_SIGNING_CERT` before calling the signer. Each of the first four fails the job before anything is
-written. A missing signing key or certificate fails each extension before it is signed or released, rather
-than shipping an unsigned build. An allowlisted extension with no `CONSOLE_API_KEY` fails the same way,
-before it is signed or released, since that build could never be registered. A missing
-`EXTENSION_PUBLISHER_ROLE_ARN` fails the credentials step, which runs before the publish step. Only
-`CONSOLE_SIGNING_KEY` and `CONSOLE_SIGNING_CERT` matter to a repository the allowlist does not name.
-
-The role is only assumed for a repository the allowlist names, through GitHub's OIDC token
-(`permissions: id-token: write`), so a repository that does not publish never needs AWS credentials at all.
+`release.yml` hands all five to the action. In these organizations the action fails the job before the build
+when the signing key, the certificate, the ArmDot license or the console key is missing, rather than ship an
+unsigned, unprotected or unregistered build. `EXTENSION_PUBLISHER_ROLE_ARN` is assumed through GitHub's OIDC
+token (`permissions: id-token: write`) before the action runs, and only a repository the role's trust list
+names can assume it, so a repository outside that list fails at the credentials step, before anything is built.
 
 ### One-time console setup
 
 A platform owner sets up each of these once in the console. Each one then serves every release.
 
 1. **The API key behind `CONSOLE_API_KEY`.** In the platform-owner team, create a custom role holding
-   **View extension versions** and **Manage extension versions**, create a service account with that role,
-   and store its API key as the organization secret. The release job reads and creates versions and artifacts,
-   and publishes a version when opted in. Manage extension versions covers publishing, and the allowlist
-   supplies each extension's uuid, so the key needs no other capability. The reusable release action looks the
-   extension up by manifest id on the console's staff routes instead, which also needs `view_agents` on that
-   role. The console's own guide covers the service-account workflow in `docs/platform_owner/extension-versions.md`.
+   **View agent versions**, **Manage agent versions** and `view_agents`, create a service account
+   with that role, and store its API key as the organization secret. The action looks the extension up by
+   manifest id on the console's staff routes, which is what `view_agents` covers, then reads and creates
+   versions and artifacts, and publishes a version when the run asks for it. Manage agent versions covers
+   publishing. The console's own guide covers the service-account workflow in
+   `docs/platform_owner/agent-versions.md`.
 2. **The signing key behind `CONSOLE_SIGNING_KEY` and `CONSOLE_SIGNING_CERT`.** The publishing team needs a
    namespace covering its manifest ids, and a signing key created under that team. The console returns the
    key's private PEM once, at creation, and that goes into the secret. The key's certificate goes into the
    organization variable.
 3. **One extension record per extension.** Create it under the same publishing team, with a manifest id
-   that equals the `id` in the extension's `manifest.json`. The console accepts a signed artifact only when
-   the signature's manifest id matches the record and the signing key belongs to the record's team. The
-   console's API only reads extension records, so this step happens in the console, and the record's uuid is
-   what the allowlist entry names.
+   that equals the `id` in the extension's `manifest.json`. The action finds the record by that id and fails
+   the job when none exists, and the console accepts a signed artifact only when the signature's manifest id
+   matches the record and the signing key belongs to the record's team. The console's API only reads
+   extension records, so this step happens in the console.
 
-### Joining the allowlist
+### The role trust
 
-`.github/extension-publishers.json` ships empty in devkit. Each entry maps one manifest id to one
-repository and one console extension, with an optional `"publish": true` (see "Publishing on register"):
+The AWS role's trust policy, held in ai-release's Terraform (`terraform/modules/release-channels`), names
+the repositories whose `main` may assume the publisher role, and that trust is what lets a workflow run write
+to the bucket. A DuploCloud repository joins it through an ai-release PR that adds the repository, with its
+GitHub OIDC subject prefix, to `extension_publisher_repositories` in `terraform/prod/main.tf`, and an
+ai-release maintainer applies it. Until then its release fails at the credentials step.
 
-```json
-{
-  "schemaVersion": 1,
-  "publishers": [
-    { "manifestId": "com.duplocloud.your-extension", "repository": "duplocloud/your-repo", "consoleExtension": "[console extension uuid]" }
-  ]
-}
-```
-
-The `consoleExtension` uuid comes from the console's extensions page. Without an entry, or with one that
-names a different repository, a build still signs and releases, since signing does not depend on the
-allowlist, but the release job logs a notice and never uploads or registers it.
-
-The reusable release action never reads this file. It finds the extension's record on the console by manifest id
-and registers under that, so a repository releasing through the action needs the record and the role trust, not
-an entry here. The entry stays for `release-extensions.sh` until `release.yml` runs the action.
-
-The allowlist alone is not the security boundary. The AWS role's trust policy, held in ai-release's
-Terraform (`terraform/modules/release-channels`), names the same repositories, and that trust is what
-actually lets a workflow run write to the bucket. A test in ai-release keeps the two lists equal against a
-pinned devkit commit, so joining the allowlist takes a PR in both repositories: the entry here, and the
-repository added to the role's trust list there. Either alone leaves the id unable to publish, refused by
-AWS on one side or skipped by the allowlist check on the other.
-
-Changes to this file, `release.yml`, `release-extensions.sh`, `_publish.sh`, `_publishers.sh`, the signer and
-its `extension-sign.requirements.txt` are meant to take two approvals from the `devkit-maintainers` team,
-through a path-scoped rule in devkit's ruleset. Together those files decide what gets signed, uploaded and
-registered, and the requirements file pins the libraries the signer loads the key into.
+Changes to `release.yml`, the signer and its `extension-sign.requirements.txt` are meant to take two
+approvals from the `devkit-maintainers` team, through a path-scoped rule in devkit's ruleset. `release.yml`
+pins the release action to a commit, so a move to a newer action is an edit that rule covers. The signer and
+its requirements file here serve the composite `extension-sign` action only. A release signs with the
+action's own copy of `extension-sign.py` and its own pinned requirements, which live in `duplocloud/actions`,
+under that repository's review.
 
 ## The channels bucket and the license server
 
-A signed build uploads to `s3://duplo-helpdesk-channels/bundles/[id]/[version]/sdk-[sdkVersion]/` in
-`us-west-2`, as two objects, `extension.zip` and `extension.zip.sig`. Both the bucket name and the console
-URL can be overridden with the `BUNDLE_BUCKET` and `CONSOLE_URL` repository variables. Left unset, they
-default to the production bucket and the production console.
+In DuploCloud's organizations a signed build uploads to
+`s3://duplo-helpdesk-channels/bundles/[id]/[version]/sdk-[sdkVersion]/` in `us-west-2`, as two objects,
+`extension.zip` and `extension.zip.sig`, with the assumed role. Both the bucket name and the console URL can be
+overridden with the `BUNDLE_BUCKET` and `CONSOLE_URL` repository variables. Left unset, they default to the
+production bucket and the production console. Elsewhere the action asks the console for an upload URL with the
+console key and uploads through that, so the bucket is never named.
 
-A build that is already finished stops before any download of the zip or any S3 call. The script reads the
-Release's digest for `extension.zip`, downloads only `extension.zip.sig`, and looks up the version and its
-artifact for this SDK in the license server. An artifact whose path, hash and signature match is reported
-as already uploaded and registered. Registration only ever follows both uploads, so a matching artifact means both objects
-are already in the bucket. A failed lookup fails the job. Anything else takes the full path below.
-
-Otherwise, before uploading, the script downloads both assets from the GitHub Release itself, never
-rebuilding them, and recomputes the zip's sha256 locally. When the Release reports its own digest for that
-asset, the script compares the two and fails the job on a mismatch, so a corrupted or substituted download
-is never uploaded. The locally computed hash, not GitHub's, is what gets registered.
-
-Every write from here on is create-only. The upload uses `aws s3api put-object --if-none-match '*'`, so it
-never overwrites an existing key. When that fails with a 412, the script fetches what is already there and
-compares bytes. Identical content counts as already uploaded and the run moves on. Different content fails
-the job, since a published build is never replaced.
-
-Registering the version with the license server follows the same shape. The script looks up the version by
-its number before creating it, and an error saying the record already exists just means a concurrent run
-created it first, so it looks up again rather than failing. It registers the artifact for this SDK the same
-way, by looking it up before creating it. An existing artifact whose path, hash and signature all match
-counts as already done. One that differs fails the job. Every version it creates starts unpublished.
+Every write is create-only, and the action's README under "Re-runs" has the resume rules: a release at an
+existing tag is read back rather than rebuilt or re-signed, an artifact whose path, hash and signature match is
+reported as already registered, and a run that stopped between any two steps finishes on the next run. A
+registered artifact that differs from the release fails the job, since a published build is never replaced.
+Every version it creates starts unpublished.
 
 ### Publishing on register
 
-Publishing a version is what ships its build to every entitled install, so it is opt-in, in either of two ways.
-
-- **Per extension.** Set `"publish": true` on the extension's allowlist entry. A push to `main` then publishes a
-  version when that run registers its first build. A push that resumes a release an earlier run registered, or
-  adds another SDK's build to a version that already has one, never publishes, so a version a platform owner
-  unpublished stays unpublished.
-- **Per run.** Start the Extension Release workflow by hand with its `publish` input checked. That run
-  publishes every version it registers, and also a version an earlier run registered, since a person chose that
-  run. It is also how to publish a version whose publish failed after registration.
-
-Either way, the version is published only after its build is uploaded and its artifact is registered and
-matches the release. A version that is already published is left alone. A repository builds against one SDK at
-a time, so a version with builds for several SDKs is published once its first build is registered.
-
-The release job reads the extension repository's own copy of the allowlist, so `"publish": true` is gated by
-that repository's branch protection, not by devkit's review. Whoever can merge to the repository's `main` can turn
-it on, much as they could change the release scripts the job runs. The console key that registers versions can
+Publishing a version is what ships its build to every entitled install, so it is opt-in. Start the Extension
+Release workflow by hand with its `publish` input checked. That run publishes every version it registers a
+first build for, after the build is uploaded and its artifact is registered and matches the release. A version
+that is already published is left alone, and so is one an earlier run registered or a platform owner
+unpublished, so a platform owner publishes those in the console. The console key that registers versions can
 also publish them, since one capability covers both.
 
 ## Certificate reissue and key rotation
@@ -236,13 +180,15 @@ every release in DuploCloud's organizations until both are in place.
 
 ## Re-running a release
 
-A tag that already has a release is never rebuilt, re-signed, or recreated. `release-extensions.sh` reads
-that release's own assets and resumes from there, so a run that failed partway, during the upload or the
-registration, can simply be re-run. Everything it already finished is a create-only no-op, and it picks up
-where it stopped.
+A tag that already has a release is never rebuilt, re-signed, or recreated. The action reads that release's own
+assets and resumes from there, so a run that failed partway, during the upload or the registration, can simply
+be re-run. Everything it already finished is a create-only no-op, and it picks up where it stopped.
 
-A release that was cut before its repository started signing, or outside DuploCloud's organizations, has no
-`.sig` asset to resume from. It cannot gain one afterward. Once immutable releases are turned on for a
-repository, which this workflow recommends, nothing can be added to a release after it is cut. That release
-stays flagged with a warning and is skipped rather than retried. The only way forward is a new
-`manifest.version`, which cuts a new tag and a new release that does get signed.
+A release that was cut before its repository started signing has no `.sig` asset, and it cannot gain one
+afterward. Once immutable releases are turned on for a repository, which this workflow recommends, nothing
+can be added to a release after it is cut. The action does not skip that release. It reads back the
+`extension.zip` alone and registers the build with an empty signature, as it does for any unsigned build.
+Outside DuploCloud's organizations it then uploads through the console-issued URL and the run ends clean. In
+DuploCloud's organizations the upload writes two objects through the publisher role, so the run fails at the
+`.sig` upload, after the unsigned build is registered. The way to a signed build is a new `manifest.version`,
+which cuts a new tag and a new release that does get signed.

@@ -1,31 +1,27 @@
-# Publishes each extension in this repo as a GitHub Release on push to main.
+# Releases each extension in this repo on push to main, through duplocloud/actions/release-extension.
 #
-# For every extensions/<name>/ it builds the bundle and publishes one release per build, tagged
-# <name>-v<version>-sdk-<sdkVersion> at the commit that was built. scripts/release-extensions.sh holds the rules:
-# a build already released is skipped, and an extension whose content changed at a version that already has a
-# release fails the job, so bumping manifest.version is how you publish a new version to the extension library.
+# For every extensions/<name>/ the action builds the bundle with scripts/build-all.sh, then signs it, cuts one GitHub
+# Release per build tagged <name>-v<version>-sdk-<sdkVersion> at the built commit, uploads it, and registers it with
+# the console as an unpublished version. The action's README has the rules: a build already released is resumed, not
+# rebuilt, and an extension whose content changed at a version that already has a release fails the job, so bumping
+# manifest.version is how you publish a new version to the extension library.
 #
 # This file ships with the dev-kit. After scripts/init-project.sh makes the repo yours, set these repo secrets
-# (same as Extension CI): DUPLO_HOST + DUPLO_TOKEN. The build fetches the host SDK feed from DUPLO_HOST, so it
-# must be reachable from CI (a public DuploCloud, not localhost). Turn on immutable releases in the repository's
-# settings, too; the publish step warns on every release that lands mutable.
+# (same as Extension CI): DUPLO_HOST + DUPLO_TOKEN, since the build fetches the host SDK feed from DUPLO_HOST, which
+# must be reachable from CI (a public DuploCloud, not localhost), and CONSOLE_API_KEY, the console key the action
+# registers versions with. Turn on immutable releases in the repository's settings, too; the action warns on every
+# release that lands mutable.
 #
-# NOTE: the hot-load/deploy step is intentionally COMMENTED OUT (see below). We publish releases but do not
-# auto-install onto the portal, so the install-from-registry flow stays testable end to end. Uncomment the
-# "Deploy" step to auto-hot-load on merge.
+# In Duplo's own organizations (duplocloud, duplocloud-internal) the action also requires the signing key, the
+# certificate and the ArmDot license, mapped below from the org secrets CONSOLE_SIGNING_KEY and ARMDOT_LICENSE_KEY and
+# the org variable CONSOLE_SIGNING_CERT, and refuses a build that is unsigned or not obfuscated. There the upload goes
+# through the AWS role assumed below, whose trust list in ai-release names the repositories that may publish. Outside
+# those organizations nothing is obfuscated, nothing is signed unless the repository sets its own key and certificate,
+# and the upload goes through a URL the console issues.
 #
-# In Duplo's own organizations (duplocloud, duplocloud-internal) the build is also signed. scripts/extension-sign.py
-# writes extension.zip.sig from EXTENSION_SIGNING_KEY and EXTENSION_SIGNING_CERT, mapped below from the org secret
-# CONSOLE_SIGNING_KEY and the org variable CONSOLE_SIGNING_CERT, before release-extensions.sh creates the release.
-# A missing key fails the job there before anything is written. Outside those organizations the release ships the
-# zip alone, since a customer's copy of this workflow holds no Duplo signing credential.
-#
-# Two guards sit in front of the AWS role. "Check the publisher allowlist" runs only in Duplo's organizations, and
-# marks the repository listed only when .github/extension-publishers.json names it as a publisher. The
-# configure-aws-credentials step then runs only when that step reports listed=true, since EXTENSION_PUBLISHER_ROLE_ARN
-# trusts only those repositories through GitHub OIDC (id-token: write). An unlisted repository's release still ships
-# signed, but release-extensions.sh never calls publish_build for it, so the job never reaches S3 or the console and
-# never needs AWS credentials.
+# The hot-load/deploy step is intentionally absent. We publish releases but do not auto-install onto the portal, so the
+# install-from-registry flow stays testable end to end. Add a step running ./scripts/deploy-all.sh after the action to
+# hot-load the built bundles on merge.
 
 name: Extension Release
 
@@ -35,7 +31,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish each allowlisted extension's current version, including one an earlier run registered or a platform owner unpublished. Allowlist entries with "publish" true publish new builds regardless.
+        description: Publish each version this run registers a first build for. A version that is already published is left alone.
         type: boolean
         default: false
 
@@ -60,8 +56,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # Every tag and the history it points at: the publish step compares each released version's commit with
-          # this one to tell an unchanged extension from one that changed without a version bump.
+          # Every tag and the history it points at: the action compares each released version's commit with this one
+          # to tell an unchanged extension from one that changed without a version bump.
           fetch-depth: 0
 
       - name: Discover extensions
@@ -72,49 +68,50 @@ jobs:
           if [ ${#dirs[@]} -gt 0 ]; then echo "build=true" >> "$GITHUB_OUTPUT"
           else echo "build=false" >> "$GITHUB_OUTPUT"; echo "::notice::No extensions/*/manifest.json — nothing to release."; fi
 
-      # Runs in the builder container (scripts/_builder.sh) on the runner's Docker, with the digest-pinned toolchain.
-      - name: Build all extensions
+      # Every secret and variable the run needs, checked by name before anything runs. Without this a missing
+      # DUPLO_HOST surfaces as a build against devkit's local target, which does not exist on a runner, and a missing
+      # role variable surfaces inside the credentials step. The values are only tested for emptiness.
+      - name: Check the secrets and variables the release needs
         if: steps.guard.outputs.build == 'true'
-        run: ./scripts/build-all.sh
+        env:
+          CONSOLE_API_KEY: ${{ secrets.CONSOLE_API_KEY }}
+          CONSOLE_SIGNING_KEY: ${{ secrets.CONSOLE_SIGNING_KEY }}
+          CONSOLE_SIGNING_CERT: ${{ vars.CONSOLE_SIGNING_CERT }}
+          ARMDOT_LICENSE_KEY: ${{ secrets.ARMDOT_LICENSE_KEY }}
+          EXTENSION_PUBLISHER_ROLE_ARN: ${{ vars.EXTENSION_PUBLISHER_ROLE_ARN }}
+        run: |
+          missing=()
+          for v in DUPLO_HOST DUPLO_TOKEN CONSOLE_API_KEY; do [ -n "${!v:-}" ] || missing+=("$v"); done
+          case "$GITHUB_REPOSITORY_OWNER" in
+            duplocloud|duplocloud-internal)
+              for v in CONSOLE_SIGNING_KEY CONSOLE_SIGNING_CERT ARMDOT_LICENSE_KEY EXTENSION_PUBLISHER_ROLE_ARN; do
+                [ -n "${!v:-}" ] || missing+=("$v")
+              done ;;
+          esac
+          [ ${#missing[@]} -eq 0 ] && exit 0
+          echo "::error::This release needs ${missing[*]} set as repository or organization secrets and variables. The" \
+            "DUPLO_* secrets name the host the build takes its SDK from, CONSOLE_API_KEY registers the version, and in" \
+            "DuploCloud's organizations the signing, license and role values are required. See docs/releasing-extensions.md."
+          exit 1
 
-      # Deploy (hot-load) is intentionally disabled so the install-from-registry flow can be tested end to end.
-      # Uncomment to auto-install the built bundles onto the platform on merge to main.
-      # - name: Deploy all extensions (hot-load to DuploCloud)
-      #   if: steps.guard.outputs.build == 'true'
-      #   run: ./scripts/deploy-all.sh
-
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        if: steps.guard.outputs.build == 'true'
-        with:
-          python-version: '3.12'
-      - name: Install the signer
-        if: steps.guard.outputs.build == 'true'
-        run: pip install --require-hashes -r scripts/extension-sign.requirements.txt
-
-      # Upload and registration need the role. Only Duplo's organizations hold it, and only allowlisted repositories
-      # pass its trust, so the step is skipped everywhere else and release-extensions.sh never reaches S3 there.
-      - name: Check the publisher allowlist
-        id: allow
+      # Only Duplo's organizations hold the role, and only the repositories its trust list names can assume it, so a
+      # repository outside that list fails here, before anything is built, rather than at the upload.
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         if: >-
           steps.guard.outputs.build == 'true' &&
-          (github.repository_owner == 'duplocloud' || github.repository_owner == 'duplocloud-internal')
-        run: |
-          jq -e --arg r "$GITHUB_REPOSITORY" 'any(.publishers[]; .repository == $r)' .github/extension-publishers.json >/dev/null \
-            && echo "listed=true" >> "$GITHUB_OUTPUT" || echo "listed=false" >> "$GITHUB_OUTPUT"
-      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
-        if: steps.allow.outputs.listed == 'true'
+          (github.repository_owner == 'duplocloud' || github.repository_owner == 'duplocloud-internal') &&
+          vars.EXTENSION_PUBLISHER_ROLE_ARN != ''
         with:
           role-to-assume: ${{ vars.EXTENSION_PUBLISHER_ROLE_ARN }}
           aws-region: us-west-2
 
-      - name: Publish GitHub releases (one per new build)
+      - uses: duplocloud/actions/release-extension@bc17a896897aa32a0d9c9997c1f5e56d76812cf1 # v1
         if: steps.guard.outputs.build == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EXTENSION_SIGNING_KEY: ${{ secrets.CONSOLE_SIGNING_KEY }}
-          EXTENSION_SIGNING_CERT: ${{ vars.CONSOLE_SIGNING_CERT }}
-          CONSOLE_API_KEY: ${{ secrets.CONSOLE_API_KEY }}
-          EXTENSION_PUBLISH: ${{ inputs.publish }}
-          CONSOLE_URL: ${{ vars.CONSOLE_URL }}
-          BUNDLE_BUCKET: ${{ vars.BUNDLE_BUCKET }}
-        run: ./scripts/release-extensions.sh
+        with:
+          console-api-key: ${{ secrets.CONSOLE_API_KEY }}
+          console-url: ${{ vars.CONSOLE_URL || 'https://console.duplocloud.com' }}
+          signing-key: ${{ secrets.CONSOLE_SIGNING_KEY }}
+          signing-cert: ${{ vars.CONSOLE_SIGNING_CERT }}
+          armdot-license: ${{ secrets.ARMDOT_LICENSE_KEY }}
+          bundle-bucket: ${{ vars.BUNDLE_BUCKET || 'duplo-helpdesk-channels' }}
+          publish: ${{ inputs.publish || false }}
