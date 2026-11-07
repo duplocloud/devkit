@@ -1,22 +1,20 @@
 #!/usr/bin/env bash
 # Warn on a pull request about what each changed extension's release will need — the PR step of
 # .github/workflows/extension-ci.yml. Warnings only, never a failure: authors should learn what shipping needs as
-# early as possible without being blocked mid-development. scripts/release-extensions.sh is what refuses a release
-# that cannot ship.
+# early as possible without being blocked mid-development. The release action (duplocloud/actions/release-extension,
+# run by .github/workflows/release.yml) is what refuses a release that cannot ship.
 #
 # For each extension the PR changes (anything under its directory since the merge base):
 #   - manifest.version is unchanged, so the release job will refuse to publish the new content at the old version.
 #   - a directory under skills/ has no matching skills[].folder in the manifest, so the host never registers it.
 #   - the built bundle's frontend is webpack (fe/remoteEntry.js, no fe/remoteEntry.json), whose pages do not open on
 #     hosts that load Native Federation remotes. Checked only when dist/extension.zip exists, i.e. after a build.
-#   - the manifest id or version cannot form a bucket key, which scripts/_publish.sh's publish_build refuses.
+#   - the manifest id or version cannot form a bucket key, which the release action refuses.
 #   - the manifest declares no resources, which the host refuses to install.
 #   - the frontend depends on ng-common-lib older than 0.5.1: light-only below 0.5.0, and without the token defaults
 #     older portals need below 0.5.1.
 #   - the built bundle is over EXTENSION_MAX_BYTES bytes (default 268435456), which the release job refuses to
 #     publish. Checked only after a build.
-#   - in one of Duplo's organizations, the manifest id is not in the extension publisher allowlist
-#     (scripts/_publishers.sh) for this repository, so the release ships but the license server never gets it.
 #   - in one of Duplo's organizations, manifest.version is not strict semver (MAJOR.MINOR.PATCH[-pre], no +build),
 #     the same rule scripts/extension-sign.py enforces before it signs a build.
 #
@@ -25,11 +23,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 shopt -s nullglob
 
-# shellcheck source=scripts/_publishers.sh
-. "$(dirname "$0")/_publishers.sh"
-# shellcheck source=scripts/_publish.sh
-. "$(dirname "$0")/_publish.sh"
-publishers_file="${PUBLISHERS_FILE:-$publishers_file}"
+duplo_org() { case "${GITHUB_REPOSITORY_OWNER:-}" in duplocloud|duplocloud-internal) return 0 ;; *) return 1 ;; esac; }
 max_bytes="${EXTENSION_MAX_BYTES:-268435456}"
 
 base_ref="${1:-origin/${GITHUB_BASE_REF:?usage: check-extension-pr.sh <base-ref>}}"
@@ -58,9 +52,6 @@ for m in extensions/*/manifest.json extension/*/manifest.json extension/manifest
   fi
   jq -e '(.resources // []) | length > 0' "$m" >/dev/null \
     || warn "$m" "$dir declares no resource, so the host refuses the bundle."
-  if duplo_org && ! publisher_extension_uuid "$(jq -r '.id' "$m")" "${GITHUB_REPOSITORY:-}" >/dev/null; then
-    warn "$m" "$dir — $(jq -r '.id' "$m") is not in the extension publisher allowlist for ${GITHUB_REPOSITORY:-this repository}, so a release is not published to the license server."
-  fi
 
   for s in "$dir"/skills/*/; do
     s="$(basename "$s")"

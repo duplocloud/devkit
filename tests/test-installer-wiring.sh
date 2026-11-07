@@ -163,6 +163,10 @@ if mode == "set":
     out("extensions/ is mounted read-only", len(local) == 1 and local[0].get("type") == "bind"
         and local[0].get("read_only") is True and local[0].get("source", "").endswith("/extensions"), local)
     out("installer publishes no host port", not inst.get("ports"), inst.get("ports"))
+    agent = svc.get("claude-code-agent", {})
+    out("agent publishes no host port", not agent.get("ports"), agent.get("ports"))
+    mports = svc.get("mongo", {}).get("ports") or []
+    out("mongo publishes on loopback only", bool(mports) and all(p.get("host_ip") == "127.0.0.1" for p in mports), mports)
     senv = studio.get("environment") or {}
     out("studio calls the installer on the compose network", senv.get("Extensions__InstallerUrl") == "http://installer:8080",
         senv.get("Extensions__InstallerUrl"))

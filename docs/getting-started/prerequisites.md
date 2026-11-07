@@ -1,7 +1,7 @@
 # 0. Prerequisites
 
 **What you'll do:** Confirm you have what this kit needs — a container runtime with Compose v2, Python 3,
-LLM access, a verified email address, and five free ports.
+LLM access, a verified email address, and four free ports.
 
 **What you need first:** Nothing. This is the first page.
 
@@ -149,15 +149,14 @@ The same address becomes your portal login on the next page.
 
 ## 0.5 Free ports
 
-The kit binds five host ports. They are deliberately offset from the platform's standard ports so this kit
+The kit binds four host ports. They are deliberately offset from the platform's standard ports so this kit
 can run *alongside* a full local DuploCloud platform.
 
 | Port | Service |
 | --- | --- |
 | `4210` | Portal UI — `http://localhost:4210` |
 | `60031` | Studio API — `http://localhost:60031` |
-| `8010` | `claude-code-agent` |
-| `27018` | MongoDB |
+| `27018` | MongoDB, on `127.0.0.1` only |
 | `6061` | In-browser terminal (xterm) |
 
 If something on your machine already holds one of them, you do not need to free it — change the matching

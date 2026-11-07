@@ -124,16 +124,18 @@ Doing so pins them: they stop tracking `.env.example`.
 
 ## Host ports
 
-Offset from the platform's standard ports (60021 / 4200 / 8000 / 27017 / 6060) so this dev kit can run
+Offset from the platform's standard ports (60021 / 4200 / 27017 / 6060) so this dev kit can run
 **alongside** a local DuploCloud platform stack without clashing.
 
 | Variable | Default | Service |
 | --- | --- | --- |
 | `STUDIO_PORT` | `60031` | Studio API — `http://localhost:60031` |
 | `UI_PORT` | `4210` | Portal UI — `http://localhost:4210` |
-| `AGENT_PORT` | `8010` | `claude-code-agent` |
-| `MONGO_PORT` | `27018` | MongoDB |
+| `MONGO_PORT` | `27018` | MongoDB, on `127.0.0.1` only |
 | `XTERM_PORT` | `6061` | In-browser terminal |
+
+`claude-code-agent` has no host port. The studio reaches it on the compose network at
+`http://claude-code-agent:8000`, and its API has no authentication, so it is never published on the host.
 
 Change any of these if they still collide with something on your machine, then re-run `./run.sh`.
 

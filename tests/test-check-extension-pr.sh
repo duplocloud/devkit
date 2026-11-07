@@ -39,11 +39,9 @@ bundle() {
   mkdir -p "$D/dist"; rm -f "$D/dist/extension.zip"; ( cd "$p" && zip -qr "$D/dist/extension.zip" . ); rm -rf "$p"
 }
 
-# The script resolves the repo from its own path, as it does when devkit copies it into an extension repo, so its
-# sourced helpers (_publishers.sh, _publish.sh) have to travel with it.
+# The script resolves the repo from its own path, as it does when devkit copies it into an extension repo.
 run() {
   mkdir -p "$REPO/scripts"; cp "$ROOT/scripts/check-extension-pr.sh" "$REPO/scripts/" 2>/dev/null
-  cp "$ROOT"/scripts/_*.sh "$REPO/scripts/" 2>/dev/null
   "$REPO/scripts/check-extension-pr.sh" main 2>&1
 }
 
@@ -91,12 +89,6 @@ t "is quiet about a Native Federation frontend (fe/remoteEntry.json)"
 new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'; change two; bundle remoteEntry.json
 OUT="$(run)"; RC=$?
 if [ "$RC" = 0 ] && ! grep -q "::warning" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
-
-t "warns about an id outside the publisher allowlist in a Duplo org"
-new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'; change two
-jq -n '{schemaVersion:1, publishers:[]}' > "$REPO/pub.json"
-OUT="$(PUBLISHERS_FILE="$REPO/pub.json" GITHUB_REPOSITORY=duplocloud/demo GITHUB_REPOSITORY_OWNER=duplocloud run)"; RC=$?
-if [ "$RC" = 0 ] && grep -q "::warning.*allowlist" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
 
 t "warns about a manifest that declares no resource"
 new_repo; jq '.version="0.1.1" | .skills=[{folder:"duplo.demo/0.1.1/skills/provision-demo",isBuiltIn:true}] | del(.resources)' \

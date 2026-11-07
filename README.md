@@ -129,6 +129,7 @@ for each `docker compose` above.
 | [Architecture](docs/architecture.md) | How the services fit together and how hot-loading works |
 | [Configuration](docs/configuration.md) | Every `.env` variable, its default, and its effect |
 | [CLI reference](docs/cli-reference.md) | `run.sh`, `stop.sh`, `logs.sh`, and every script — flags and behavior |
+| [Releasing extensions](docs/releasing-extensions.md) | What a push to `main` releases, signs and registers through the release-extension action, and who publishes |
 | [Upgrading](docs/upgrading.md) | Taking framework updates without losing your work |
 | [Troubleshooting](docs/troubleshooting.md) | Symptoms, causes, and fixes |
 | [FAQ](docs/faq.md) | Licensing, data, and platform support |
