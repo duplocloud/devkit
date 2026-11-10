@@ -224,7 +224,7 @@ curl -fsS http://localhost:${UI_PORT:-4210}/assets/images/icons/duplo.svg | grep
 ```
 
 ### Header actions vs menus
-Menus add a page to the left nav. Header actions add a button to the top navbar that runs code (open a modal, navigate) on any `/ai/` page. Use a menu for a page; use a header action for a quick, page-independent command. See [02-authoring-guide](02-authoring-guide.md#frontendheaderactions).
+Menus add a page to the left nav. Header actions add a button to the top navbar that runs code (open a modal, navigate) on `/ai/` pages (AI Admin only with `showInAdmin: true`). Use a menu for a page; use a header action for a quick, page-independent command. See [02-authoring-guide](02-authoring-guide.md#frontendheaderactions).
 
 ### Pattern B — child inside the parent's detail view (tightly-coupled children)
 Don't give the child its own menu entry. Instead, the parent's **view** component renders a tab of its children
