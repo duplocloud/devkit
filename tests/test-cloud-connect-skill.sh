@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Structural checks for the /duplo-cloud-connect skill rename, plus EXECUTED checks that run.sh's opt-in
-# onboarding prompt never prompts or hangs off a terminal. No Docker, no credentials, no network.
+# onboarding prompt and the wizard it runs (scripts/cloud-connect-wizard.sh) never prompt or hang off a
+# terminal, and the wizard's full mocked flow suite (tests/test_cloud_connect_wizard.py: fake connector,
+# fake aws/gcloud, run.sh's block on a pty). No Docker, no credentials, no network.
 # (Skill wording is deliberately not grepped: prose assertions are brittle.)
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
@@ -34,7 +36,7 @@ if [ -f .agents/skills/duplo-cloud-connect/SKILL.md ]; then ok; else bad "symlin
 
 echo "run.sh onboarding prompt (executed guards):"
 
-BLOCK="$(sed -n '/optional cloud onboarding hint/,$p' run.sh)"
+BLOCK="$(sed -n '/^# ── optional cloud onboarding/,$p' run.sh)"
 
 t "run.sh parses and the prompt block was found"
 if bash -n run.sh && [ -n "$BLOCK" ]; then ok; else bad "syntax or block missing"; fi
@@ -58,6 +60,38 @@ OUT="$(run_block NONINTERACTIVE=1 CI=)"; if [ -z "$OUT" ]; then ok; else bad "ou
 
 t "CI set: silent"
 OUT="$(run_block NONINTERACTIVE=0 CI=true)"; if [ -z "$OUT" ]; then ok; else bad "output: $OUT"; fi
+
+t "the block runs the wizard (not a manual hand-off) and survives its failure"
+if printf '%s' "$BLOCK" | grep -q './scripts/cloud-connect-wizard.sh --yes || CONNECT_RC=' && ! printf '%s' "$BLOCK" | grep -q 'start Claude Code'; then ok; else bad "wizard call missing"; fi
+
+echo "cloud-connect wizard:"
+
+t "wizard scripts are executable and syntactically valid"
+if [ -x scripts/cloud-connect-wizard.sh ] && bash -n scripts/cloud-connect-wizard.sh \
+   && python3 -I -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' scripts/cloud_connect_wizard.py; then ok; else bad "syntax or mode"; fi
+
+# The REAL wrapper, off a terminal: it must refuse (rc 2) before asking or running anything — it is killed
+# and reported as HUNG if it waits. Answers are offered on stdin to prove they are not consumed as consent.
+run_wizard_notty() {
+  ( printf 'y\n1\n2\n1\n' | env -u CLOUD_CONNECT_WIZARD_ALLOW_NO_TTY "$@" ./scripts/cloud-connect-wizard.sh 2>&1; echo "rc=$?" ) &
+  local pid=$! n=0
+  while kill -0 "$pid" 2>/dev/null; do
+    n=$((n+1)); [ "$n" -gt 100 ] && { kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; echo "HUNG"; return; }
+    sleep 0.1
+  done
+  wait "$pid" 2>/dev/null
+}
+
+t "wizard without a terminal: refuses with rc 2, asks nothing"
+OUT="$(run_wizard_notty)"
+case "$OUT" in *"needs a terminal"*"rc=2") case "$OUT" in *"Which cloud"*|*HUNG*) bad "prompted: $OUT" ;; *) ok ;; esac ;; *) bad "output: $OUT" ;; esac
+
+t "wizard --help exits 0 and says Azure is not supported"
+OUT="$(./scripts/cloud-connect-wizard.sh --help 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q 'Azure is not supported'; then ok; else bad "rc=$RC: $OUT"; fi
+
+t "mocked wizard flows (tests/test_cloud_connect_wizard.py)"
+if OUT="$(PYTHONDONTWRITEBYTECODE=1 python3 tests/test_cloud_connect_wizard.py 2>&1)"; then ok; else bad "$(printf '%s' "$OUT" | tail -15)"; fi
 
 echo; echo "cloud-connect skill: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

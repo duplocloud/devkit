@@ -292,6 +292,12 @@ works against the API.
 ## Cloud connections
 
 Connections made with `scripts/connect-cloud.sh` (see [cli-reference.md](cli-reference.md#platform-registration)).
+The interactive way to make one is `./scripts/cloud-connect-wizard.sh` — `./run.sh` runs it when you answer **y**
+to its last question on a terminal (never with `--non-interactive`, under `CI`, or without a TTY). The wizard
+asks for the cloud, the sign-in method and the profile or project, then runs `connect-cloud.sh` and `verify`.
+It adds no configuration of its own: it writes no `.env` key and stores no credential, and it uses the same
+workspace default (`EXTENSION_DEV_WORKSPACE_ID`) and gcloud directory (`DEVKIT_GCLOUD_DIR`, else an exported
+`CLOUDSDK_CONFIG`, else `~/.config/gcloud`) as the connector. AWS and GCP are supported; Azure is not.
 
 **AWS** stores the resolved (temporary) keys on the provider credential itself — the shape the UI's **Access
 Key** credential type uses.

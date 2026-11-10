@@ -11,6 +11,13 @@ conflict before it writes anything, and never puts a secret on a command line, i
 `.devkit-cloud/connections.json`. AWS never restarts anything; GCP may restart ONLY the backend (see below). Its only subcommands are `aws`, `gcp`, `refresh`, `verify` and
 `status`; there is no `azure` subcommand.
 
+**Without an agent:** `./scripts/cloud-connect-wizard.sh` is the same onboarding as a terminal wizard — it
+asks the cloud, the sign-in method and the profile or project (numbered menus; Azure is listed as not
+supported), runs the scoped browser login when one is needed, then runs `connect-cloud.sh` and
+`verify --name <name>` itself. `./run.sh` offers it as its last, opt-in step on a terminal. It needs a
+terminal and no LLM; when a user wants to do the connection themselves, point them to it. This skill is the
+conversational path over the same connector and follows the same rules.
+
 ## Conversation protocol — before any tool call
 
 The user chooses the cloud, the credential method and the target. Never infer any of them from what
