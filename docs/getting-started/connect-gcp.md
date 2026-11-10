@@ -7,6 +7,9 @@ without creating or downloading any key, then prove the connection with a real t
 and a Google user that can administer IAM in the project (only needed the first time, when
 `helpdesk-sa` does not exist yet).
 
+> **From Claude Code:** run `/duplo-cloud-connect`, choose GCP and ADC, and give the project ID. The agent runs
+> the ADC login (with your approval) if it is missing, connects, and verifies. The manual steps follow.
+
 ## 1. Log in for Application Default Credentials
 
 ```bash

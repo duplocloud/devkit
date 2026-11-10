@@ -1327,3 +1327,25 @@ Build & deploy your extension (scripts read the target from .env — no DUPLO_BA
   # re-attach the agent to another workspace: ./scripts/register-agent.sh <workspace-id>
   # attach the devops persona elsewhere:       ./scripts/register-persona.sh <workspace-id>
 EOF
+
+# ── optional cloud onboarding hint (last step, after all workspace/agent setup) ───────────────────
+# Opt-in and TTY-only: never prompts under --non-interactive, CI, or when stdin/stdout is not a terminal,
+# so scripted runs cannot hang. It never picks a cloud, profile or project and runs nothing — the
+# conversation (cloud → credential method → target) happens in the agent skill, /duplo-cloud-connect.
+if [ "$NONINTERACTIVE" != 1 ] && [ -z "${CI-}" ] && [ -t 0 ] && [ -t 1 ]; then
+  CONNECT_ANS=""
+  read -r -t 30 -p "Connect a cloud account (AWS or GCP) now? Shows the next step; nothing is selected for you. [y/N]: " CONNECT_ANS || true
+  echo
+  case "$CONNECT_ANS" in
+    [yY]|[yY][eE][sS])
+      cat <<'NEXT'
+Next step: start Claude Code in this directory and run
+
+  /duplo-cloud-connect
+
+It asks which cloud (AWS, GCP or Azure — Azure has no connector yet), then how to sign in
+(SSO / ADC recommended), then connects and verifies the account. Run it any time later too.
+NEXT
+      ;;
+  esac
+fi

@@ -55,13 +55,19 @@ USER_WS = "/v1/aiservicedesk/user/data/workspaces"
 SERVICES = ("duplo-ai-studio", "claude-code-agent")
 
 
+# Names only: a full list-buckets JSON for a large account exceeds the agent's persisted-output limit and
+# arrives truncated, so the one allowed AWS listing uses the AWS CLI's --query projection (applied client-side by
+# the CLI) to print only the names: a bare JSON array of strings.
+AWS_LIST_QUERY = "--query 'Buckets[].Name'"
+
+
 def allowed_commands(cloud: str, name: str) -> list[str]:
     """The ONLY commands the harness will ever approve. Identity + bucket listing, JSON output, nothing
     that prints a token or touches state."""
     if cloud == "aws":
         return [
             f"aws sts get-caller-identity --profile {name} --output json",
-            f"aws s3api list-buckets --profile {name} --output json",
+            f"aws s3api list-buckets --profile {name} {AWS_LIST_QUERY} --output json",
         ]
     return [
         f"gcloud storage buckets list --configuration {name} --format json",
@@ -244,6 +250,13 @@ def parse_bucket_output(cloud: str, command: str, output: str) -> list[str] | No
     if cloud == "aws":
         if "list-buckets" not in command:
             return None
+        if "--query" in command:
+            # The exact allowed query: the output is a bare JSON array of strings. Anything else (a dict,
+            # a mixed array, a non-string element) is not this command's output.
+            if not isinstance(d, list) or not all(isinstance(n, str) for n in d):
+                return None
+            return sorted(d)
+        # legacy full-document shape
         if not isinstance(d, dict) or not isinstance(d.get("Buckets"), list):
             return None
         names = [b.get("Name") for b in d["Buckets"] if isinstance(b, dict)]

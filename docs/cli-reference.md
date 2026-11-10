@@ -25,6 +25,12 @@ it is safe and silent.
 ./run.sh --model subscription --subscription-token sk-ant-oat01-... [--subscription-model claude-sonnet-5]
 ```
 
+After all workspace and agent setup, on an interactive terminal only (never with `--non-interactive`, under `CI`,
+or when stdin/stdout is not a TTY), `run.sh` asks once whether to show the cloud-onboarding next step. It selects
+nothing and runs nothing; the next step is the agent skill `/duplo-cloud-connect` (source:
+[`docs/skills/duplo-cloud-connect/SKILL.md`](skills/duplo-cloud-connect/SKILL.md)), which asks for the cloud and
+sign-in method itself.
+
 On an EC2 host the provider prompt first probes whether the instance role can actually invoke Bedrock
 (see [`detect-bedrock.sh`](#platform-registration)) and, if so, offers it as a fourth, keyless option.
 

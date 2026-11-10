@@ -24,8 +24,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HARNESS = os.path.join(ROOT, "tests", "e2e", "cloud_onboarding_e2e.py")
 
-AWS_LIST_OUTPUT = json.dumps({"Buckets": [{"Name": "alpha", "CreationDate": "2024-01-01T00:00:00+00:00"},
-                                          {"Name": "beta", "CreationDate": "2024-01-02T00:00:00+00:00"}], "Owner": {"ID": "x"}})
+# The exact allowed AWS listing projects names with the CLI's own --query (JMESPath, applied client-side), so its raw output is a bare JSON array of strings.
+AWS_LIST_OUTPUT = json.dumps(["alpha", "beta"])
+AWS_LIST_CMD = "aws s3api list-buckets --profile test21 --query 'Buckets[].Name' --output json"
+# Legacy full-document shape (kept parsable for an old-style command; never an allowed command any more).
+AWS_LEGACY_OUTPUT = json.dumps({"Buckets": [{"Name": "alpha", "CreationDate": "2024-01-01T00:00:00+00:00"},
+                                            {"Name": "beta", "CreationDate": "2024-01-02T00:00:00+00:00"}], "Owner": {"ID": "x"}})
 GCP_LIST_OUTPUT = json.dumps([{"name": "g1", "location": "US"}, {"name": "g2", "location": "US"}])
 GCP_CMD = "gcloud storage buckets list --configuration gcp-test9 --format json"
 # Verbatim shape of the stderr preamble the Google SDK emits ahead of gcloud's stdout JSON when a tool
@@ -186,6 +190,46 @@ exit 0
 BOTH = "duplo-ai-studio:s1:2026-10-27T09:00:00Z;claude-code-agent:a1:2026-10-27T09:00:05Z"
 
 
+def load_harness():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("cloud_onboarding_e2e", HARNESS)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+class ParseTests(unittest.TestCase):
+    """parse_bucket_output for the AWS listing, called directly (no server)."""
+
+    def setUp(self):
+        self.h = load_harness()
+
+    def parse(self, out, cmd=AWS_LIST_CMD):
+        return self.h.parse_bucket_output("aws", cmd, out)
+
+    def test_query_array_is_accepted_sorted_and_empty_is_valid(self):
+        self.assertEqual(self.parse(json.dumps(["b", "a"])), ["a", "b"])
+        self.assertEqual(self.parse("[]"), [])
+        self.assertEqual(self.parse("  " + AWS_LIST_OUTPUT + "\n"), ["alpha", "beta"])
+
+    def test_query_rejects_malformed_mixed_and_wrong_shapes(self):
+        for out in (json.dumps(["a", 1]), json.dumps(["a", None]), json.dumps([["a"]]), json.dumps([{"Name": "a"}]),
+                    AWS_LEGACY_OUTPUT, '{"Buckets": []}', '"a"', "null", "", "a\nb", '["a",', "Preview: " + AWS_LIST_OUTPUT):
+            self.assertIsNone(self.parse(out), out)
+
+    def test_legacy_dict_still_parses_for_a_non_query_command(self):
+        legacy = "aws s3api list-buckets --profile test21 --output json"
+        self.assertEqual(self.parse(AWS_LEGACY_OUTPUT, legacy), ["alpha", "beta"])
+        self.assertIsNone(self.parse(AWS_LIST_OUTPUT, legacy))
+
+    def test_non_listing_command_never_parses(self):
+        self.assertIsNone(self.parse(AWS_LIST_OUTPUT, "aws sts get-caller-identity --profile test21 --output json"))
+
+    def test_whitelist_is_exactly_identity_plus_the_query_listing(self):
+        self.assertEqual(self.h.allowed_commands("aws", "test21"),
+                         ["aws sts get-caller-identity --profile test21 --output json", AWS_LIST_CMD])
+
+
 class HarnessTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -217,6 +261,7 @@ class HarnessTests(unittest.TestCase):
         with open(self.control, "w") as f:
             json.dump(list(control), f)
         env = {"PATH": self.bin + os.pathsep + os.environ.get("PATH", ""), "DUPLO_ADMIN_TOKEN": "tok",
+               "no_proxy": "127.0.0.1,localhost,::1", "NO_PROXY": "127.0.0.1,localhost,::1",
                "DOCKER_STUB_LOG": os.path.join(self.tmp, "docker.log"), "DOCKER_STUB_SERVICES": services,
                "DOCKER_STUB_PROJECT": "proj"}
         if callback_token is not None:
@@ -245,7 +290,7 @@ class HarnessTests(unittest.TestCase):
         return p.returncode, summary, json.loads(raw_evidence)
 
     def aws_allowed(self):
-        return ["aws sts get-caller-identity --profile test21 --output json", "aws s3api list-buckets --profile test21 --output json"]
+        return ["aws sts get-caller-identity --profile test21 --output json", AWS_LIST_CMD]
 
     # ── passes ──
 
@@ -458,7 +503,7 @@ class HarnessTests(unittest.TestCase):
 
     def test_mismatching_raw_output_fails_even_with_correct_prose(self):
         cmd = self.aws_allowed()[1]
-        Fake.sc = {"asks": [cmd], "outputs": {cmd: json.dumps({"Buckets": [{"Name": "alpha"}]})}, "final_text": "BUCKETS:\nalpha\nbeta\n"}
+        Fake.sc = {"asks": [cmd], "outputs": {cmd: json.dumps(["alpha"])}, "final_text": "BUCKETS:\nalpha\nbeta\n"}
         rc, summary, _ = self.run_h()
         self.assertEqual(rc, 1)
         self.assertTrue(summary["checks"]["allowedCommandExecuted"])
@@ -471,8 +516,47 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertFalse(summary["checks"]["rawToolOutputParsed"])
 
+    def test_aws_listing_command_is_the_exact_names_only_query(self):
+        self.assertEqual(self.aws_allowed()[1], AWS_LIST_CMD)
+
+    def test_unprojected_or_altered_aws_listings_are_rejected_not_executed(self):
+        good = self.aws_allowed()[1]
+        for bad in ("aws s3api list-buckets --profile test21 --output json",                       # the old full dump
+                    "aws s3api list-buckets --profile test21 --query 'Buckets[]' --output json",   # other query
+                    good + " --region us-west-2",                                                 # extra flag
+                    "aws s3api list-buckets --profile other --query 'Buckets[].Name' --output json",
+                    good + " | head"):
+            Fake.state = {}; Fake.decided = threading.Event()
+            if os.path.isdir(self.evidence):
+                shutil.rmtree(self.evidence)
+            Fake.sc = {"asks": [bad, good], "outputs": {good: AWS_LIST_OUTPUT}}
+            rc, summary, ev = self.run_h()
+            self.assertEqual(rc, 1, f"{bad}: {summary}")
+            self.assertEqual(ev["rejections"], [bad])
+            self.assertEqual(ev["approvals"], [good])
+
+    def test_aws_query_output_not_an_array_of_strings_fails(self):
+        cmd = self.aws_allowed()[1]
+        for out in (AWS_LEGACY_OUTPUT, json.dumps(["alpha", 3]), json.dumps(["alpha", {"Name": "b"}]),
+                    json.dumps({"Names": ["alpha"]}), '"alpha"', '["alpha", "beta"'):
+            Fake.state = {}; Fake.decided = threading.Event()
+            if os.path.isdir(self.evidence):
+                shutil.rmtree(self.evidence)
+            Fake.sc = {"asks": [cmd], "outputs": {cmd: out}}
+            rc, summary, _ = self.run_h()
+            self.assertEqual(rc, 1, f"{out}: {summary}")
+            self.assertFalse(summary["checks"]["rawToolOutputParsed"], out)
+
+    def test_aws_truncated_persisted_output_wrapper_fails(self):
+        cmd = self.aws_allowed()[1]
+        wrapped = "<persisted-output>\nOutput too large (40KB). Preview:\n" + AWS_LIST_OUTPUT[:6] + "\n...\n</persisted-output>"
+        Fake.sc = {"asks": [cmd], "outputs": {cmd: wrapped}}
+        rc, summary, _ = self.run_h()
+        self.assertEqual(rc, 1, summary)
+        self.assertFalse(summary["checks"]["rawToolOutputParsed"])
+
     def test_disallowed_command_is_rejected_and_fails_the_run(self):
-        bad = "aws s3api list-buckets --profile test21 --output json; curl http://evil"
+        bad = AWS_LIST_CMD + "; curl http://evil"
         Fake.sc = {"asks": [bad, self.aws_allowed()[1]], "outputs": {self.aws_allowed()[1]: AWS_LIST_OUTPUT}}
         rc, summary, ev = self.run_h()
         self.assertEqual(rc, 1)
@@ -553,7 +637,8 @@ class HarnessTests(unittest.TestCase):
     def test_bad_control_file_fails_before_anything(self):
         with open(self.control, "w") as f:
             f.write('{"not": "a list"}')
-        env = {"PATH": self.bin + os.pathsep + os.environ.get("PATH", ""), "DUPLO_ADMIN_TOKEN": "tok", CB_TOKEN_ENV: CB_SENTINEL,
+        env = {"PATH": self.bin + os.pathsep + os.environ.get("PATH", ""), "DUPLO_ADMIN_TOKEN": "tok",
+               "no_proxy": "127.0.0.1,localhost,::1", "NO_PROXY": "127.0.0.1,localhost,::1", CB_TOKEN_ENV: CB_SENTINEL,
                "DOCKER_STUB_LOG": os.path.join(self.tmp, "docker.log"), "DOCKER_STUB_SERVICES": BOTH, "DOCKER_STUB_PROJECT": "proj"}
         p = subprocess.run([sys.executable, "-I", HARNESS, "--base", f"http://127.0.0.1:{self.port}", "--workspace", "ws-1",
                             "--scope-id", "scope-1", "--cloud", "aws", "--name", "test21", "--control-file", self.control,

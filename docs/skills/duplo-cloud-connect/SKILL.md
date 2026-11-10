@@ -1,9 +1,9 @@
 ---
-name: duplo-connect-cloud
-description: Connect an AWS account or GCP project to the running DuploCloud dev kit (provider, credential, scope, workspace attach) with scripts/connect-cloud.sh, reconnect expired credentials, or check connection status; for Azure, explain what exists and stop. Not for the LLM provider the agent runs on (that is run.sh --model / switch-llm.sh).
+name: duplo-cloud-connect
+description: Connect an AWS account or GCP project to the running DuploCloud dev kit (invoke as /duplo-cloud-connect — provider, credential, scope, workspace attach) with scripts/connect-cloud.sh, reconnect expired credentials, or check connection status; Azure has no connector, so say so and stop. Not for the LLM provider the agent runs on (that is run.sh --model / switch-llm.sh).
 ---
 
-# duplo-connect-cloud — cloud connections for the local dev kit
+# duplo-cloud-connect — cloud connections for the local dev kit
 
 `./scripts/connect-cloud.sh` is the one deterministic way to register a cloud account with the local
 stack. It is idempotent (same `--name` → same objects, updated in place), checks every
@@ -18,24 +18,30 @@ is installed or configured, the CLI's current default profile/project, environme
 (`AWS_PROFILE`, `CLOUDSDK_*`, `AZURE_*`), the examples in this file, or an earlier unrelated task. A
 single available profile is not consent; the choice is still the user's.
 
-1. **Ask the cloud only when it is missing.** If the request does not name a cloud, the first reply
-   is only the question "AWS, GCP, or Azure?" — no discovery, no `status`, no reading `~/.aws`,
-   `~/.config/gcloud` or `.env` until the user answers. If the user already said AWS, GCP or Azure
+Every question below is asked with the **`AskUserQuestion`** tool as a multiple-choice question (the
+recommended option first, marked "(Recommended)"; the tool's built-in "Other" takes free text). Use plain chat
+only for a value with no sensible options, such as a GCP project ID.
+
+1. **Ask the cloud only when it is missing.** If the request does not name a cloud (for example a bare
+   `/duplo-cloud-connect`), the first action is `AskUserQuestion` with the options **AWS**, **GCP**,
+   **Azure** — no discovery, no `status`, no reading `~/.aws`, `~/.config/gcloud` or `.env` until the
+   user answers. If the user already said AWS, GCP or Azure
    but left details out, do not re-ask the cloud: ask only for the missing method and details
    (steps 2–3). A complete explicit request (cloud, `--name`, and the profile; or for GCP just the
    project ID), or `status` / `refresh` / `verify` of a named connection, is not re-asked: run it.
-2. **Then ask the credential method** for the chosen cloud:
-   - **AWS** — (a) browser SSO through IAM Identity Center, (b) an existing named profile (it may use
-     a `credential_process` such as `duplo-jit`), or (c) access-key credentials, which this command
-     accepts only when they already live in a named profile. Never present long-lived keys as the
-     default. For a new SSO profile, and only after the user picks (a): walk them through
-     `aws configure sso` (they choose the account and role) and `aws sso login --profile <profile>`;
-     the command then consumes that profile via `--profile`. Credentials copied into the studio are a
-     snapshot — never promise automatic renewal.
-   - **GCP** — (a) local Application Default Credentials login (recommended) or (b) an existing
-     service-account JSON key file. State before asking for any path that (b) is **not implemented by
-     this command** (keys are refused by design); never ask for key contents or any secret in chat;
-     do not silently fall back to (a) — ask whether to switch. For (a), once GCP + ADC is selected
+2. **Then ask the credential method** for the chosen cloud, again as an `AskUserQuestion` MCQ:
+   - **AWS** — (a) browser SSO through IAM Identity Center (**recommended**), (b) an existing named
+     profile (it may use a `credential_process` such as `duplo-jit`), or (c) access-key credentials,
+     which this command accepts only when they already live in a named profile. Never present long-lived
+     keys as the default. For a new SSO profile, and only after the user picks (a): collect only the
+     inputs `aws configure sso` needs (SSO start URL, SSO region, and the account and role they choose),
+     then `aws sso login --profile <profile>`; the command consumes that profile via `--profile`.
+     Credentials copied into the studio are a snapshot — never promise automatic renewal.
+   - **GCP** — (a) local Application Default Credentials login (**recommended**) or (b) an existing
+     service-account JSON key file, which the MCQ must label **"(b) unavailable — not implemented, keys are
+     refused by design"** (never as a working choice). Never ask for a key path, key contents or any secret in
+     chat; if the user picks (b) anyway, say it is unavailable and ask whether to switch to (a) — do not
+     silently fall back. For (a), once GCP + ADC is selected
      **ask only for the project ID** — never infer it from gcloud config, environment or examples.
      Derive the rest: connection name = project ID, service account =
      `helpdesk-sa@<project-id>.iam.gserviceaccount.com`, workspace = the configured default
@@ -44,29 +50,54 @@ single available profile is not consent; the choice is still the user's.
      workspace config, a name/object conflict, ADC login needed, or a denied/failed cloud step. Selecting
      GCP + ADC + the project **is** the authorization for the default-identity preparation described
      under *GCP seamless bootstrap* below — do not ask "may I create the service account / grant IAM?"
-     and do not invent a `--grant` step or hand the user manual `gcloud` commands. If ADC login is needed (plain `gcloud auth login`
-     does not write ADC), ask for scoped normal permission to run the **exact** login the failing command printed —
-     `gcloud auth application-default login` for the default directory, or
-     `CLOUDSDK_CONFIG=<selected dir> gcloud auth application-default login` (shell-quoted path) when
-     `DEVKIT_GCLOUD_DIR` selects another one, since a bare login would write elsewhere — and run only that
-     approved command yourself, then retry the connect; never copy the ADC file; do not default to handing the user a
-     `!` command.
-   - **Azure** — (a) Entra browser login with `az login` (recommended for developer use) or (b)
-     existing service-principal credentials (workload use); managed identity only when the runtime
-     actually runs on Azure infrastructure. In the same reply state that `connect-cloud.sh` has **no
-     `azure` subcommand** and vendor SSO is not implemented in dev-kit onboarding, then stop: no
-     credential discovery, `az login`, app registration or subscription lookup. A host `az login`
-     does not authenticate the Docker backend.
-3. **Collect only what is still missing** for a supported method: `--name`, the workspace, and the
-   target (AWS: profile + region, script default `us-east-1`; GCP: the project ID only, see above).
-   For AWS, propose `EXTENSION_DEV_WORKSPACE_ID` from `.env` as the workspace, but do not use it silently when
-   it is unset or ambiguous. List profile names (`aws configure list-profiles`) only after the user
-   chose AWS + existing profile **and** authorized listing; never resolve or export credentials for
-   discovered profiles — the script resolves the one chosen profile itself.
+     and do not invent a `--grant` step or hand the user manual `gcloud` commands. A missing ADC login is
+     handled by *Expired or missing login* below.
+   - **Azure** — **unsupported.** `connect-cloud.sh` has **no `azure` subcommand**; the dev kit has no
+     Azure connector and no Azure SSO. If the user picks Azure, say exactly that in the same reply, do not
+     present any Azure login method as working, and **stop**: no method question, no credential
+     discovery, `az login`, app registration or subscription lookup. A host `az login` does not
+     authenticate the Docker backend. Offer only to connect AWS or GCP instead.
+3. **Collect only what is still missing**, and derive the rest:
+   - **AWS, existing profile (b/c):** once the user chose AWS + an existing profile, list the profile
+     **names** (`aws configure list-profiles` — names only) to build the MCQ. The listing is part of that
+     selection: do not ask a separate "may I list profiles?" question (normal tool approval still
+     applies). Do not read `~/.aws/config` or credential files, and never resolve or export credentials
+     for a profile the user did not select — the script resolves the one chosen profile itself. If there
+     are more profiles than an MCQ holds, show a few and let "Other" take a typed name; with none, say so
+     and offer the SSO path (a).
+   - **AWS, new SSO (a):** only the `aws configure sso` inputs above.
+   - **AWS derived values:** `--name` = the selected profile name; region = the selected profile's own
+     region (`aws configure get region --profile <profile>`), falling back to `us-east-1` when it has
+     none; workspace = the configured `EXTENSION_DEV_WORKSPACE_ID`, used automatically. Ask about name,
+     region or workspace only when the user volunteers an override or an exception occurs (unset or
+     ambiguous workspace, name/object conflict, denied step).
+   - **GCP (a):** the project ID only, see above.
 4. **Echo the selection** (cloud, `--name`, profile or project + service account, region, workspace —
-   for GCP including the derived name and service account)
-   before running the registration; `--dry-run` previews it. A target must be selected before any
-   run. Skip the echo when the user already supplied the complete command.
+   including the derived values) before running the registration; `--dry-run` previews it. A target must
+   be selected before any run. Skip the echo when the user already supplied the complete command.
+
+## Expired or missing login — log in, then retry
+
+If registration fails because the selected credential needs a browser login, do not stop at a manual
+handoff: offer and run the matching **scoped** login through the normal tool-approval mechanism, then retry
+the same registration and finish with `verify`.
+
+- **AWS IAM Identity Center profile** — only when the selected profile actually has `sso_session` /
+  `sso_start_url` (check with `aws configure get sso_session --profile <p>` / `sso_start_url`, never by
+  reading credential files) and its SSO token is missing/expired: `aws sso login --profile <selected-profile>`.
+- **AWS `credential_process` profile** (for example `duplo-jit`): this is **not** IAM Identity Center — never
+  run `aws sso login` for it. Re-run the selected `connect-cloud.sh aws …` command in an interactive terminal
+  (the normal tool call, with approval) so the profile's own configured `credential_process` opens its
+  browser login; then retry/verify. If the runtime cannot provide an interactive terminal, say so.
+- **GCP ADC** (plain `gcloud auth login` does not write ADC): the **exact** login the failing command
+  printed — `gcloud auth application-default login` for the default directory, or
+  `CLOUDSDK_CONFIG=<selected dir> gcloud auth application-default login` (shell-quoted path) when
+  `DEVKIT_GCLOUD_DIR` selects another one, since a bare login would write elsewhere. Run only that
+  approved command yourself; never copy the ADC file.
+- Only if the runtime cannot run a browser login (no interactive terminal) say so and give the user that
+  single exact command as `! <command>` (for `credential_process`, the selected `connect-cloud.sh aws …`
+  command); then retry yourself.
+- If the login is denied, follow *If a real tool or approval reviewer denies it* below.
 
 ## Permission and completion — running the registration
 

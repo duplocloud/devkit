@@ -520,6 +520,8 @@ class Harness(unittest.TestCase):
         env = {
             "PATH": self.bin + os.pathsep + os.environ.get("PATH", ""),
             "HOME": self.tmp,
+            # test-only hermeticity: keep the fake loopback servers off any system/host proxy
+            "no_proxy": "127.0.0.1,localhost,::1", "NO_PROXY": "127.0.0.1,localhost,::1",
             "DUPLO_BASE": self.base, "DUPLO_TOKEN": "admin-token-not-a-secret-in-tests",
             "CONNECT_CLOUD_STATE": self.state_file,
             "CONNECT_CLOUD_STORE_CMD": os.path.join(self.bin, "store"),

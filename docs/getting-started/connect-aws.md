@@ -8,7 +8,8 @@ signed in to the portal. You also need an AWS account you can create an IAM user
 
 ---
 
-> **Already have an AWS profile on this machine?** Skip the console and the wizard:
+> **Already have an AWS profile on this machine?** Skip the console and the wizard — in Claude Code run
+> `/duplo-cloud-connect` and choose AWS, or run the command yourself:
 >
 > ```bash
 > ./scripts/connect-cloud.sh aws --name aws-readonly --profile <your-profile>
