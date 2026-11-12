@@ -33,6 +33,32 @@ It renders "This platform uses AI. See documentation for more details."; a deplo
 its config (`text.aiDisclosure`, `links.aiDisclosure`). Don't hardcode the wording or set `defaultText`. Worker,
 Passthrough and No-provision forms do **not** carry it.
 
+## Connections in a form
+
+The connections kit ([20-ui-library](20-ui-library.md#connections-the-setup-kit)) drops into a template-driven
+form like any other control:
+
+- **One control per component**, each with its own `name` and `ngModel`. Level 1 is one control (scope id); level 2
+  is three (provider id, credential name, scope id).
+- **No component renders a `required` message.** Put `required` on the element and add your own message:
+  ```html
+  <duplo-connection-field category="other" [typeDefinition]="slackType" name="slackScopeId"
+    [(ngModel)]="slackScopeId" #slack="ngModel" required />
+  @if (f.submitted && slack.errors?.['required']) { <div class="invalid-feedback d-block">Connect a Slack workspace.</div> }
+  ```
+- **Error keys** the form sees:
+
+  | Key | Control | When |
+  |---|---|---|
+  | `connectionNotFound` | `<duplo-connection-field>` | The loaded list lacks the value (e.g. the scope was deleted). |
+  | `providerPending` / `providerNotFound` | `<duplo-provider-picker>` | "+ New provider" is open and not added yet / the list lacks the value. |
+  | `credentialPending` / `credentialNotFound` | `<duplo-credential-form>` | "+ New credential" is open and not added yet / the list lacks the value. |
+  | `scopePending` / `scopeNotFound` | `<duplo-scope-picker>` | "+ New scope" is open and not added yet / the list lacks the value. |
+
+- A not-found value shows as a disabled "… not found" option. While the list loads, or after it fails, the value
+  is kept and counts as valid — so a saved value moves between levels unchanged.
+- Gate Save on `f.invalid`: a pending "+ New" keeps the form invalid until the admin adds it.
+
 ## Multi-step wizards — there is NO library stepper
 
 The library ships **no stepper/wizard component**, and the host's own multi-step forms (AppService, etc.) hand-roll
