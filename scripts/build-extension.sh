@@ -11,7 +11,8 @@
 # into the build container, so anything outside it does not exist in there. `--native` has no such limit
 # and takes a path anywhere on disk.
 #
-# Usage: ./scripts/build-extension.sh [--native] <extension-dir>   # e.g. ./extension or samples/helloworld
+# Usage: ./scripts/build-extension.sh [--native] [--validate-only] <extension-dir>   # e.g. ./extension or samples/helloworld
+# --validate-only runs just the manifest/naming gate (no SDK fetch, no builder, no build) and exits.
 set -euo pipefail
 # _builder.sh is sourced before the cd so the license path resolves against the caller's directory, not the repo
 # root. It defines functions only, and builder_dispatch (below) is what needs _target.sh sourced first.
@@ -21,20 +22,23 @@ builder_resolve_license || exit 1
 cd "$(dirname "$0")/.."
 
 # Strip --native before the positional arg is read, so it works in either order.
-for a in "$@"; do shift; case "$a" in --native) DUPLO_BUILD_NATIVE=1 ;; *) set -- "$@" "$a" ;; esac; done
+VALIDATE_ONLY=0
+for a in "$@"; do shift; case "$a" in --native) DUPLO_BUILD_NATIVE=1 ;; --validate-only) VALIDATE_ONLY=1 ;; *) set -- "$@" "$a" ;; esac; done
 
-DIR="${1:?usage: build-extension.sh [--native] <extension-dir>}"
+DIR="${1:?usage: build-extension.sh [--native] [--validate-only] <extension-dir>}"
 DIR="${DIR%/}"
-# shellcheck source=scripts/_target.sh
-source "$(dirname "$0")/_target.sh"   # → BASE_URL (+ TOKEN) from .env / env per DUPLO_TARGET
-# shellcheck source=scripts/_sdk_digest.sh
-source "$(dirname "$0")/_sdk_digest.sh"  # → sdk_digest, stamped into the bundle manifest beside sdkVersion
-BASE_URL="${BASE_URL%/}"               # tolerate a trailing slash in DUPLO_HOST (avoids // in URLs)
+if [ "$VALIDATE_ONLY" != 1 ]; then
+  # shellcheck source=scripts/_target.sh
+  source "$(dirname "$0")/_target.sh"   # → BASE_URL (+ TOKEN) from .env / env per DUPLO_TARGET
+  # shellcheck source=scripts/_sdk_digest.sh
+  source "$(dirname "$0")/_sdk_digest.sh"  # → sdk_digest, stamped into the bundle manifest beside sdkVersion
+  BASE_URL="${BASE_URL%/}"               # tolerate a trailing slash in DUPLO_HOST (avoids // in URLs)
+fi
 [ -f "$DIR/manifest.json" ] || { echo "No manifest.json in $DIR" >&2; exit 1; }
 
 # Delegates to the builder container unless we're already native (see the header). Never returns in
 # the container case.
-builder_dispatch scripts/build-extension.sh "$DIR"
+[ "$VALIDATE_ONLY" = 1 ] || builder_dispatch scripts/build-extension.sh "$DIR"
 
 # From here down we are native and the toolchain is present — builder_dispatch guarantees it.
 
@@ -72,6 +76,9 @@ done < <(jq -r '.frontend.menus // [] | .. | objects | .relativeUrl? // empty' "
 if jq -e '.frontend.menu' "$MANIFEST" >/dev/null 2>&1; then
   echo "  ✗ legacy 'frontend.menu' is deprecated — use the 'frontend.menus' array" >&2; viol=1
 fi
+# shellcheck source=scripts/validate-header-actions.sh
+source "$(dirname "$0")/validate-header-actions.sh"
+validate_header_actions "$MANIFEST" || viol=1
 while IFS= read -r m; do
   name=$(printf '%s' "$m" | sed -E 's/.*BsonCollection\("([^"]*)".*/\1/')
   case "$name" in extension_*) ;; *)
@@ -137,6 +144,8 @@ while IFS=$'\t' read -r u sc; do
 done < <(jq -r '(.frontend.routes // []) as $r | .frontend.menus // [] | .[] | (.scope // "workspace") as $s
   | [.. | objects | .relativeUrl? // empty] | .[] as $u
   | select(([$r[] | select(.path == $u) | (.scope // "workspace")] | index($s)) == null) | "\($u)\t\($s)"' "$MANIFEST")
+# frontend.setup feeds the portal's "Agent Setup" nav; the portal silently ignores an invalid entry.
+scripts/validate-setup.sh "$MANIFEST" || viol=1   # cwd is the repo root (cd above)
 # A plain controller (ControllerBase/Controller, e.g. a read-only workspace view of an admin resource) gets no
 # authorization unless it says so: the host has no fallback policy, and only [Authorize] runs the tenant policy
 # (workspace membership; Admin Workspace grants on /aiservicedesk/admin). Resource controllers inherit it from their base.
@@ -188,11 +197,14 @@ case "$DIR" in
   *samples/*|*templates/*) ;;
   *)
     if [ -d "$DIR/frontend/src" ]; then
-      hits=$(grep -rnE 'HelloService|HelloWorld|hw-(add|list|view|root)|hello\.service' "$DIR/frontend/src" 2>/dev/null || true)
+      hits=$(grep -rnE 'HelloService|HelloWorld|hw-(add|list|view|root|setup)|hello\.service|HELLO_WORLD_TYPE|HelloSettings|helloworld[./]settings' "$DIR/frontend/src" 2>/dev/null || true)
       if [ -n "$hits" ]; then
         echo "  ✗ frontend still has template 'Hello'/'hw-' identifiers — rename them to your resource:" >&2
         printf '%s\n' "$hits" | head -8 | sed 's/^/      /' >&2; viol=1
       fi
+    fi
+    if [ "$(jq -r '(.frontend.setup.relativeUrl)? // empty' "$MANIFEST" 2>/dev/null)" = "extensions/helloworld-setup" ]; then
+      echo "  ✗ frontend.setup.relativeUrl is still the template's 'extensions/helloworld-setup' — use extensions/<idName>-setup (reference/02-authoring-guide.md)" >&2; viol=1
     fi ;;
 esac
 
@@ -201,6 +213,7 @@ if [ "$viol" -ne 0 ]; then
   exit 1
 fi
 echo "    naming OK"
+[ "$VALIDATE_ONLY" != 1 ] || exit 0
 
 echo "==> Fetching SDK feed from $BASE_URL"
 auth=()
@@ -297,6 +310,9 @@ echo "==> Building frontend"
   && npm run build )
 # (if/else, NOT `npm ci || npm install`: a FAILING npm ci must fail the build, never silently fall back
 #  to npm install and rewrite the lock.)
+
+validate_header_action_exposes "$MANIFEST" "$DIR/frontend/dist/remoteEntry.json" \
+  || { echo "ERROR: a frontend.headerActions expose is missing from the built remoteEntry.json." >&2; exit 1; }
 
 # The extension is hot-loaded into a child AssemblyLoadContext whose Resolving hook serves any assembly the
 # host already has (the WHOLE SDK closure — Duplo.Ai.*, Mongo, AWS, AspNetCore, …) from the host's Default

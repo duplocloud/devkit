@@ -1,7 +1,7 @@
 # Upgrading an extension's UI library: the vendored `@duplocloud-internal/ng-common-lib` tarball
 
 For extensions built from this dev-kit (or from the `duplo-extension-dev` skill template) that vendor the UI
-library as a tarball. The current line is 0.5.3 (Angular 22); [What changed in 0.5.1](#what-changed-in-051) covers
+library as a tarball. The current line is 0.8.0 (Angular 22); [What changed in 0.5.1](#what-changed-in-051) covers
 the dark theme, and the notes after it contrast the 0.2.x line with 0.1.x.
 
 > **This is not a drop-in upgrade.** 0.2.0 is compiled against **Angular 22** and ships as ESM
@@ -20,6 +20,22 @@ If your extension is already an Angular 22 Native-Federation remote (it has `fro
 and no `frontend/webpack.config.js`), the steps below are all you need.
 
 ---
+
+## What changed in 0.8.0
+
+- **Connections kit.** An agent's admin setup page can create a provider, a credential and a scope together,
+  without Admin → Providers. Three levels, each built from the one below:
+  1. `<duplo-connection-field>` (`ConnectionFieldComponent`) — the ready flow; the default.
+  2. `<duplo-provider-picker>`, `<duplo-credential-form>`, `<duplo-scope-picker>` (`ProviderPickerComponent`,
+     `CredentialFormComponent`, `ScopePickerComponent`) — parts for your own steps.
+  3. `ConnectionsService` — functions, no UI; failures are a `ConnectionError`.
+- New types and helpers: `ConnectionTypeDefinition`, `ConnectionCredentialSchema`, `ConnectionField`,
+  `ConnectionVariant`, `ConnectionResult`, `ConnectionOption`, `ConnectionProvider`, `ConnectionScope`,
+  `ConnectRequest`, `isValidConnectionName`, `CONNECTION_NAME_RULE` and the other `CONNECTION_*` / `DEFAULT_CONNECTION_*` constants.
+- Usage, inputs and outputs:
+  [20-ui-library](../.claude/skills/duplo-extension-dev/reference/20-ui-library.md#connections-the-setup-kit).
+  Shared provider types: [07-scope-credentials](../.claude/skills/duplo-extension-dev/reference/07-scope-credentials.md#shared-provider-types).
+- Nothing was removed. Nothing to change in an existing extension; add a setup page when you next touch it.
 
 ## What changed in 0.5.3
 

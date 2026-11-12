@@ -4,7 +4,7 @@ Everything the platform UI library exports, what each piece is for, how to impor
 inside an extension remote. Check here before hand-rolling a table, form control, viewer or modal — the
 platform almost certainly ships it already, and using it is what makes your pages match the suite.
 
-Written against **0.5.3**. The source of truth is `portal/common-lib/public-api.ts` in duplo-ui; exact
+Written against **0.8.0**. The source of truth is `portal/common-lib/public-api.ts` in duplo-ui; exact
 signatures are in the installed package — see [Checking an exact API](#checking-an-exact-api).
 
 ## Rules
@@ -35,6 +35,7 @@ signatures are in the installed package — see [Checking an exact API](#checkin
 | A short child list inside a detail tab | `app-expandable-list` | [expandable list](#expandable-list) |
 | A form field, validator or error summary | `SharedFormsModule` | [14-forms-and-wizards](14-forms-and-wizards.md) |
 | The AI-use disclosure on an Agent-mode form | `app-ai-disclosure` | [14-forms-and-wizards](14-forms-and-wizards.md#ai-use-disclosure-agent-mode) |
+| A provider connection on the setup page | `duplo-connection-field` | [connections](#connections-the-setup-kit) |
 | The real reason an API call failed | `extractErrorMessage`, `[form-group-errors]` | [15-error-handling](15-error-handling.md) |
 | A delete / deprovision confirmation | `DeleteConfirmationModalService.openGeneric` | [confirm dialogs](#confirm-dialogs) |
 | A yes/no confirmation | `ConfirmationModalService.openWithMessage` | [confirm dialogs](#confirm-dialogs) |
@@ -143,6 +144,118 @@ Everything below comes from `SharedFormsModule`. Field usage and the wizard patt
 > wherever `SharedFormsModule` is imported — a leading space the user typed will not reach your model.
 
 Standalone extra: `[yamlValue]` (`YamlValueValidationDirective`). Programmatic validators: `DuploValidators`.
+
+## Connections (the setup kit)
+
+A connection is a provider, a credential and a scope, created together. The agent's admin setup page uses this
+kit. It comes in three levels; each is built from the one below. Shared type names, field keys and limits:
+[07-scope-credentials](07-scope-credentials.md#creating-the-connection--the-connections-kit).
+
+| Level | Use when | API |
+|---|---|---|
+| 1. Ready flow | **Default** — one field per provider | `<duplo-connection-field>` (`ConnectionFieldComponent`) |
+| 2. Parts | Setup needs its own steps between provider, credential and scope | `<duplo-provider-picker>`, `<duplo-credential-form>`, `<duplo-scope-picker>` |
+| 3. Functions | A non-form UX — no kit UI at all | `ConnectionsService` |
+
+- **It may register a type, nothing more.** When the `typeDefinition` you pass is not registered, the kit
+  registers it (`ensureType`). It never updates an existing type, and never changes or deletes existing
+  providers, credentials or scopes.
+- That check runs early: when a provider picker with a `typeDefinition` renders, when the credential form's
+  "+ New credential" opens, and when level 1's modal opens.
+- **Host token:** calls go through `REMOTE_DuploHttpClient`, which the host provides. Without it every call fails
+  with `ConnectionsService: REMOTE_DuploHttpClient is not provided.`
+- Level 1, level 3, the provider picker and the credential form take an optional `typeDefinition`
+  (`ConnectionTypeDefinition`); the scope picker does not.
+- Form rules — error keys, no built-in `required` message: [14](14-forms-and-wizards.md#connections-in-a-form).
+
+```ts
+import { ConnectionTypeDefinition } from '@duplocloud-internal/ng-common-lib';
+
+const clickUpType: ConnectionTypeDefinition = {
+  type: 'clickup',
+  label: 'ClickUp',
+  category: 'other',
+  credentialSchema: { fields: [{ key: 'apiToken', label: 'API token', htmlType: 'password', sensitive: true, required: 'always' }] },
+};
+```
+
+A field (`ConnectionField`) is `{ key, label, htmlType?, required?: 'always' | 'createOnly' | 'never', sensitive?,
+placeholder?, helpText?, minLength? }`. Alternative field sets go in `credentialSchema.variants`
+(`{ key, label, fields }`).
+
+### Level 1 — `<duplo-connection-field>`
+
+Lists existing connections, opens a modal for "+ New", and shows Connected. Import `ConnectionFieldComponent`
+with `FormsModule` (or `SharedFormsModule`, which re-exports it) for `ngModel`.
+
+| Inputs | Value (`ngModel`) | Output |
+|---|---|---|
+| `category` (required), `type`, `typeDefinition`, `label` | scope id | `(connected)` → `ConnectionResult` `{ providerId, credentialName, scopeId }` on every pick or create |
+
+Without `type` or `typeDefinition`, "+ New" is hidden. The template's setup page is the worked example:
+
+```html
+<duplo-connection-field category="other" [typeDefinition]="clickUpType"
+  name="clickUpScopeId" [(ngModel)]="clickUpScopeId" (connected)="onConnected($event)" required>
+</duplo-connection-field>
+```
+
+### Level 2 — parts
+
+One form control (`ngModel`) per piece; you arrange them in your own page, wizard or modal. Import
+`ProviderPickerComponent`, `CredentialFormComponent` and `ScopePickerComponent`.
+
+| Selector | Value | Inputs |
+|---|---|---|
+| `<duplo-provider-picker>` | provider id | `category` (required), `type`, `typeDefinition` |
+| `<duplo-credential-form>` | credential name | `providerId` (required), `typeDefinition` |
+| `<duplo-scope-picker>` | scope id | `providerId` (required), `credentialName` (required) |
+
+```html
+<duplo-provider-picker name="providerId" category="other" [typeDefinition]="jiraType" [(ngModel)]="providerId" />
+<duplo-credential-form name="credentialName" [providerId]="providerId()" [typeDefinition]="jiraType" [(ngModel)]="credentialName" />
+<duplo-scope-picker name="scopeId" [providerId]="providerId()" [credentialName]="credentialName()" [(ngModel)]="scopeId" />
+```
+
+### Level 3 — `ConnectionsService`
+
+No UI. `providedIn: 'root'`. Every method returns a **cold** Observable: each subscription runs the call again.
+Concurrent `ensureType` calls for the same type share one run.
+
+```ts
+import { ConnectionError, ConnectionResult, ConnectionsService, ConnectRequest } from '@duplocloud-internal/ng-common-lib';
+
+private readonly connections = inject(ConnectionsService);
+protected readonly name = signal('acme-slack');
+protected readonly botToken = signal('');
+private partial: Partial<ConnectionResult> | undefined;
+
+// One shot: type + provider + credential + scope. Runs again on "Try again".
+protected connectSlack(): void {
+  const request: ConnectRequest = {
+    category: 'other', typeDefinition: slackType, name: this.name(), values: { botToken: this.botToken() },
+    ...(this.partial ? { resume: this.partial } : {}),
+  };
+  this.connections.connect(request).subscribe({
+    next: result => { this.partial = undefined; this.save(result.scopeId); },
+    error: (err: unknown) => { this.partial = err instanceof ConnectionError ? err.partial : undefined; },
+  });
+}
+```
+
+- `connect()` creates on every subscription — subscribe once.
+- A failure is a `ConnectionError` with `step` (`'validation' | 'type' | 'provider' | 'scope'`) and `partial`.
+  A provider-step failure has an empty `partial`: nothing was created, so change `name` before retrying. A
+  scope-step failure has `partial.providerId`: the retry only creates the scope.
+- The connection `name` names both the provider and the scope, so it must pass the scope-name rule
+  (`CONNECTION_NAME_RULE`, `isValidConnectionName`).
+
+Step by step: `ensureType(def)`, `listProviders({ category, type })`,
+`createProvider({ category, type, name, credentialName, values, schema })`, `listCredentials(providerId)`,
+`addCredential(providerId, name, values, schema)`, `listScopes({ providerId, credentialName })`,
+`createScope({ providerId, credentialName, name })`, `listConnections({ category, type })`. `createProvider`,
+`addCredential` and `createScope` check the name before any request; a bad name fails with a `ConnectionError`
+whose `step` is `'validation'`.
 
 ## Viewers & editors
 

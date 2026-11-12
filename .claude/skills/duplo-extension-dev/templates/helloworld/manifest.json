@@ -56,7 +56,9 @@
       }
     ],
     "routes": [
-      { "path": "extensions/helloworlds", "resourceType": "HelloWorld", "subType": "hello-world" }
-    ]
+      { "path": "extensions/helloworlds", "resourceType": "HelloWorld", "subType": "hello-world" },
+      { "path": "extensions/helloworld-setup", "scope": "admin" }
+    ],
+    "setup": { "title": "Setup", "relativeUrl": "extensions/helloworld-setup" }
   }
 }
