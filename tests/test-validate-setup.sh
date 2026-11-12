@@ -92,6 +92,35 @@ run '{"frontend":"x"}'; [ "$RC" -eq 0 ] && [ -z "$ERR" ] && ok || bad "exit $RC:
 t "top-level manifest that is not an object is OK with no stderr"
 run '[]'; [ "$RC" -eq 0 ] && [ -z "$ERR" ] && ok || bad "exit $RC: $ERR"
 
+echo "frontend SETUP_PATH parity:"
+SETUP_OK='{"frontend":{"setup":{"relativeUrl":"extensions/foo/setup"},'"$ROUTES"'}}'
+mkdir -p "$TMP/frontend/src/app"
+R="$TMP/frontend/src/app/extension.routes.ts"
+
+t "SETUP_PATH equal to relativeUrl is OK"
+printf "export const SETUP_PATH = 'extensions/foo/setup';\n" > "$R"
+run "$SETUP_OK"; [ "$RC" -eq 0 ] && [ -z "$ERR" ] && ok || bad "exit $RC: $ERR"
+
+t "double-quoted SETUP_PATH is OK"
+printf 'export const SETUP_PATH = "extensions/foo/setup";\n' > "$R"
+run "$SETUP_OK"; [ "$RC" -eq 0 ] && [ -z "$ERR" ] && ok || bad "exit $RC: $ERR"
+
+t "SETUP_PATH different from relativeUrl fails and names the found value"
+printf "export const SETUP_PATH = 'extensions/helloworld-setup';\n" > "$R"
+expect_fail "$SETUP_OK" "found: extensions/helloworld-setup"
+
+t "no SETUP_PATH in frontend/src fails"
+printf "export const Extension = [];\n" > "$R"
+expect_fail "$SETUP_OK" "frontend/src has no SETUP_PATH = 'extensions/foo/setup'"
+
+t "a regex-like relativeUrl is compared literally"
+printf "export const SETUP_PATH = 'extensions/fooXsetup';\n" > "$R"
+expect_fail '{"frontend":{"setup":{"relativeUrl":"extensions/foo.setup"},"routes":[{"path":"extensions/foo.setup","scope":"admin"}]}}' 'has no SETUP_PATH'
+
+t "no frontend.setup skips the frontend check"
+run '{"frontend":{"routes":[]}}'; [ "$RC" -eq 0 ] && ok || bad "exit $RC: $ERR"
+rm -rf "$TMP/frontend"
+
 t "every problem is reported, one line each"
 run '{"frontend":{"setup":{"relativeUrl":"clouds/x","title":7}}}'
 N="$(printf '%s\n' "$ERR" | grep -c '✗')"

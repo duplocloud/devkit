@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Validates a manifest's frontend.setup the way the portal does at runtime (a bad entry is silently ignored there).
+# With a sibling frontend/src, also checks its SETUP_PATH constant equals relativeUrl.
 # Usage: validate-setup.sh <manifest.json>   → exit 0 if absent or valid; else one "  ✗" line per problem on stderr, exit 1.
 set -euo pipefail
 
@@ -25,6 +26,17 @@ fi
 
 if jq -e '.frontend.setup | has("title") and (.title | type) != "string"' "$M" >/dev/null; then
   bad "frontend.setup.title must be a string"
+fi
+
+# Build-only: the frontend's setup-page guard matches this path, so its SETUP_PATH must equal relativeUrl.
+src="$(dirname "$M")/frontend/src"
+if [ -n "$url" ] && [ -d "$src" ]; then
+  vals=$( { grep -rhoE "SETUP_PATH[[:space:]]*=[[:space:]]*['\"][^'\"]*['\"]" "$src" 2>/dev/null || true; } \
+          | sed -E "s/^[^'\"]*['\"]([^'\"]*)['\"]$/\1/")
+  if ! printf '%s\n' "$vals" | grep -qxF -- "$url"; then
+    found=$(printf '%s' "$vals" | head -3 | tr '\n' ' ')
+    bad "frontend/src has no SETUP_PATH = '$url' (frontend.setup.relativeUrl; the setup page's canMatch reads it)${found:+ — found: $found}"
+  fi
 fi
 
 exit "$viol"

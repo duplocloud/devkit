@@ -197,11 +197,14 @@ case "$DIR" in
   *samples/*|*templates/*) ;;
   *)
     if [ -d "$DIR/frontend/src" ]; then
-      hits=$(grep -rnE 'HelloService|HelloWorld|hw-(add|list|view|root)|hello\.service' "$DIR/frontend/src" 2>/dev/null || true)
+      hits=$(grep -rnE 'HelloService|HelloWorld|hw-(add|list|view|root|setup)|hello\.service|HELLO_WORLD_TYPE|HelloSettings|helloworld[./]settings' "$DIR/frontend/src" 2>/dev/null || true)
       if [ -n "$hits" ]; then
         echo "  ✗ frontend still has template 'Hello'/'hw-' identifiers — rename them to your resource:" >&2
         printf '%s\n' "$hits" | head -8 | sed 's/^/      /' >&2; viol=1
       fi
+    fi
+    if [ "$(jq -r '(.frontend.setup.relativeUrl)? // empty' "$MANIFEST" 2>/dev/null)" = "extensions/helloworld-setup" ]; then
+      echo "  ✗ frontend.setup.relativeUrl is still the template's 'extensions/helloworld-setup' — use extensions/<idName>-setup (reference/02-authoring-guide.md)" >&2; viol=1
     fi ;;
 esac
 
