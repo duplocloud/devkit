@@ -265,9 +265,10 @@ Adapt inside `extensions/<name>/` — rename `HelloWorld`→`<Name>` consistentl
 Admins finish an agent's setup at **AI Admin → Agent Setup → {agent name}**. The template carries it; full contract
 in [02](reference/02-authoring-guide.md#frontendsetup).
 - **New agent:** keep all three pieces from the template. `<idName>` below is the last segment of the manifest
-  `id` (template: `helloworld`); the path is unique as long as the id's last segment is:
+  `id` (template: `helloworld`); the path is unique as long as the id's last segment is. For a reverse-DNS id like
+  `com.duplocloud.issue-reporter` it is `extensions/issue-reporter-setup`, not `com.duplocloud…` or the folder name:
   - the admin route `{ "path": "extensions/<idName>-setup", "scope": "admin" }` in `frontend.routes[]`;
-  - `"setup": { "title": "Setup", "relativeUrl": "extensions/<idName>-setup" }` in `frontend` (same path);
+  - `"setup": { "title": "Set up", "relativeUrl": "extensions/<idName>-setup" }` in `frontend` (same path);
   - the page `frontend/src/app/setup/*` + `settings.service.ts`, and in `extension.routes.ts` the `canMatch`
     entry that matches the setup mount by path: set `SETUP_PATH` to the same `extensions/<idName>-setup`.
     Rename per the FE rename table in [02](reference/02-authoring-guide.md#frontend). Replace the sample
@@ -284,6 +285,15 @@ in [02](reference/02-authoring-guide.md#frontendsetup).
   1. Already has an admin settings page or endpoint → make that the setup page. Mount it on the setup route through
      the `canMatch` entry and `SETUP_PATH`. Replace its provider pickers with the kit. Keep its own settings
      service; don't copy `settings.service.ts`.
+     - **Hand-made providers:** if its docs or earlier versions had admins create providers by hand (usually
+       Type `Other`), pass those types in `alsoTypes`, or saved connections show "Connection not found". Find
+       them in the agent's README and setup docs, and the category its old picker used
+       ([07](reference/07-scope-credentials.md#connections-made-by-hand)).
+     - **The page must work on the admin mount**, where the URL and session have no workspace. A guard that
+       rebuilds a workspace URL must allow on the setup mount (the host already admin-guards it). Hide "Back"
+       links and workspace-relative navigation there, or route them sensibly. A workspace-only call must not
+       block the page. Tell the mounts apart with the template's `canMatch` / `SETUP_PATH`
+       (`extension.routes.ts`).
   2. No setup page → add it from the template. In the copied `settings.service.ts`, re-point the
      `REMOTE_DuploHttpClient` import to the agent's own service.
   3. Setup page present → update it to match the agent's features: one connection per provider the agent uses,

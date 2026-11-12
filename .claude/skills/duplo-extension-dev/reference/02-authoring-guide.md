@@ -342,7 +342,7 @@ settings once. `frontend.setup` points the portal at it:
   { "path": "extensions/helloworlds", "resourceType": "HelloWorld", "subType": "hello-world" },
   { "path": "extensions/helloworld-setup", "scope": "admin" }
 ],
-"setup": { "title": "Setup", "relativeUrl": "extensions/helloworld-setup" }
+"setup": { "title": "Set up", "relativeUrl": "extensions/helloworld-setup" }
 ```
 
 | Field | Type | Required | Meaning |

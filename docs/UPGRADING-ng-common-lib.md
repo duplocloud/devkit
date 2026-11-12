@@ -35,7 +35,27 @@ and no `frontend/webpack.config.js`), the steps below are all you need.
 - Usage, inputs and outputs:
   [20-ui-library](../.claude/skills/duplo-extension-dev/reference/20-ui-library.md#connections-the-setup-kit).
   Shared provider types: [07-scope-credentials](../.claude/skills/duplo-extension-dev/reference/07-scope-credentials.md#shared-provider-types).
+- `<duplo-connection-field>` takes `alsoTypes` (default none): connections of those provider types are listed beside
+  the main type, for providers admins made by hand
+  ([07](../.claude/skills/duplo-extension-dev/reference/07-scope-credentials.md#connections-made-by-hand)).
 - Nothing was removed. Nothing to change in an existing extension; add a setup page when you next touch it.
+
+## What changed in 0.7.x
+
+- **0.7.0** adds the `REMOTE_ExtensionAnalytics` injection token and the `ExtensionAnalytics` and `AnalyticsProps`
+  types. The host binds the token to the extension's manifest id.
+- Nothing was removed. Nothing to change in an existing extension.
+
+## What changed in 0.6.x
+
+- **0.6.0** adds the Kubernetes explorer: `K8sExplorerComponent` (`<app-k8s-explorer [scopeId]>`),
+  `K8sStatePanelComponent`, `UserK8sExplorerDataSource`, `AdminK8sExplorerDataSource`, the kind registry
+  (`K8S_KIND_LIST`, `K8S_KIND_REGISTRY`, `getK8sKind`, …) and the `K8s*` types. It needs the xterm stylesheet served at
+  `assets/css/xterm/xterm.css` (library README, section 7).
+- Smaller additions: the `SILENT_403` request-context token (the error interceptor skips its "Access denied" toast
+  for that request), `StringUtils.pluralize`, `minRows` and `fill` inputs on `<app-xterm-socket>`, and
+  `scss/_dots-loader.scss`.
+- Nothing was removed. Nothing to change in an existing extension.
 
 ## What changed in 0.5.3
 
@@ -63,6 +83,16 @@ and no `frontend/webpack.config.js`), the steps below are all you need.
   is open, because its datatable styles are global.
 - Extension styles move to the `$g-*` theme names — see [theming.md](theming.md) and the
   `duplo-extension-theme-migration` skill. Steps 1–5 below apply unchanged with the 0.5.3 tarball.
+
+## What changed in 0.4.x
+
+- **0.4.0** adds `AiDisclosureComponent` (`<app-ai-disclosure>`), `IamRoleHelpComponent` (`<app-iam-role-help>`),
+  the `aiLabelConfig` pipe (`AILabelConfigPipe`) and the config helpers in `utils/ui-config`
+  (`getUiConfig`, `brandTitle`, `brandText`, `resolveLabel`, `docsLink`, …), for the whitelabelled portal.
+- `AI_SUITE_LABEL_CONFIG` is marked deprecated; labels now come from the portal's `config.json` through `resolveLabel()`.
+- Behaviour change: the help-tooltip text is no longer fetched from a fixed GitHub URL. It loads only when
+  `links.helpTextJson` is set in the portal's `config.json`; otherwise the tooltips stay empty.
+- Nothing was removed. Nothing to change in an existing extension.
 
 ## What changed in 0.2.0
 

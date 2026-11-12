@@ -17,7 +17,7 @@ Mongo, ticket origin types) and does **not** auto-namespace you — collisions a
 | `ticketOriginType` | descriptive PascalCase, distinct from built-ins | `TerraformDeployment` | terse/collision-prone `TfState` |
 | Entity class name (= its **access-node type** once the controller declares one — [18-access-control](18-access-control.md)) | feature-prefixed PascalCase, unique across the host and every loaded extension | `TerraformDeployment` | a name a built-in or another extension already uses (`Cluster`, `Network`) — **the load is rejected** |
 | Menu shape | `frontend.menus[]` (array) | — | legacy singular `frontend.menu` (deprecated) |
-| Setup page route (`frontend.routes[]` with `"scope": "admin"`, `frontend.setup.relativeUrl`, FE `SETUP_PATH`) | `extensions/<idName>-setup` — `<idName>` = last segment of the manifest `id`; all three equal ([02](02-authoring-guide.md#frontendsetup)) | `extensions/ticketnotes-setup` | the template's `extensions/helloworld-setup` (the gate fails it) |
+| Setup page route (`frontend.routes[]` with `"scope": "admin"`, `frontend.setup.relativeUrl`, FE `SETUP_PATH`) | `extensions/<idName>-setup` — `<idName>` = last segment of the manifest `id`; all three equal ([02](02-authoring-guide.md#frontendsetup)) | `extensions/ticketnotes-setup`; id `com.duplocloud.issue-reporter` → `extensions/issue-reporter-setup` | the template's `extensions/helloworld-setup` (the gate fails it) |
 | `frontend.remote.remoteEntry` | `/v1/aiservicedesk/extensions/<id>/fe/remoteEntry.json` | — | a Webpack `.js` entry — the host loads Native Federation `.json` entries only |
 
 **Why `extensions/` for the frontend route:** the host registers built-in `clouds/*` routes **first**, so a duplicate

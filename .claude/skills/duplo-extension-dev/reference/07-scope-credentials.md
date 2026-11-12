@@ -206,6 +206,17 @@ export const JIRA_TYPE: ConnectionTypeDefinition = {
 - A system not listed here gets its own lower-case type name. Pick one no other agent would use for a different
   shape (for example the feature name), and document its keys in your skill.
 
+### Connections made by hand
+
+A typed field lists only connections of its own type. If admins already made this agent's providers by hand
+(typically Type `Other`), saved scopes of that type show "Connection not found" after the move to the kit. Pass
+those types in `alsoTypes` on `<duplo-connection-field>` ([20](20-ui-library.md#level-1--duplo-connection-field)):
+`[alsoTypes]="['other']"`.
+
+- **Find them:** the agent's README and setup docs (they tell admins which type to pick), and the category its old
+  picker listed.
+- `alsoTypes` only widens the list. "+ New" still creates the main type. Default is none (strict).
+
 ### Limits
 
 - **Generic and custom categories only** (agents use `other`). Cloud categories (they need an account id) and the LLM

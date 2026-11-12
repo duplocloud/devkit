@@ -190,13 +190,20 @@ with `FormsModule` (or `SharedFormsModule`, which re-exports it) for `ngModel`.
 
 | Inputs | Value (`ngModel`) | Output |
 |---|---|---|
-| `category` (required), `type`, `typeDefinition`, `label` | scope id | `(connected)` → `ConnectionResult` `{ providerId, credentialName, scopeId }` on every pick or create |
+| `category` (required), `type`, `typeDefinition`, `label`, `alsoTypes` | scope id | `(connected)` → `ConnectionResult` `{ providerId, credentialName, scopeId }` on every pick or create |
 
-Without `type` or `typeDefinition`, "+ New" is hidden. The template's setup page is the worked example:
+Without `type` or `typeDefinition`, "+ New" is hidden. `alsoTypes` (default none, strict) lists connections of
+those provider types beside the main type; "+ New" still creates the main type. Use it for providers admins made
+by hand ([07](07-scope-credentials.md#connections-made-by-hand)). The template's setup page is the worked example:
 
 ```html
 <duplo-connection-field category="other" [typeDefinition]="clickUpType"
   name="clickUpScopeId" [(ngModel)]="clickUpScopeId" (connected)="onConnected($event)" required>
+</duplo-connection-field>
+
+<!-- also list connections an admin made by hand under type "other" -->
+<duplo-connection-field category="other" [typeDefinition]="clickUpType" [alsoTypes]="['other']"
+  name="clickUpScopeId" [(ngModel)]="clickUpScopeId" required>
 </duplo-connection-field>
 ```
 
