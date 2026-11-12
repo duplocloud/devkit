@@ -1,7 +1,7 @@
 # Upgrading an extension's UI library: the vendored `@duplocloud-internal/ng-common-lib` tarball
 
 For extensions built from this dev-kit (or from the `duplo-extension-dev` skill template) that vendor the UI
-library as a tarball. The current line is 0.5.3 (Angular 22); [What changed in 0.5.1](#what-changed-in-051) covers
+library as a tarball. The current line is 0.8.0 (Angular 22); [What changed in 0.5.1](#what-changed-in-051) covers
 the dark theme, and the notes after it contrast the 0.2.x line with 0.1.x.
 
 > **This is not a drop-in upgrade.** 0.2.0 is compiled against **Angular 22** and ships as ESM
