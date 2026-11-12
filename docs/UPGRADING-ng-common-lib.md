@@ -42,9 +42,7 @@ and no `frontend/webpack.config.js`), the steps below are all you need.
 
 ## What changed in 0.7.x
 
-- **0.7.0** adds the `REMOTE_ExtensionAnalytics` injection token and the `ExtensionAnalytics` and `AnalyticsProps`
-  types. The host binds the token to the extension's manifest id.
-- Nothing was removed. Nothing to change in an existing extension.
+- No change an extension needs to act on. Nothing was removed.
 
 ## What changed in 0.6.x
 
