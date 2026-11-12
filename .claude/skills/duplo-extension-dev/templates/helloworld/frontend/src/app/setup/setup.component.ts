@@ -55,6 +55,7 @@ export class SetupComponent implements OnInit {
   }
 
   protected save(): void {
+    this.formErrors()?.clearError();
     this.saving.set(true);
     this.settings.save({ scopeId: this.scopeId() }).subscribe({
       next: ({ settings, local }) => {

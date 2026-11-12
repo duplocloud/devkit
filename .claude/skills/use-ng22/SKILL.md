@@ -119,7 +119,7 @@ These are the ones a generic Angular 22 guide will get wrong.
 |---|---|---|
 | Zoneless (`provideZonelessChangeDetection`) | **Forbidden** | The host bootstraps with `provideZoneChangeDetection()` and the remote shares its `NgZone`. Never provide either in a remote — a second zone forks change detection. |
 | Signal Forms (`@angular/forms/signals`) | **Forbidden for platform forms** | Real and exported in 22.1.0, but the platform's `form-field`, `validation-state`, `validation-errors` and `form-group-errors` are built on `NgModel`. Signal Forms bypass all of them and the form stops looking and behaving like the suite. |
-| `[(ngModel)]="someSignal"` | **Broken** | Two-way binding compiles to `sig = $event`, which cannot assign to a signal. Use `[ngModel]="sig()" (ngModelChange)="sig.set($event)"`. |
+| `[(ngModel)]="someSignal"` | **Allowed** | Angular 17.2+ compiles two-way binding on a `WritableSignal` to `sig.set($event)`. The explicit `[ngModel]="sig()" (ngModelChange)="sig.set($event)"` pair is equally correct. |
 | `httpResource` | **Not usable** | `@publicApi 22.0`, but it needs Angular's `HttpClient` from `provideHttpClient`. Extensions get the host's `REMOTE_DuploHttpClient` token, not that provider. Use `rxResource` or `toSignal` over the token's observables. |
 | `resource` / `rxResource` | **Allowed** | `@publicApi 22.0`. Good fit for `view/:id` loads. Plain `subscribe` + `signal.set` is equally correct and is what the template uses. |
 | `provideZoneChangeDetection` in the remote | **Forbidden** | Host-only concern; see zoneless row. |
@@ -149,15 +149,11 @@ done
 # 2. no legacy structural directives or decorator queries left
 grep -nE "\*ngIf|\*ngFor|ngSwitch|@Input\(|@Output\(|@ViewChild\(" $OWN || echo clean
 
-# 3. two-way ngModel onto a signal — compiles, then silently fails to write
-#    (the second grep drops comment lines, which legitimately mention the anti-pattern)
-grep -nE "\[\(ngModel\)\]" $OWN | grep -vE ":[[:space:]]*(//|\*)" || echo clean
-
-# 4. build
+# 3. build
 npm run build
 ```
 
-All three checks return clean on the `helloworld` template.
+Both checks return clean on the `helloworld` template.
 
 Then **load the page in the portal** and watch a list actually populate after its request resolves. That
 is the only check that catches the failure this skill exists to prevent.
