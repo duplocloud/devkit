@@ -272,15 +272,22 @@ in [02](reference/02-authoring-guide.md#frontendsetup).
     entry that matches the setup mount by path: set `SETUP_PATH` to the same `extensions/<idName>-setup`.
     Rename per the FE rename table in [02](reference/02-authoring-guide.md#frontend). Replace the sample
     `HELLO_WORLD_TYPE` with one type definition per provider.
-  - **Settings endpoint:** the platform has none for agents. Back `SETTINGS_URL` with an admin resource
-    ([21](reference/21-admin-resources.md)) or a custom action ([05](reference/05-custom-actions.md)). Until then
-    the template's localStorage fallback keeps values in one browser only, and provisioning can't read them.
+  - **Settings endpoint:** the platform has none for agents. Add a plain `[Authorize]` `ControllerBase` routed at
+    `SETTINGS_URL` (`v1/aiservicedesk/admin/extensions/<idName>/settings`) that serves GET/PUT of one settings
+    object ([02](reference/02-authoring-guide.md#frontendsetup)). Until then the localStorage fallback keeps
+    values in one browser only, and provisioning can't read them.
+  - To use a connection at provisioning, attach its scope to the workspace or the Admin Workspace
+    ([07](reference/07-scope-credentials.md#creating-the-connection--the-connections-kit) step 3) and read it from
+    `spec.ScopeIds`.
 - **Existing agent:** whenever you change one, check for the setup page (`frontend.setup`, its admin route, the
   page). Missing → add it from the template. Present → update it to match the agent's features: one connection
   per provider the agent uses, plus the agent's own settings. Drop steps for features you removed.
   - Needs `ng-common-lib` ≥ 0.8.0. Upgrade an older agent first
     ([UPGRADING-ng-common-lib](../../../docs/UPGRADING-ng-common-lib.md)).
   - In the copied `settings.service.ts`, re-point the `REMOTE_DuploHttpClient` import to the agent's own service.
+  - Already has an admin settings page or endpoint → make that the setup page. Mount it on the setup route through
+    the `canMatch` entry and `SETUP_PATH`. Replace its provider pickers with the kit. Keep its own settings
+    service; don't copy `settings.service.ts`.
 - **Pick the kit level** ([20](reference/20-ui-library.md#connections-the-setup-kit)):
   1. **Level 1 `<duplo-connection-field>`** — the default; one field per provider.
   2. **Level 2 parts** (`<duplo-provider-picker>`, `<duplo-credential-form>`, `<duplo-scope-picker>`) — only when

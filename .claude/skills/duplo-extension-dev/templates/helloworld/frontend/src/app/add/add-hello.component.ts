@@ -9,10 +9,8 @@ import { HelloService } from '../hello.service';
 // global CSS, and the published lib ships compiled CSS only) — so a remote must carry the layout rules in
 // its own component `styles` (below).
 //
-// Forms stay template-driven (the platform convention); each field is a signal. `[(ngModel)]` on a writable
-// signal works in Angular 17.2+; this form uses the explicit pair for clarity. Signals also keep the component
-// correct under Angular 22's default OnPush strategy — the edit-mode prefill below arrives from an async
-// subscribe, which would not repaint a plain field.
+// Template-driven, one signal per field (OnPush-safe for the async edit prefill); `[(ngModel)]` on a signal also
+// works, the explicit pair is for clarity.
 // SharedFormsModule re-exports FormsModule plus form-field and every validation directive used here.
 @Component({
   selector: 'hw-add',

@@ -362,8 +362,12 @@ settings once. `frontend.setup` points the portal at it:
 - **What it sets up:** one connection per provider the agent uses (the connections kit,
   [20-ui-library](20-ui-library.md#connections-the-setup-kit)), then the agent's own settings (the template's
   `settings.service.ts`).
-- **Settings endpoint:** the platform has none for agents. Back it with an admin resource
-  ([21](21-admin-resources.md)) or a custom action ([05](05-custom-actions.md)). Until then the template's
+- **Nothing to set up** → a one-line "Nothing to set up" card, no Save.
+- **Settings endpoint:** the platform has none for agents. Add a plain `[Authorize]` `ControllerBase` routed at the
+  template's `SETTINGS_URL`, `v1/aiservicedesk/admin/extensions/<idName>/settings`, that serves GET/PUT of one
+  settings object. `[Authorize]` runs the Admin Workspace grant check on `/aiservicedesk/admin` routes; the build
+  gate requires it on every plain controller. Precedent for a plain `[Authorize]` controller:
+  `samples/admin-settings/backend/AdminSettingsReadController.cs`. Until the endpoint exists, the template's
   localStorage fallback keeps values in one browser only, and provisioning can't read them.
 
 #### Build check
@@ -435,7 +439,8 @@ In `angular.json`, set `outputPath` to `{ "base": "dist", "browser": "" }` — A
 > | interface `HelloWorld` | `<Name>` |
 > | `add-/list-/view-hello.component.ts` + classes `Add/List/ViewHelloComponent` | `…<resource>.component.ts` + `Add/List/View<Name>Component` |
 > | selectors `hw-add`/`hw-list`/`hw-view`/`hw-root`/`hw-setup` | `<slug>-add`/`<slug>-list`/`<slug>-view`/`<slug>-root`/`<slug>-setup` |
-> | `setup.component.ts` `HELLO_WORLD_TYPE`; `settings.service.ts` `HelloSettings`, `SETTINGS_URL`, `FALLBACK_KEY` | one type definition per provider ([07](07-scope-credentials.md#shared-provider-types)); `<Name>Settings`, your settings endpoint (none exists — an admin resource or custom action, see [`frontend.setup`](#frontendsetup)), `<idName>.settings` |
+> | `setup.component.ts` `HELLO_WORLD_TYPE`; `settings.service.ts` `HelloSettings`, `SETTINGS_URL`, `FALLBACK_KEY` | one type definition per provider ([07](07-scope-credentials.md#shared-provider-types)); `<Name>Settings`, your `[Authorize]` admin settings controller's URL ([`frontend.setup`](#frontendsetup)), `<idName>.settings` |
+> | setup page texts "Hello World setup", "1. Connect a Hello World account *" | "<Name> setup", one "N. Connect <Provider> *" label per provider |
 > | manifest route `extensions/helloworld-setup` + `frontend.setup.relativeUrl` + `SETUP_PATH` in `extension.routes.ts` | `extensions/<idName>-setup` (all three; `<idName>` = last segment of the manifest `id`) |
 > | `federation.config.js` `name` (== manifest `frontend.remote.remoteName`) | unique `duploExtension<Name>` |
 > Update the routes in `extension.routes.ts`, and each component's own `imports`, to the renamed classes.

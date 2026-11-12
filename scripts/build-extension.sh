@@ -145,7 +145,7 @@ done < <(jq -r '(.frontend.routes // []) as $r | .frontend.menus // [] | .[] | (
   | [.. | objects | .relativeUrl? // empty] | .[] as $u
   | select(([$r[] | select(.path == $u) | (.scope // "workspace")] | index($s)) == null) | "\($u)\t\($s)"' "$MANIFEST")
 # frontend.setup feeds the portal's "Agent Setup" nav; the portal silently ignores an invalid entry.
-"$(dirname "$0")/validate-setup.sh" "$MANIFEST" || viol=1
+scripts/validate-setup.sh "$MANIFEST" || viol=1   # cwd is the repo root (cd above)
 # A plain controller (ControllerBase/Controller, e.g. a read-only workspace view of an admin resource) gets no
 # authorization unless it says so: the host has no fallback policy, and only [Authorize] runs the tenant policy
 # (workspace membership; Admin Workspace grants on /aiservicedesk/admin). Resource controllers inherit it from their base.

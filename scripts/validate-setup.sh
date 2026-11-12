@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Validates a manifest's frontend.setup the way the portal does at runtime (a bad entry is silently ignored there).
-# With a sibling frontend/src, also checks its SETUP_PATH constant equals relativeUrl.
-# Usage: validate-setup.sh <manifest.json>   → exit 0 if absent or valid; else one "  ✗" line per problem on stderr, exit 1.
+# Usage: validate-setup.sh <manifest.json> — checks frontend.setup (portal rule) and, with a sibling frontend/src, its SETUP_PATH.
+# Exit 0 if absent or valid; else one "  ✗" line per problem on stderr, exit 1.
 set -euo pipefail
 
 M="${1:?usage: validate-setup.sh <manifest.json>}"

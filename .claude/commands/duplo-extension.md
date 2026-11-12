@@ -23,6 +23,8 @@ creation) and writes many files — approving each one is tedious. To avoid a st
    - **Access control** — where each resource sits in the permission tree (default: under the Workspace) and a
      table of any named actions (id · endpoint · why it needs an explicit grant), or "default: workspace-scoped
      CRUD, no named actions" (see `.claude/skills/duplo-extension-dev/reference/18-access-control.md`).
+   - **Setup page** — one connection per provider the agent uses, plus its settings (see
+     `.claude/skills/duplo-extension-dev/reference/02-authoring-guide.md` → `frontend.setup`).
 
    Then list the files you'll create under `extensions/<name>/` and the exact build/deploy commands. In the
    `ExitPlanMode` call, declare the Bash permissions the build needs via `allowedPrompts` so the user approves the
@@ -190,7 +192,9 @@ backend + Angular remote + provisioning skill) — never ask the user to choose 
 - **Ask AI** is opt-in: scaffold it ONLY if the user's requirement explicitly asks for AI chat sessions on the
   resource — never offer it or add it unprompted (see skill reference 16-ask-ai);
 - for an external system: **auth** style (basic/bearer) and which API calls provisioning makes (a custom
-  external HTTP API, etc.).
+  external HTTP API, etc.);
+- **setup page:** which providers does setup connect (ClickUp, Slack, Jira, a custom API — see reference/07
+  "Shared provider types"), and which admin-wide settings does it hold?
 
 **Do not write code until these are unambiguous.**
 

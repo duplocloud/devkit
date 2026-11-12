@@ -5,7 +5,7 @@ import { REMOTE_DuploHttpClient } from './hello.service';
 
 // Sample admin settings endpoint. A real agent replaces it with its own admin settings endpoint.
 const SETTINGS_URL = '/v1/aiservicedesk/admin/extensions/helloworld/settings';
-// Used only while SETTINGS_URL returns 404, so the sample works end to end; a real agent drops it.
+// Used only while SETTINGS_URL returns 404; rename it to '<idName>.settings' (reference/02 rename table).
 const FALLBACK_KEY = 'helloworld.settings';
 
 export interface HelloSettings {
