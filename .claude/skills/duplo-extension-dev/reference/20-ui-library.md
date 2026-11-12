@@ -185,7 +185,8 @@ placeholder?, helpText?, minLength? }`. Alternative field sets go in `credential
 
 ### Level 1 — `<duplo-connection-field>`
 
-Lists existing connections, opens a modal for "+ New", and shows Connected. Import `ConnectionFieldComponent`.
+Lists existing connections, opens a modal for "+ New", and shows Connected. Import `ConnectionFieldComponent`
+with `FormsModule` (or `SharedFormsModule`, which re-exports it) for `ngModel`.
 
 | Inputs | Value (`ngModel`) | Output |
 |---|---|---|

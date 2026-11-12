@@ -125,7 +125,7 @@ The Admin Workspace starts with none. So, if provisioning needs credentials:
 2. List its scopes with the script below. If a needed provider scope is missing, list all of them
    (`GET <base>/v1/aiservicedesk/admin/data/scopes`), ask which one(s) to use, and — with the user's OK —
    **attach** them to the Admin Workspace: `GET …/admin/data/workspaces/<WS>`, then `PUT` it back with the ids
-   appended to `scopeIds` (reference/07-scope-credentials.md → "Registering the provider", step 3).
+   appended to `scopeIds` (reference/07-scope-credentials.md → "Creating the connection — the connections kit", step 3).
 3. The resource's `spec.scopeIds` must be a subset of the Admin Workspace's `scopeIds`; its add form offers only
    those.
 

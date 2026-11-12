@@ -354,18 +354,26 @@ settings once. `frontend.setup` points the portal at it:
 - **Where it shows:** the portal lists every valid entry under **AI Admin → Agent Setup → {agent name}**, sorted
   by name.
 - **An invalid entry is silently ignored** by the portal — no nav entry, no prompt.
-- **The page:** every manifest route loads the same `Extension` module, so `extension.routes.ts` picks the setup
-  page on the admin mount with a `canMatch` on the inherited `data.scope === 'admin'`; workspace mounts get the
-  list. The page is admin-wide and never reads the current workspace (template: `frontend/src/app/setup/`).
+- **The page:** every manifest route loads the same `Extension` module, and every admin mount (an admin-scoped
+  resource's list too) carries `data.scope === 'admin'`. So `extension.routes.ts` picks the setup page with a
+  `canMatch` on the mount's **path**: the URL being recognized must end in `SETUP_PATH`, which must equal
+  `relativeUrl`. Every other mount gets the list. The page is admin-wide and never reads the current workspace
+  (template: `frontend/src/app/setup/`).
 - **What it sets up:** one connection per provider the agent uses (the connections kit,
-  [20-ui-library](20-ui-library.md#connections-the-setup-kit)), then the agent's own settings, saved through the
-  agent's admin settings endpoint (the template's `settings.service.ts`).
+  [20-ui-library](20-ui-library.md#connections-the-setup-kit)), then the agent's own settings (the template's
+  `settings.service.ts`).
+- **Settings endpoint:** the platform has none for agents. Back it with an admin resource
+  ([21](21-admin-resources.md)) or a custom action ([05](05-custom-actions.md)). Until then the template's
+  localStorage fallback keeps values in one browser only, and provisioning can't read them.
 
 #### Build check
 
-`scripts/validate-setup.sh <manifest.json>` applies the portal's rule and fails on an invalid entry: not an
-object, a missing or non-`extensions/` `relativeUrl`, no matching admin route, or a non-string `title`. No
-`frontend.setup` passes. `build-extension.sh` runs it in its naming gate, so `--validate-only` covers it too.
+`scripts/validate-setup.sh <manifest.json>` applies a stricter form of the portal's rule and fails on an invalid
+entry: not an object, a missing or non-`extensions/` `relativeUrl`, no matching admin route, or a non-string
+`title`. With a sibling `frontend/src`, it also fails when no `SETUP_PATH` there equals `relativeUrl`. No
+`frontend.setup` passes. `build-extension.sh` runs it in its naming gate, so `--validate-only` covers it too. The
+same gate fails a renamed extension that keeps the template's setup names (`hw-setup`, `HELLO_WORLD_TYPE`,
+`HelloSettings`, `helloworld/settings`, `extensions/helloworld-setup`).
 
 ## Build, package, load
 
@@ -427,8 +435,8 @@ In `angular.json`, set `outputPath` to `{ "base": "dist", "browser": "" }` — A
 > | interface `HelloWorld` | `<Name>` |
 > | `add-/list-/view-hello.component.ts` + classes `Add/List/ViewHelloComponent` | `…<resource>.component.ts` + `Add/List/View<Name>Component` |
 > | selectors `hw-add`/`hw-list`/`hw-view`/`hw-root`/`hw-setup` | `<slug>-add`/`<slug>-list`/`<slug>-view`/`<slug>-root`/`<slug>-setup` |
-> | `setup.component.ts` `HELLO_WORLD_TYPE`; `settings.service.ts` `HelloSettings`, `SETTINGS_URL`, `FALLBACK_KEY` | one type definition per provider ([07](07-scope-credentials.md#shared-provider-types)); `<Name>Settings`, your admin settings endpoint, `<idName>.settings` |
-> | manifest route `extensions/helloworld-setup` + `frontend.setup.relativeUrl` | `extensions/<idName>-setup` (both; `<idName>` = last segment of the manifest `id`) |
+> | `setup.component.ts` `HELLO_WORLD_TYPE`; `settings.service.ts` `HelloSettings`, `SETTINGS_URL`, `FALLBACK_KEY` | one type definition per provider ([07](07-scope-credentials.md#shared-provider-types)); `<Name>Settings`, your settings endpoint (none exists — an admin resource or custom action, see [`frontend.setup`](#frontendsetup)), `<idName>.settings` |
+> | manifest route `extensions/helloworld-setup` + `frontend.setup.relativeUrl` + `SETUP_PATH` in `extension.routes.ts` | `extensions/<idName>-setup` (all three; `<idName>` = last segment of the manifest `id`) |
 > | `federation.config.js` `name` (== manifest `frontend.remote.remoteName`) | unique `duploExtension<Name>` |
 > Update the routes in `extension.routes.ts`, and each component's own `imports`, to the renamed classes.
 

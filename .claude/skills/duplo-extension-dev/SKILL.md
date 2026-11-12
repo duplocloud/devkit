@@ -139,7 +139,7 @@ Settle before building (derive, else ask — **after** listening):
 - **Admin setup page (always — not a question)** — settle what it sets up: **one connection per external
   provider** the agent uses (ClickUp, Slack, Jira, a custom API) and the agent's own admin-wide settings. Use
   the shared provider type and field keys for a well-known system
-  ([07](reference/07-scope-credentials.md#creating-the-connection--the-connections-kit)). An agent with no
+  ([07](reference/07-scope-credentials.md#shared-provider-types)). An agent with no
   provider and no settings still ships the page. Built in Phase 2 → "The admin setup page".
 - **Ask AI sessions (OPT-IN — never by default)** — build them ONLY when the requirement explicitly asks ("ask AI",
   "AI chat sessions", "on-demand tickets"); never offer or scaffold them unprompted. When requested, settle the
@@ -265,17 +265,22 @@ Adapt inside `extensions/<name>/` — rename `HelloWorld`→`<Name>` consistentl
 Admins finish an agent's setup at **AI Admin → Agent Setup → {agent name}**. The template carries it; full contract
 in [02](reference/02-authoring-guide.md#frontendsetup).
 - **New agent:** keep all three pieces from the template. `<idName>` below is the last segment of the manifest
-  `id` (template: `helloworld`), so the path is unique per extension:
+  `id` (template: `helloworld`); the path is unique as long as the id's last segment is:
   - the admin route `{ "path": "extensions/<idName>-setup", "scope": "admin" }` in `frontend.routes[]`;
   - `"setup": { "title": "Setup", "relativeUrl": "extensions/<idName>-setup" }` in `frontend` (same path);
-  - the page `frontend/src/app/setup/*` + `settings.service.ts`, and the `canMatch` admin-mount entry in
-    `extension.routes.ts`. Rename per the FE rename table in [02](reference/02-authoring-guide.md#frontend).
-    Replace the sample `HELLO_WORLD_TYPE` with one type definition per provider. Point `SETTINGS_URL` at the
-    agent's own admin settings endpoint; the template's localStorage fallback is only for while that endpoint
-    is missing.
+  - the page `frontend/src/app/setup/*` + `settings.service.ts`, and in `extension.routes.ts` the `canMatch`
+    entry that matches the setup mount by path: set `SETUP_PATH` to the same `extensions/<idName>-setup`.
+    Rename per the FE rename table in [02](reference/02-authoring-guide.md#frontend). Replace the sample
+    `HELLO_WORLD_TYPE` with one type definition per provider.
+  - **Settings endpoint:** the platform has none for agents. Back `SETTINGS_URL` with an admin resource
+    ([21](reference/21-admin-resources.md)) or a custom action ([05](reference/05-custom-actions.md)). Until then
+    the template's localStorage fallback keeps values in one browser only, and provisioning can't read them.
 - **Existing agent:** whenever you change one, check for the setup page (`frontend.setup`, its admin route, the
   page). Missing → add it from the template. Present → update it to match the agent's features: one connection
   per provider the agent uses, plus the agent's own settings. Drop steps for features you removed.
+  - Needs `ng-common-lib` ≥ 0.8.0. Upgrade an older agent first
+    ([UPGRADING-ng-common-lib](../../../docs/UPGRADING-ng-common-lib.md)).
+  - In the copied `settings.service.ts`, re-point the `REMOTE_DuploHttpClient` import to the agent's own service.
 - **Pick the kit level** ([20](reference/20-ui-library.md#connections-the-setup-kit)):
   1. **Level 1 `<duplo-connection-field>`** — the default; one field per provider.
   2. **Level 2 parts** (`<duplo-provider-picker>`, `<duplo-credential-form>`, `<duplo-scope-picker>`) — only when
@@ -285,7 +290,8 @@ in [02](reference/02-authoring-guide.md#frontendsetup).
   [07](reference/07-scope-credentials.md#shared-provider-types); the first registration wins.
   Form rules (error keys, your own `required` message): [14](reference/14-forms-and-wizards.md#connections-in-a-form).
 - **Build check:** `scripts/validate-setup.sh <manifest.json>` runs inside `build-extension.sh` and fails the build
-  on an invalid `frontend.setup` — the portal would silently drop it.
+  on an invalid `frontend.setup` (the portal would silently drop it) or a `SETUP_PATH` that differs from it. The
+  gate also fails on leftover template setup names (`hw-setup`, `HELLO_WORLD_TYPE`, `extensions/helloworld-setup`).
 
 ### Wire the chosen provisioning mode (the helloworld template is AGENT-shaped — convert it)
 After picking the mode in Phase 1, make the backend match it — **a missing piece silently falls back to
