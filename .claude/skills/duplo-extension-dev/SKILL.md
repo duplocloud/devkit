@@ -280,14 +280,16 @@ in [02](reference/02-authoring-guide.md#frontendsetup).
     ([07](reference/07-scope-credentials.md#creating-the-connection--the-connections-kit) step 3) and read it from
     `spec.ScopeIds`.
 - **Existing agent:** whenever you change one, check for the setup page (`frontend.setup`, its admin route, the
-  page). Missing → add it from the template. Present → update it to match the agent's features: one connection
-  per provider the agent uses, plus the agent's own settings. Drop steps for features you removed.
-  - Needs `ng-common-lib` ≥ 0.8.0. Upgrade an older agent first
+  page). Check in this order; the first match wins:
+  1. Already has an admin settings page or endpoint → make that the setup page. Mount it on the setup route through
+     the `canMatch` entry and `SETUP_PATH`. Replace its provider pickers with the kit. Keep its own settings
+     service; don't copy `settings.service.ts`.
+  2. No setup page → add it from the template. In the copied `settings.service.ts`, re-point the
+     `REMOTE_DuploHttpClient` import to the agent's own service.
+  3. Setup page present → update it to match the agent's features: one connection per provider the agent uses,
+     plus the agent's own settings. Drop steps for features you removed.
+  - All three need `ng-common-lib` ≥ 0.8.0. Upgrade an older agent first
     ([UPGRADING-ng-common-lib](../../../docs/UPGRADING-ng-common-lib.md)).
-  - In the copied `settings.service.ts`, re-point the `REMOTE_DuploHttpClient` import to the agent's own service.
-  - Already has an admin settings page or endpoint → make that the setup page. Mount it on the setup route through
-    the `canMatch` entry and `SETUP_PATH`. Replace its provider pickers with the kit. Keep its own settings
-    service; don't copy `settings.service.ts`.
 - **Pick the kit level** ([20](reference/20-ui-library.md#connections-the-setup-kit)):
   1. **Level 1 `<duplo-connection-field>`** — the default; one field per provider.
   2. **Level 2 parts** (`<duplo-provider-picker>`, `<duplo-credential-form>`, `<duplo-scope-picker>`) — only when
