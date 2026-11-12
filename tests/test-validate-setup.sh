@@ -72,6 +72,26 @@ expect_fail '{"frontend":{"setup":{"relativeUrl":"extensions/foo/none"}}}' \
 t "non-string title fails"
 expect_fail '{"frontend":{"setup":{"relativeUrl":"extensions/foo/setup","title":7},'"$ROUTES"'}}' 'frontend.setup.title must be a string'
 
+t "scope 'Admin' (wrong case) is rejected"
+expect_fail '{"frontend":{"setup":{"relativeUrl":"extensions/foo/setup"},"routes":[{"path":"extensions/foo/setup","scope":"Admin"}]}}' 'must match an admin-scoped route'
+
+t "relativeUrl with surrounding spaces is rejected"
+expect_fail '{"frontend":{"setup":{"relativeUrl":" extensions/foo/setup "},'"$ROUTES"'}}' 'must start with extensions/'
+
+t "a non-object routes entry beside a valid admin route is accepted, no jq noise"
+run '{"frontend":{"setup":{"relativeUrl":"extensions/foo/setup"},"routes":["x",null,{"path":"extensions/foo/setup","scope":"admin"}]}}'
+[ "$RC" -eq 0 ] && [ -z "$ERR" ] && ok || bad "exit $RC: $ERR"
+
+t "routes given as an object is rejected, no jq noise"
+expect_fail '{"frontend":{"setup":{"relativeUrl":"extensions/foo/setup"},"routes":{"k":{"path":"extensions/foo/setup","scope":"admin"}}}}' 'must match an admin-scoped route'
+case "$ERR" in *jq:*) bad "jq noise: $ERR" ;; esac
+
+t "frontend that is not an object is OK with no stderr"
+run '{"frontend":"x"}'; [ "$RC" -eq 0 ] && [ -z "$ERR" ] && ok || bad "exit $RC: $ERR"
+
+t "top-level manifest that is not an object is OK with no stderr"
+run '[]'; [ "$RC" -eq 0 ] && [ -z "$ERR" ] && ok || bad "exit $RC: $ERR"
+
 t "every problem is reported, one line each"
 run '{"frontend":{"setup":{"relativeUrl":"clouds/x","title":7}}}'
 N="$(printf '%s\n' "$ERR" | grep -c '✗')"

@@ -7,10 +7,10 @@ M="${1:?usage: validate-setup.sh <manifest.json>}"
 viol=0
 bad() { echo "  ✗ $1" >&2; viol=1; }
 
-[ "$(jq -r '.frontend.setup | type' "$M")" != "null" ] || exit 0
-if [ "$(jq -r '.frontend.setup | type' "$M")" != "object" ]; then
-  bad "frontend.setup must be an object"; exit 1
-fi
+# A non-object manifest or frontend is "no setup" to the portal, so it is not an error here.
+kind=$(jq -r '(if type == "object" then .frontend else null end) | (if type == "object" then .setup else null end) | type' "$M")
+[ "$kind" != "null" ] || exit 0
+[ "$kind" = "object" ] || { bad "frontend.setup must be an object"; exit 1; }
 
 url=$(jq -r '.frontend.setup.relativeUrl | if type == "string" then . else "" end' "$M")
 if [ -z "$url" ]; then
@@ -18,7 +18,7 @@ if [ -z "$url" ]; then
 else
   case "$url" in extensions/*) ;; *) bad "frontend.setup.relativeUrl '$url' must start with extensions/" ;; esac
   # Routes without a scope are workspace-scoped, so only an explicit "admin" matches.
-  if ! jq -e --arg u "$url" '[.frontend.routes[]? | select(.path == $u and .scope == "admin")] | length > 0' "$M" >/dev/null; then
+  if ! jq -e --arg u "$url" '[(.frontend.routes // []) | arrays | .[] | objects | select(.path == $u and .scope == "admin")] | length > 0' "$M" >/dev/null; then
     bad "frontend.setup.relativeUrl '$url' must match an admin-scoped route in frontend.routes (add { \"path\": \"$url\", \"scope\": \"admin\" })"
   fi
 fi
