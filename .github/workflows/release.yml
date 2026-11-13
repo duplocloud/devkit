@@ -7,11 +7,15 @@
 # manifest.version is how you publish a new version to the extension library.
 #
 # This file ships with the dev-kit. After scripts/init-project.sh makes the repo yours, set these repo secrets
-# (same as Extension CI): DUPLO_HOST + DUPLO_TOKEN, since the build fetches the host SDK feed from DUPLO_HOST, which
-# must be reachable from CI (a public DuploCloud, not localhost), and CONSOLE_API_KEY, the console key the action
-# registers versions with. Outside Duplo's organizations that key belongs to your console team, so set the repo
-# variable CONSOLE_TEAM to the team's slug as well; the action then uses the team's own routes. Turn on immutable
-# releases in the repository's settings, too; the action warns on every release that lands mutable.
+# (same as Extension CI): DUPLO_HOST + DUPLO_TOKEN, and CONSOLE_API_KEY, the console key the action registers versions
+# with. Outside Duplo's organizations that key belongs to your console team, so set the repo variable CONSOLE_TEAM to
+# the team's slug as well; the action then uses the team's own routes. By default the build fetches the host SDK feed
+# from DUPLO_HOST, which must be reachable from CI (a public DuploCloud, not localhost), and releases the one bundle
+# that host loads. With the repo variable DUPLO_SDK_VERSIONS set (one version per line), the action builds one bundle
+# per listed SDK version from the package feed and cuts one release per bundle, since a host loads only a bundle whose
+# sdkVersion equals its own. This workflow still requires DUPLO_HOST and DUPLO_TOKEN either way: it forces
+# DUPLO_TARGET=remote and checks both before the build. Turn on immutable releases in the repository's settings, too;
+# the action warns on every release that lands mutable.
 #
 # In Duplo's own organizations (duplocloud, duplocloud-internal) the action also requires the signing key, the
 # certificate and the ArmDot license, mapped below from the org secrets CONSOLE_SIGNING_KEY and ARMDOT_LICENSE_KEY and

@@ -167,7 +167,7 @@ Your `extensions/` directory is **never** touched by any of these — it is only
 | `build-extension.sh <extension-dir>` | Validate naming, fetch the host SDK, `dotnet publish`, `npm build`, and zip to `<dir>/dist/extension.zip`. With `DUPLO_SDK_VERSIONS` set to a list of versions, one per line, it restores each of those SDK versions from the package feed instead, with no host, and writes one `<dir>/dist/sdk-<v>/extension.zip` per version. |
 | `build-all.sh` | Build every `extensions/<name>/manifest.json` in the repo. What CI runs. |
 | `deploy-extension.sh <path-to-extension.zip>` | Hot-load one bundle onto the platform — no restart. |
-| `deploy-all.sh` | Hot-load every built bundle. Run after `build-all.sh`. |
+| `deploy-all.sh` | Hot-load every built bundle. Run after `build-all.sh`. For an extension built with `DUPLO_SDK_VERSIONS`, it reads the host's SDK version and loads the one `dist/sdk-<v>/extension.zip` stamped with it, since the host loads only a bundle whose `sdkVersion` equals its own, and fails the run when no built version matches. |
 | `remove-extension.sh <extension-id>` | Unload and delete a loaded extension by its manifest id, e.g. `com.duplocloud.helloworld`. |
 
 `build-extension.sh` refuses to build an extension whose naming is wrong — REST segments must start with

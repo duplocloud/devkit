@@ -122,6 +122,35 @@ content from the build that hung, since the installer may hold that exact build.
 waits until you restart the studio, with `docker compose restart duplo-ai-studio`. Under podman, use `podman compose`
 for each `docker compose` above.
 
+## Building for more than one SDK version
+
+A host loads only a bundle built against its own SDK version: the loader rejects a bundle whose `manifest.json`
+`sdkVersion` differs from the SDK the host runs, so an extension that has to run on hosts at different versions
+ships one bundle per version
+([why exactness matters](.claude/skills/duplo-extension-dev/reference/06-registration.md#sdk-version-pinning--why-exactness-matters)).
+By default `build-extension.sh` takes the SDK from the running host and builds the one bundle that host loads,
+at `dist/extension.zip`. To build for several versions, name them and the build takes each SDK from the package
+feed instead, with no host at all:
+
+```bash
+DUPLO_SDK_VERSIONS=1.0.6,1.0.7 ./scripts/build-extension.sh samples/helloworld
+ls samples/helloworld/dist/sdk-*/extension.zip
+```
+
+`DUPLO_SDK_VERSIONS` lists the versions, one per line. Each one is restored as the
+`Duplocloud.AiHelpdesk.Sdk` package at exactly that version from the `nuget.org` source in `backend/nuget.config`,
+so it has to be a version the feed publishes. The frontend is built once and the backend once per version, and
+each bundle lands at `dist/sdk-[version]/extension.zip` with that version stamped as its `sdkVersion`. Nothing is
+written to `dist/extension.zip`, and a bundle for a version no longer listed is removed by the next build. Leave
+`DUPLO_SDK_VERSIONS` unset for the single host build. The build runs in the builder container as usual; pass
+`--native` to use a .NET 8 SDK and Node 22 you installed yourself.
+
+A feed build needs no `.env` and no `DUPLO_HOST` or `DUPLO_TOKEN`, since it never calls a host. Those are needed
+only to deploy. `./scripts/deploy-all.sh` reads the host's SDK version and hands it the one bundle stamped with
+that version, and fails when no built bundle matches, so the version a host reports at
+`GET /v1/aiservicedesk/extensions/sdk-version` has to be in the list. In CI the same list is the repository
+variable `DUPLO_SDK_VERSIONS`; see [CLI reference](docs/cli-reference.md#ci-workflows).
+
 ## Documentation
 
 | Page | What it covers |

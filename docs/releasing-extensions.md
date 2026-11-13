@@ -15,7 +15,8 @@ flight queues behind it rather than overlapping or being canceled mid-write.
 
 A build is tagged `<slug>-v<version>-sdk-<sdkVersion>`, where `<slug>` is the extension directory's name
 and `<sdkVersion>` comes from the built bundle's own `manifest.json` (stamped by `build-extension.sh` from
-the host SDK it built against). The release is cut at the built commit with `extension.zip` attached. A
+the SDK it built against: the host's, or each version in `DUPLO_SDK_VERSIONS`, which makes one bundle and one
+release per version). The release is cut at the built commit with `extension.zip` attached. A
 version already released, under this tag shape or the older `<slug>-v<version>` one, is skipped if the
 extension is unchanged since, and fails the run if it changed, since bumping `manifest.version` is the only
 way to tell two different bundles apart.
