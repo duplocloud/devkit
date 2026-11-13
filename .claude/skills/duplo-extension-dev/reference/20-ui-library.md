@@ -255,7 +255,7 @@ protected connectSlack(): void {
   A provider-step failure has an empty `partial`: nothing was created, so change `name` before retrying. A
   scope-step failure has `partial.providerId`: the retry only creates the scope.
 - The connection `name` names both the provider and the scope, so it must pass the scope-name rule
-  (`CONNECTION_NAME_RULE`, `isValidConnectionName`).
+  (2-70 characters: a letter first, then letters, numbers, `-` or `_`; no spaces).
 
 Step by step: `ensureType(def)`, `listProviders({ category, type })`,
 `createProvider({ category, type, name, credentialName, values, schema })`, `listCredentials(providerId)`,

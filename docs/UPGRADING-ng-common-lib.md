@@ -31,7 +31,7 @@ and no `frontend/webpack.config.js`), the steps below are all you need.
   3. `ConnectionsService` — functions, no UI; failures are a `ConnectionError`.
 - New types and helpers: `ConnectionTypeDefinition`, `ConnectionCredentialSchema`, `ConnectionField`,
   `ConnectionVariant`, `ConnectionResult`, `ConnectionOption`, `ConnectionProvider`, `ConnectionScope`,
-  `ConnectRequest`, `isValidConnectionName`, `CONNECTION_NAME_RULE` and `DEFAULT_CONNECTION_CREDENTIAL_NAME`.
+  `ConnectRequest` and `ConnectionError`.
 - Usage, inputs and outputs:
   [20-ui-library](../.claude/skills/duplo-extension-dev/reference/20-ui-library.md#connections-the-setup-kit).
   Shared provider types: [07-scope-credentials](../.claude/skills/duplo-extension-dev/reference/07-scope-credentials.md#shared-provider-types).
