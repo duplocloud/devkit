@@ -179,6 +179,31 @@ OUT="$(run_build "$TMP/ext")"; RC=$?
 [ "$RC" = 0 ] && ok || bad "rc=$RC: $OUT"
 rm -rf "$TMP/ext/frontend"
 
+# Leftover template display text: "Hello World" must fail the naming gate.
+mk "$(wrap "[$ACT]")"; mkdir -p "$TMP/ext/frontend/src"
+printf "const T = 'Hello World setup';\n" > "$TMP/ext/frontend/src/a.ts"
+t "--validate-only fails a renamed extension that keeps 'Hello World' text"
+OUT="$(run_build "$TMP/ext")"; RC=$?
+if [ "$RC" = 0 ] || [ "$RC" = 99 ]; then bad "rc=$RC: $OUT"
+elif [[ "$OUT" != *"template 'Hello'/'hw-' identifiers"* ]]; then bad "no leftover line: $OUT"
+else ok; fi
+rm -rf "$TMP/ext/frontend"
+
+# frontend.setup is validated by the naming gate.
+mk '{"id":"e","frontend":{"setup":{"relativeUrl":"clouds/x"}}}'
+t "--validate-only fails an invalid frontend.setup"
+OUT="$(run_build "$TMP/ext")"; RC=$?
+if [ "$RC" = 0 ] || [ "$RC" = 99 ]; then bad "rc=$RC: $OUT"
+elif [[ "$OUT" != *"✗ frontend.setup.relativeUrl"* ]]; then bad "no ✗ line: $OUT"
+else ok; fi
+
+mk '{"id":"e","frontend":{"setup":{"relativeUrl":"extensions/helloworld-setup"},"routes":[{"path":"extensions/helloworld-setup","scope":"admin"}]}}'
+t "--validate-only fails the template's extensions/helloworld-setup relativeUrl"
+OUT="$(run_build "$TMP/ext")"; RC=$?
+if [ "$RC" = 0 ] || [ "$RC" = 99 ]; then bad "rc=$RC: $OUT"
+elif [[ "$OUT" != *"still the template's 'extensions/helloworld-setup'"* ]]; then bad "no template line: $OUT"
+else ok; fi
+
 echo
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -84,7 +84,9 @@ run '{"frontend":{"setup":{"relativeUrl":"extensions/foo/setup"},"routes":["x",n
 
 t "routes given as an object is rejected, no jq noise"
 expect_fail '{"frontend":{"setup":{"relativeUrl":"extensions/foo/setup"},"routes":{"k":{"path":"extensions/foo/setup","scope":"admin"}}}}' 'must match an admin-scoped route'
-case "$ERR" in *jq:*) bad "jq noise: $ERR" ;; esac
+
+t "routes given as an object prints no jq noise"
+case "$ERR" in *jq:*) bad "jq noise: $ERR" ;; *) ok ;; esac
 
 t "frontend that is not an object is OK with no stderr"
 run '{"frontend":"x"}'; [ "$RC" -eq 0 ] && [ -z "$ERR" ] && ok || bad "exit $RC: $ERR"
@@ -116,6 +118,16 @@ expect_fail "$SETUP_OK" "frontend/src has no SETUP_PATH = 'extensions/foo/setup'
 t "a regex-like relativeUrl is compared literally"
 printf "export const SETUP_PATH = 'extensions/fooXsetup';\n" > "$R"
 expect_fail '{"frontend":{"setup":{"relativeUrl":"extensions/foo.setup"},"routes":[{"path":"extensions/foo.setup","scope":"admin"}]}}' 'has no SETUP_PATH'
+
+t "a stale comment or other-named constant does not satisfy the SETUP_PATH check"
+printf "// const SETUP_PATH = 'extensions/foo/setup';\nconst OLD_SETUP_PATH = 'extensions/foo/setup';\nexport const SETUP_PATH = 'extensions/other';\n" > "$R"
+expect_fail "$SETUP_OK" "found: extensions/other"
+
+t "a SETUP_PATH in another file under frontend/src counts (e.g. setup-mount.ts)"
+printf "export const SETUP_PATH = 'extensions/foo/setup';\n" > "$TMP/frontend/src/app/setup-mount.ts"
+printf "export const Extension = [];\n" > "$R"
+run "$SETUP_OK"; [ "$RC" -eq 0 ] && [ -z "$ERR" ] && ok || bad "exit $RC: $ERR"
+rm -f "$TMP/frontend/src/app/setup-mount.ts"
 
 t "no frontend.setup skips the frontend check"
 run '{"frontend":{"routes":[]}}'; [ "$RC" -eq 0 ] && ok || bad "exit $RC: $ERR"

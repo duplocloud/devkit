@@ -348,12 +348,13 @@ settings once. `frontend.setup` points the portal at it:
 | Field | Type | Required | Meaning |
 |---|---|---|---|
 | `relativeUrl` | string | yes | The setup page's route. Starts with `extensions/` and equals a `frontend.routes[].path` whose `scope` is `"admin"`. |
-| `title` | string | no | Action-button text in the post-install prompt ("Set it up now?"). Default "Set up". |
+| `title` | string | no | Label of every Set up button: post-install prompt ("Set it up now?"), banner, list row and detail modal. Default "Set up". |
 
 - **Admin route only.** A route with no `scope` is workspace-scoped and does not match.
 - **Where it shows:** the portal lists every valid entry under **AI Admin → Agent Setup → {agent name}**, sorted
-  by name.
-- **An invalid entry is silently ignored** by the portal — no nav entry, no prompt.
+  by name, and shows the Set up button (labelled by `title`) in the post-install prompt, the banner, the list row
+  and the detail modal. If two entries share a `relativeUrl`, the first wins.
+- **An invalid entry is silently ignored** by the portal — no nav entry, no prompt, no Set up button.
 - **The page:** every manifest route loads the same `Extension` module, and every admin mount (an admin-scoped
   resource's list too) carries `data.scope === 'admin'`. So `extension.routes.ts` picks the setup page with a
   `canMatch` on the mount's **path**: the URL being recognized must end in `SETUP_PATH`, which must equal
@@ -362,7 +363,8 @@ settings once. `frontend.setup` points the portal at it:
 - **What it sets up:** one connection per provider the agent uses (the connections kit,
   [20-ui-library](20-ui-library.md#connections-the-setup-kit)), then the agent's own settings (the template's
   `settings.service.ts`).
-- **Nothing to set up** → a one-line "Nothing to set up" card, no Save.
+- **Nothing to set up** → replace the card body with a one-line "Nothing to set up" note and drop Save (the template
+  has no such branch).
 - **Settings endpoint:** the platform has none for agents. Add a plain `[Authorize]` `ControllerBase` routed at the
   template's `SETTINGS_URL`, `v1/aiservicedesk/admin/extensions/<idName>/settings`, that serves GET/PUT of one
   settings object. `[Authorize]` runs the Admin Workspace grant check on `/aiservicedesk/admin` routes; the build

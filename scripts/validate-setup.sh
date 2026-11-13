@@ -30,7 +30,7 @@ fi
 # Build-only: the frontend's setup-page guard matches this path, so its SETUP_PATH must equal relativeUrl.
 src="$(dirname "$M")/frontend/src"
 if [ -n "$url" ] && [ -d "$src" ]; then
-  vals=$( { grep -rhoE "SETUP_PATH[[:space:]]*=[[:space:]]*['\"][^'\"]*['\"]" "$src" 2>/dev/null || true; } \
+  vals=$( { grep -rhoE "^[[:space:]]*(export[[:space:]]+)?const SETUP_PATH[[:space:]]*=[[:space:]]*['\"][^'\"]*['\"]" "$src" 2>/dev/null || true; } \
           | sed -E "s/^[^'\"]*['\"]([^'\"]*)['\"]$/\1/")
   if ! printf '%s\n' "$vals" | grep -qxF -- "$url"; then
     found=$(printf '%s' "$vals" | head -3 | tr '\n' ' ')
