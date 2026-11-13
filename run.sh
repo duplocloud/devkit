@@ -655,8 +655,11 @@ fi
 # address. Clearing it here would only mean re-fetching the identical string a moment later — and dead-ending
 # whenever that fetch failed. --reset-license (below) is how you ask for it to actually go away.
 if [ "$RESET" = 1 ]; then
-  echo "==> --reset: tearing down stack + volumes (DB, extensions, file store)…"
-  "$RUNTIME" compose down -v 2>/dev/null || true
+  echo "==> --reset: tearing down stack + volumes (DB, extensions, file store, cloud credential store)…"
+  runtime_compose down -v 2>/dev/null || true
+  # The cloud-connection records (scripts/connect-cloud.sh) point at the DB and credential volume just
+  # removed; they hold no secrets, so dropping them is only housekeeping.
+  rm -rf .devkit-cloud
   for k in Authentication__LocalAdminEmail Authentication__LocalAdminPassword Authentication__SuperUsers \
            DEVKIT_MODEL ANTHROPIC_API_KEY AWS_REGION AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
            CLAUDE_MODEL CLAUDE_EXTRA_MODELS "${GATEWAY_KEYS[@]}" "${SUBSCRIPTION_KEYS[@]}" \
@@ -1117,11 +1120,18 @@ done
 # Name the runtime here, not only when something breaks: auto-detect is presence-based and docker-first,
 # so on a box with both installed the choice is otherwise invisible until it goes wrong.
 echo "==> Using $(runtime_label)"
-echo "==> Pulling images…"; "$RUNTIME" compose pull
+# runtime_compose, not a bare `compose`: it drops an LLM key exported in this shell so .env stays the
+# source of truth for the agent's provider (see scripts/_runtime.sh).
+echo "==> Pulling images…"; runtime_compose pull
 # The installer mounts extensions/. A bind source the runtime has to create comes out root-owned under rootful docker
 # on Linux, which neither fetch-terraform-extension.sh below nor a build could then write.
 mkdir -p extensions
-echo "==> Starting…"; "$RUNTIME" compose up -d
+# The backend binds your gcloud directory read-only (docker-compose.yml: /devkit-gcloud). A bind source the
+# runtime has to create comes out root-owned under rootful docker on Linux, so create it as YOU first — plain
+# mkdir -p: this never copies credentials and never chmods or chowns a directory that is not ours to change.
+GCLOUD_DIR="$(runtime_gcloud_dir)" || exit 1
+mkdir -p "$GCLOUD_DIR" || { echo "cannot create the gcloud directory $GCLOUD_DIR" >&2; exit 1; }
+echo "==> Starting…"; runtime_compose up -d
 
 STUDIO_PORT="$(getenv STUDIO_PORT)"; [ -z "$STUDIO_PORT" ] && STUDIO_PORT=60021
 UI_PORT="$(getenv UI_PORT)"; [ -z "$UI_PORT" ] && UI_PORT=4200
@@ -1317,3 +1327,29 @@ Build & deploy your extension (scripts read the target from .env — no DUPLO_BA
   # re-attach the agent to another workspace: ./scripts/register-agent.sh <workspace-id>
   # attach the devops persona elsewhere:       ./scripts/register-persona.sh <workspace-id>
 EOF
+
+# ── optional cloud onboarding (last step, after all workspace/agent setup) ────────────────────────
+# Opt-in and TTY-only: never prompts under --non-interactive, CI, or when stdin/stdout is not a terminal,
+# so scripted runs cannot hang. On yes it runs the interactive wizard (scripts/cloud-connect-wizard.sh):
+# cloud → sign-in method → profile/project → scripts/connect-cloud.sh → verify. Nothing is chosen for the
+# user. No answer, a decline, a cancel or a failed connection all leave the setup above running and usable,
+# and this run still exits 0 — the wizard reports its own failure.
+if [ "$NONINTERACTIVE" != 1 ] && [ -z "${CI-}" ] && [ -t 0 ] && [ -t 1 ]; then
+  CONNECT_ANS=""
+  read -r -t 30 -p "Connect a cloud account (AWS or GCP) now? You choose the cloud and sign-in next. [y/N]: " CONNECT_ANS || true
+  echo
+  case "$CONNECT_ANS" in
+    [yY]|[yY][eE][sS])
+      CONNECT_RC=0
+      ./scripts/cloud-connect-wizard.sh --yes || CONNECT_RC=$?
+      if [ "$CONNECT_RC" != 0 ]; then   # 130 = cancelled; anything else = the failure the wizard printed
+        echo
+        echo "No verified cloud connection was made in this run (see above). The dev kit is up and usable."
+        echo "Connect one any time:  ./scripts/cloud-connect-wizard.sh   (or /duplo-cloud-connect in Claude Code)"
+      fi
+      ;;
+    *)
+      echo "Skipped. Connect a cloud account any time:  ./scripts/cloud-connect-wizard.sh"
+      ;;
+  esac
+fi

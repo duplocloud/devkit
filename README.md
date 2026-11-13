@@ -41,6 +41,11 @@ That is the platform up. To make it *do* something, pick one:
 agent real questions about it — "list all S3 buckets" — then build your first Agent: a domain whois lookup
 that hot-loads into the platform you just started.
 
+→ **Connect a cloud account** — answer **y** to the last question `./run.sh` asks on a terminal, or run
+**`./scripts/cloud-connect-wizard.sh`** any time. It asks which cloud (AWS or GCP; Azure has no connector yet),
+then how to sign in (SSO / ADC recommended), then registers and verifies the connection — no agent needed.
+In Claude Code, **`/duplo-cloud-connect`** does the same conversationally.
+
 → **[Getting started](docs/getting-started/README.md)** — the full path, one page at a time: adopting the
 repo, connecting AWS and Kubernetes, then building **s3-guard** — an Agent that scans every bucket in a
 region against six security rules, charts the violations over time, and fixes the ones you tick.
