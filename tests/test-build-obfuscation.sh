@@ -59,7 +59,10 @@ chmod +x "$TMP/bin/curl" "$TMP/bin/dotnet" "$TMP/bin/npm"
 export PATH="$TMP/bin:$PATH"
 
 echo k > "$TMP/lic.key"
-ARMDOT_VERSION="$(sed -nE 's/.*<ArmDotEngineVersion>([^<]+)<.*/\1/p' build/ArmDot.Obfuscation.props)"
+# The ArmDot build files live in duplocloud-internal/.github; the build reads them from DUPLO_ARMDOT_DIR, so a fixture
+# directory with the four file names stands in, and its props pin is what the stamp has to carry.
+ARMDOT_CFG="$ROOT/tests/fixtures/armdot-config"
+ARMDOT_VERSION="$(sed -nE 's/.*<ArmDotEngineVersion>([^<]+)<.*/\1/p' "$ARMDOT_CFG/ArmDot.Obfuscation.props")"
 
 # run_build [env...]: copies the sample into the checkout (the script refuses paths outside it), builds it natively
 # with the given environment, and leaves its exit code in RC and its bundle manifest at $TMP/manifest.json.
@@ -107,7 +110,8 @@ run_build() {
   [ -n "${PRESET_TARGETS:-}" ] && echo "$PRESET_TARGETS" > "$EXT/backend/Directory.Build.targets"
   [ -n "${PRESET_MANIFEST_KEY:-}" ] && jq '.obfuscation = {tool: "armdot", version: "0.0.0"}' samples/helloworld/manifest.json \
     > "$EXT/manifest.json"
-  ( cd "${RUN_FROM:-.}" && env -u ARMDOT_LICENSE_FILE_PATH DUPLO_TARGET=remote DUPLO_HOST=http://stub.invalid DUPLO_TOKEN=t "$@" \
+  ( cd "${RUN_FROM:-.}" && env -u ARMDOT_LICENSE_FILE_PATH DUPLO_TARGET=remote DUPLO_HOST=http://stub.invalid DUPLO_TOKEN=t \
+      DUPLO_ARMDOT_DIR="$ARMDOT_CFG" "$@" \
     "$ROOT/scripts/build-extension.sh" --native "$EXT" ) > "$TMP/build.log" 2>&1
   RC=$?
   [ -f "$EXT/dist/pkg/manifest.json" ] && cp "$EXT/dist/pkg/manifest.json" "$TMP/manifest.json"
@@ -118,7 +122,7 @@ trap 'rm -rf "$TMP"; cleanup_ext' EXIT
 echo "build obfuscation:"
 
 t "the stamp version comes from the props pin"
-[ -n "$ARMDOT_VERSION" ] && ok || bad "no ArmDotEngineVersion in build/ArmDot.Obfuscation.props"
+[ -n "$ARMDOT_VERSION" ] && ok || bad "no ArmDotEngineVersion in $ARMDOT_CFG/ArmDot.Obfuscation.props"
 
 t "plain build: succeeds with no DuploObfuscate=true, no obfuscation key, no targets file left"
 run_build
@@ -128,7 +132,7 @@ run_build
 
 t "licensed build: the extension publish passes DuploObfuscate, ArmDotLicenseFile and DuploDevkitBuildDir"
 run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
-want="-p:DuploObfuscate=true -p:ArmDotLicenseFile=$TMP/lic.key -p:DuploDevkitBuildDir=$ROOT/build/"
+want="-p:DuploObfuscate=true -p:ArmDotLicenseFile=$TMP/lic.key -p:DuploDevkitBuildDir=$ARMDOT_CFG/"
 [ "$RC" = 0 ] && grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -qF -- "$want" \
   && ok || bad "rc=$RC $(cat "$TMP/calls/dotnet") $(tail -5 "$TMP/build.log")"
 
@@ -183,7 +187,7 @@ PRESET_TARGETS='<Project/>' run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
   && ok || bad "rc=$RC"
 
 t "a leftover Directory.Build.targets identical to the template is treated as ours and the build proceeds"
-PRESET_TARGETS="$(cat build/Directory.Build.targets.template)" run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
+PRESET_TARGETS="$(cat "$ARMDOT_CFG/Directory.Build.targets.template")" run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
 [ "$RC" = 0 ] && grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -q 'targets=yes' \
   && [ ! -f "$EXT/backend/Directory.Build.targets" ] && ok || bad "rc=$RC $(tail -3 "$TMP/build.log")"
 
@@ -206,6 +210,29 @@ t "a stale obfuscation key is replaced by a licensed build"
 PRESET_MANIFEST_KEY=1 run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
 got="$(jq -r '.obfuscation.version' "$TMP/manifest.json" 2>/dev/null)"
 [ "$got" = "$ARMDOT_VERSION" ] && ok || bad "$(jq -c .obfuscation "$TMP/manifest.json" 2>&1)"
+
+t "licensed build with a relative DUPLO_ARMDOT_DIR resolves it against the directory the script runs from"
+mkdir -p "$TMP/elsewhere" && rm -rf "$TMP/elsewhere/armdot-rel" && cp -R "$ARMDOT_CFG" "$TMP/elsewhere/armdot-rel"
+RUN_FROM="$TMP/elsewhere" run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key" DUPLO_ARMDOT_DIR=armdot-rel
+[ "$RC" = 0 ] && grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -q 'DuploObfuscate=true' \
+  && ok || bad "rc=$RC $(tail -3 "$TMP/build.log")"
+
+t "licensed build with the license in the shell and DUPLO_ARMDOT_DIR only in .env still finds the directory"
+printf 'DUPLO_ARMDOT_DIR=%s\n' "$ARMDOT_CFG" > "$TMP/dotenv"
+run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key" DUPLO_ARMDOT_DIR= DUPLO_ENV_FILE="$TMP/dotenv"
+[ "$RC" = 0 ] && grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -q 'DuploObfuscate=true' \
+  && ok || bad "rc=$RC $(tail -3 "$TMP/build.log")"
+
+t "licensed build with no DUPLO_ARMDOT_DIR fails before any dotnet call and names the variable"
+run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key" DUPLO_ARMDOT_DIR=
+[ "$RC" != 0 ] && [ ! -s "$TMP/calls/dotnet" ] && grep -q 'DUPLO_ARMDOT_DIR' "$TMP/build.log" && grep -q 'duplocloud-internal/.github' "$TMP/build.log" \
+  && ok || bad "rc=$RC $(cat "$TMP/calls/dotnet") $(tail -4 "$TMP/build.log")"
+
+t "licensed build whose DUPLO_ARMDOT_DIR lacks a file fails before any dotnet call and names the file"
+mkdir -p "$TMP/partial" && cp "$ARMDOT_CFG/ArmDot.Obfuscation.props" "$TMP/partial/"
+run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key" DUPLO_ARMDOT_DIR="$TMP/partial"
+[ "$RC" != 0 ] && [ ! -s "$TMP/calls/dotnet" ] && grep -q 'missing ArmDot.Obfuscation.targets' "$TMP/build.log" \
+  && ok || bad "rc=$RC $(cat "$TMP/calls/dotnet") $(tail -4 "$TMP/build.log")"
 
 # Only projects under backend/ import the dropped targets file, so a reference that leads outside it would ship a
 # plain assembly in a bundle stamped obfuscated. The Include paths use backslashes, as a csproj written on Windows does.

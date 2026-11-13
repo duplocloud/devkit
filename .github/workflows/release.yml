@@ -15,7 +15,9 @@
 #
 # In Duplo's own organizations (duplocloud, duplocloud-internal) the action also requires the signing key, the
 # certificate and the ArmDot license, mapped below from the org secrets CONSOLE_SIGNING_KEY and ARMDOT_LICENSE_KEY and
-# the org variable CONSOLE_SIGNING_CERT, and refuses a build that is unsigned or not obfuscated. There the upload goes
+# the org variable CONSOLE_SIGNING_CERT, and refuses a build that is unsigned or not obfuscated. The ArmDot build files
+# are not in this repository: the action fetches them from the private duplocloud-internal/.github with the org secret
+# RELEASE_BOT_GITHUB_TOKEN before the build. There the upload goes
 # through the AWS role assumed below, whose trust list in ai-release names the repositories that may publish. Outside
 # those organizations nothing is obfuscated, nothing is signed unless the repository sets its own key and certificate,
 # and the upload goes through a URL the console issues.
@@ -82,6 +84,7 @@ jobs:
           CONSOLE_SIGNING_KEY: ${{ secrets.CONSOLE_SIGNING_KEY }}
           CONSOLE_SIGNING_CERT: ${{ vars.CONSOLE_SIGNING_CERT }}
           ARMDOT_LICENSE_KEY: ${{ secrets.ARMDOT_LICENSE_KEY }}
+          RELEASE_BOT_GITHUB_TOKEN: ${{ secrets.RELEASE_BOT_GITHUB_TOKEN }}
           EXTENSION_PUBLISHER_ROLE_ARN: ${{ vars.EXTENSION_PUBLISHER_ROLE_ARN }}
           CONSOLE_TEAM: ${{ vars.CONSOLE_TEAM }}
         run: |
@@ -89,7 +92,7 @@ jobs:
           for v in DUPLO_HOST DUPLO_TOKEN CONSOLE_API_KEY; do [ -n "${!v:-}" ] || missing+=("$v"); done
           case "$GITHUB_REPOSITORY_OWNER" in
             duplocloud|duplocloud-internal)
-              for v in CONSOLE_SIGNING_KEY CONSOLE_SIGNING_CERT ARMDOT_LICENSE_KEY EXTENSION_PUBLISHER_ROLE_ARN; do
+              for v in CONSOLE_SIGNING_KEY CONSOLE_SIGNING_CERT ARMDOT_LICENSE_KEY RELEASE_BOT_GITHUB_TOKEN EXTENSION_PUBLISHER_ROLE_ARN; do
                 [ -n "${!v:-}" ] || missing+=("$v")
               done ;;
             *) [ -n "${CONSOLE_TEAM:-}" ] || missing+=(CONSOLE_TEAM) ;;
@@ -98,7 +101,7 @@ jobs:
           echo "::error::This release needs ${missing[*]} set as repository or organization secrets and variables. The" \
             "DUPLO_* secrets name the host the build takes its SDK from, CONSOLE_API_KEY registers the version, CONSOLE_TEAM" \
             "names the console team that key belongs to outside DuploCloud's organizations, and in those organizations the" \
-            "signing, license and role values are required. See docs/releasing-extensions.md."
+            "signing, license, release bot token and role values are required. See docs/releasing-extensions.md."
           exit 1
 
       # Only Duplo's organizations hold the role, and only the repositories its trust list names can assume it, so a
@@ -112,7 +115,7 @@ jobs:
           role-to-assume: ${{ vars.EXTENSION_PUBLISHER_ROLE_ARN }}
           aws-region: us-west-2
 
-      - uses: duplocloud/actions/release-extension@bc17a896897aa32a0d9c9997c1f5e56d76812cf1 # v1
+      - uses: duplocloud/actions/release-extension@89c429c5936078ee848daf21740071792da6c412 # v1
         if: steps.guard.outputs.build == 'true'
         with:
           console-api-key: ${{ secrets.CONSOLE_API_KEY }}
@@ -121,6 +124,7 @@ jobs:
           signing-key: ${{ secrets.CONSOLE_SIGNING_KEY }}
           signing-cert: ${{ vars.CONSOLE_SIGNING_CERT }}
           armdot-license: ${{ secrets.ARMDOT_LICENSE_KEY }}
+          armdot-config-token: ${{ secrets.RELEASE_BOT_GITHUB_TOKEN }}
           bundle-bucket: ${{ vars.BUNDLE_BUCKET || 'duplo-helpdesk-channels' }}
           # SDK versions to build against from the package feed, one per line, one bundle and one release per version.
           # The action exports them to the build as DUPLO_SDK_VERSIONS, so a job env of that name would be overwritten.

@@ -126,13 +126,16 @@ that run is never mistaken for a check against the console's real roots.
 
 DuploCloud's own extensions ship with their backend assembly obfuscated by ArmDot, the same protection the
 platform's assemblies carry. Only the extension's own assembly is processed. The SDK assemblies the host
-provides never ship in the bundle, so they are never touched. ArmDot runs with control-flow obfuscation and
-code virtualization only. Renaming and string hiding stay off, because both break the reflection the host
-uses to load an extension.
+provides never ship in the bundle, so they are never touched. Which protections are on is described in
+`armdot/README.md` in the private `duplocloud-internal/.github`, beside the files that set them.
 
 Obfuscation runs when `ARMDOT_LICENSE_FILE_PATH` names an ArmDot license file, and only for Release builds.
-`build-extension.sh` passes the license into the builder container and drops a temporary
-`Directory.Build.targets` beside the extension's csproj, so the extension's own project file never changes. An
+The ArmDot build files, the props, targets, attributes and the targets template, are not in this public repository.
+They live under `armdot/` in the private `duplocloud-internal/.github`, and a licensed build reads them from
+`DUPLO_ARMDOT_DIR`: the release action fetches them there before the build, and a laptop build points the variable
+at a checkout of that directory. A licensed build with no such directory fails before anything compiles, naming
+the variable. `build-extension.sh` passes the license and the directory into the builder container and drops a
+temporary `Directory.Build.targets` beside the extension's csproj, so the extension's own project file never changes. An
 extension that already has its own `Directory.Build.targets` in its `backend/` directory is refused, since the
 build would overwrite it. A relative license path is taken relative to the directory you run the script from.
 
@@ -156,9 +159,10 @@ organization variables:
 | `CONSOLE_SIGNING_CERT` | Organization variable | The publisher's certificate. The same value for every repository |
 | `EXTENSION_PUBLISHER_ROLE_ARN` | Organization variable | The AWS role the workflow assumes, by name, to write to the channels bucket |
 | `ARMDOT_LICENSE_KEY` | Organization secret | Base64 of DuploCloud's ArmDot license file. The reusable release action decodes it to the file `build-extension.sh` reads, so every build it runs obfuscates |
+| `RELEASE_BOT_GITHUB_TOKEN` | Organization secret | A GitHub token that reads the private `duplocloud-internal/.github`, where the ArmDot build files live. The release action fetches them with it before the build |
 
-`release.yml` hands all five to the action. In these organizations the action fails the job before the build
-when the signing key, the certificate, the ArmDot license or the console key is missing, rather than ship an
+`release.yml` hands all six to the action. In these organizations the action fails the job before the build
+when the signing key, the certificate, the ArmDot license, the release bot token or the console key is missing, rather than ship an
 unsigned, unprotected or unregistered build. `EXTENSION_PUBLISHER_ROLE_ARN` is assumed through GitHub's OIDC
 token (`permissions: id-token: write`) before the action runs, and only a repository the role's trust list
 names can assume it, so a repository outside that list fails at the credentials step, before anything is built.

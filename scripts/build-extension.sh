@@ -13,11 +13,14 @@
 #
 # Usage: ./scripts/build-extension.sh [--native] <extension-dir>   # e.g. ./extension or samples/helloworld
 set -euo pipefail
-# _builder.sh is sourced before the cd so the license path resolves against the caller's directory, not the repo
-# root. It defines functions only, and builder_dispatch (below) is what needs _target.sh sourced first.
+# _builder.sh is sourced before the cd so the license path and the ArmDot directory resolve against the caller's
+# directory, not the repo root. It defines functions only, and builder_dispatch (below) is what needs _target.sh
+# sourced first.
 # shellcheck source=scripts/_builder.sh
 source "$(dirname "$0")/_builder.sh"  # → native, or re-launch this build in the builder container
 builder_resolve_license || exit 1
+# An empty DUPLO_ARMDOT_DIR is left for builder_dispatch, which reads .env first and refuses it there if still unset.
+[ -z "${DUPLO_ARMDOT_DIR:-}" ] || builder_resolve_armdot_dir || exit 1
 cd "$(dirname "$0")/.."
 
 # Strip --native before the positional arg is read, so it works in either order.
@@ -234,6 +237,9 @@ echo "==> Building frontend"
 # with CS0579, so purge it up-front, after each version's use, and on exit via the trap. ArmDot obfuscation of the
 # extension's own assembly is on only when ARMDOT_LICENSE_FILE_PATH names a license. The import rides in through a
 # Directory.Build.targets dropped beside the csproj for this build, so the extension's own project file never changes.
+# The ArmDot build files themselves (props, targets, attributes and that template) are not in this repository: they
+# are read from DUPLO_ARMDOT_DIR, which DuploCloud's release action fills from the private shared repository, and
+# which a laptop build points at a checkout of it.
 BASELINE="$DIR/backend/_sdkbaseline"
 rm -rf "$BASELINE"
 OBFUSCATE=0
@@ -291,8 +297,18 @@ check_refs() {
   done < <(project_refs "$from")
 }
 if [ -n "${ARMDOT_LICENSE_FILE_PATH:-}" ]; then
-  ARMDOT_VERSION="$(sed -nE 's/.*<ArmDotEngineVersion>([^<]+)<.*/\1/p' build/ArmDot.Obfuscation.props)"
-  [ -n "$ARMDOT_VERSION" ] || { echo "ERROR: no ArmDotEngineVersion in build/ArmDot.Obfuscation.props" >&2; exit 1; }
+  # Already absolute and checked by builder_resolve_armdot_dir at the top, before the cd.
+  ARMDOT_DIR="${DUPLO_ARMDOT_DIR:-}"
+  for f in ArmDot.Obfuscation.props ArmDot.Obfuscation.targets ArmDotObfuscationAssemblyInfo.cs Directory.Build.targets.template; do
+    [ -n "$ARMDOT_DIR" ] && [ -f "$ARMDOT_DIR/$f" ] && continue
+    echo "ERROR: ARMDOT_LICENSE_FILE_PATH is set, but DUPLO_ARMDOT_DIR does not name a directory holding the ArmDot build files" >&2
+    echo "       (DUPLO_ARMDOT_DIR=${ARMDOT_DIR:-unset}, missing $f). They live under armdot/ in duplocloud-internal/.github:" >&2
+    echo "       DuploCloud's release action fetches them, and a laptop build points DUPLO_ARMDOT_DIR at a checkout of them." >&2
+    exit 1
+  done
+  ARMDOT_DIR="$(cd "$ARMDOT_DIR" && pwd -P)"
+  ARMDOT_VERSION="$(sed -nE 's/.*<ArmDotEngineVersion>([^<]+)<.*/\1/p' "$ARMDOT_DIR/ArmDot.Obfuscation.props")"
+  [ -n "$ARMDOT_VERSION" ] || { echo "ERROR: no ArmDotEngineVersion in $ARMDOT_DIR/ArmDot.Obfuscation.props" >&2; exit 1; }
   # Only a project that imports the targets file dropped below is obfuscated, so a referenced project outside backend/,
   # or one whose own Directory.Build.targets shadows the dropped file, publishes plain into a bundle whose manifest
   # says obfuscated. Refuse that rather than overclaim. Every reference reachable from the entry project is checked.
@@ -309,17 +325,17 @@ if [ -n "${ARMDOT_LICENSE_FILE_PATH:-}" ]; then
     echo "  build without obfuscation." >&2
     exit 1
   fi
-  # A file identical to the template is this script's own leftover from a killed build, so it is replaced.
-  # Anything else is the extension's own and is never overwritten.
-  if [ -e "$OBF_TARGETS" ] && ! cmp -s build/Directory.Build.targets.template "$OBF_TARGETS"; then
+  # A file identical to the template is this script's own leftover from a killed build, so it is replaced. Anything
+  # else is the extension's own and is never overwritten.
+  if [ -e "$OBF_TARGETS" ] && ! cmp -s "$ARMDOT_DIR/Directory.Build.targets.template" "$OBF_TARGETS"; then
     echo "ERROR: $OBF_TARGETS already exists. The obfuscation import is dropped there for the build," >&2
     echo "       so move the extension's own targets into its csproj first." >&2
     exit 1
   fi
   trap 'rm -rf "$BASELINE" 2>/dev/null || true; rm -f "$OBF_TARGETS"' EXIT
-  cp build/Directory.Build.targets.template "$OBF_TARGETS"
+  cp "$ARMDOT_DIR/Directory.Build.targets.template" "$OBF_TARGETS"
   OBFUSCATE=1
-  OBFUSCATE_PROPS=(-p:DuploObfuscate=true -p:ArmDotLicenseFile="$ARMDOT_LICENSE_FILE_PATH" -p:DuploDevkitBuildDir="$PWD/build/")
+  OBFUSCATE_PROPS=(-p:DuploObfuscate=true -p:ArmDotLicenseFile="$ARMDOT_LICENSE_FILE_PATH" -p:DuploDevkitBuildDir="$ARMDOT_DIR/")
 fi
 
 # build_one <sdk-version> <sdk-digest> <out-dir>: publish the backend against one SDK version (obfuscated when a

@@ -407,15 +407,35 @@ builder_resolve_license() {
   export ARMDOT_LICENSE_FILE_PATH="$p"
 }
 
+# builder_resolve_armdot_dir: with a license set, make DUPLO_ARMDOT_DIR absolute and refuse anything but a directory
+# holding the four ArmDot build files, which live under armdot/ in duplocloud-internal/.github rather than here.
+# Exported back for the same reason as the license path. Without a license the variable is left alone and unused.
+builder_resolve_armdot_dir() {
+  [ -n "${ARMDOT_LICENSE_FILE_PATH:-}" ] || return 0
+  local d="${DUPLO_ARMDOT_DIR:-}" f
+  if [ -z "$d" ]; then
+    echo "ERROR: ARMDOT_LICENSE_FILE_PATH is set, so DUPLO_ARMDOT_DIR must name a directory holding the ArmDot build files" >&2
+    echo "       (a checkout of armdot/ from duplocloud-internal/.github). DuploCloud's release action sets it." >&2
+    return 1
+  fi
+  case "$d" in /*) ;; *) d="$PWD/$d" ;; esac
+  for f in ArmDot.Obfuscation.props ArmDot.Obfuscation.targets ArmDotObfuscationAssemblyInfo.cs Directory.Build.targets.template; do
+    [ -f "$d/$f" ] || { echo "ERROR: DUPLO_ARMDOT_DIR is missing $f: $DUPLO_ARMDOT_DIR" >&2; return 1; }
+  done
+  export DUPLO_ARMDOT_DIR="$d"
+}
+
 builder_run_direct() {
   local script="$1"; shift
 
-  # The ArmDot license file, already absolute and checked by builder_resolve_license. Checked again here because
-  # tests and other callers may enter this function directly.
-  local armdot_license=""
+  # The ArmDot license file, already absolute and checked by builder_resolve_license, and the directory of ArmDot
+  # build files that goes with it. Checked again here because tests and other callers may enter this function directly.
+  local armdot_license="" armdot_dir=""
   if [ -n "${ARMDOT_LICENSE_FILE_PATH:-}" ]; then
     builder_resolve_license || return 1
+    builder_resolve_armdot_dir || return 1
     armdot_license="$ARMDOT_LICENSE_FILE_PATH"
+    armdot_dir="$DUPLO_ARMDOT_DIR"
   fi
 
   # Seeded non-empty on purpose: macOS ships bash 3.2, where expanding an EMPTY array under `set -u`
@@ -428,9 +448,11 @@ builder_run_direct() {
   args+=(-v "duplo_devkit_nuget_$DUPLO_UID:/cache/nuget")
   args+=(-v "duplo_devkit_npm_$DUPLO_UID:/cache/npm")
 
-  # The license mounts read-only at a fixed in-container path, mirroring the compose volume entry.
+  # The license and the ArmDot build files mount read-only at fixed in-container paths, mirroring the compose volume
+  # entries.
   if [ -n "$armdot_license" ]; then
     args+=(-v "$armdot_license:/run/armdot/license.key:ro")
+    args+=(-v "$armdot_dir:/run/armdot/config:ro")
   fi
 
   # extra_hosts: the route to a studio that is not on this compose network.
@@ -460,6 +482,7 @@ builder_run_direct() {
   args+=(-e "DUPLO_ADMIN_TOKEN=${DUPLO_ADMIN_TOKEN:-}")
   if [ -n "$armdot_license" ]; then
     args+=(-e "ARMDOT_LICENSE_FILE_PATH=/run/armdot/license.key")
+    args+=(-e "DUPLO_ARMDOT_DIR=/run/armdot/config")
   fi
   args+=(-e "DUPLO_SDK_VERSIONS=${DUPLO_SDK_VERSIONS:-}")
 
@@ -484,6 +507,10 @@ builder_dispatch() {
     ARMDOT_LICENSE_FILE_PATH="$(builder_clean_value "$(_envv ARMDOT_LICENSE_FILE_PATH)")"
   fi
   builder_resolve_license || exit 1
+  if [ -z "${DUPLO_ARMDOT_DIR:-}" ]; then
+    DUPLO_ARMDOT_DIR="$(builder_clean_value "$(_envv DUPLO_ARMDOT_DIR)")"
+  fi
+  builder_resolve_armdot_dir || exit 1
 
   # Precedence: --native (which sets the variable) → the environment → .env → default containerized.
   # Reading .env matters because that is the only per-repo, per-user place to say "this laptop has the

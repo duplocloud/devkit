@@ -20,6 +20,9 @@ _envv() { grep -E "^$1=" "$ENV" 2>/dev/null | head -1 | cut -d= -f2- || true; }
 . ./scripts/_builder.sh || { echo "scripts/_builder.sh not found"; exit 1; }
 RUNTIME=docker BUILDER_IMAGE=img DUPLO_UID=1 DUPLO_GID=1
 
+# The ArmDot build files travel with the license: a licensed launch mounts DUPLO_ARMDOT_DIR too.
+CFG="$PWD/tests/fixtures/armdot-config"
+
 echo "builder license:"
 
 t "no license variable: no mount and no ARMDOT variable reach the container"
@@ -33,18 +36,33 @@ fi
 
 t "license variable set: the file is mounted read-only and the in-container path is exported"
 echo k > "$TMP/lic.key"; : > "$TMP/docker.args"
-( ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key" builder_run_direct scripts/build-extension.sh x ) >/dev/null 2>&1
+( ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key" DUPLO_ARMDOT_DIR="$CFG" builder_run_direct scripts/build-extension.sh x ) >/dev/null 2>&1
 if grep -q -- "-v $TMP/lic.key:/run/armdot/license.key:ro" "$TMP/docker.args" \
   && grep -q -- '-e ARMDOT_LICENSE_FILE_PATH=/run/armdot/license.key' "$TMP/docker.args"; then ok; else bad "$(cat "$TMP/docker.args")"; fi
 
+t "license variable set: the ArmDot directory is mounted read-only beside it and its in-container path is exported"
+if grep -q -- "-v $CFG:/run/armdot/config:ro" "$TMP/docker.args" \
+  && grep -q -- '-e DUPLO_ARMDOT_DIR=/run/armdot/config' "$TMP/docker.args"; then ok; else bad "$(cat "$TMP/docker.args")"; fi
+
+t "license variable set without DUPLO_ARMDOT_DIR: the launch refuses before docker runs, naming the variable"
+: > "$TMP/docker.args"
+( ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key" DUPLO_ARMDOT_DIR= builder_run_direct scripts/build-extension.sh x ) >/dev/null 2>"$TMP/err"
+rc=$?
+if [ "$rc" -ne 0 ] && [ ! -s "$TMP/docker.args" ] && grep -q 'DUPLO_ARMDOT_DIR' "$TMP/err"; then ok; else bad "rc=$rc $(cat "$TMP/docker.args" "$TMP/err")"; fi
+
+t "no license variable: a DUPLO_ARMDOT_DIR is neither required nor mounted"
+: > "$TMP/docker.args"
+( unset ARMDOT_LICENSE_FILE_PATH; DUPLO_ARMDOT_DIR="$CFG" builder_run_direct scripts/build-extension.sh x ) >/dev/null 2>&1
+if [ -s "$TMP/docker.args" ] && ! grep -q 'DUPLO_ARMDOT_DIR' "$TMP/docker.args"; then ok; else bad "$(cat "$TMP/docker.args")"; fi
+
 t "license variable set to a relative path: mounted by its absolute form"
 : > "$TMP/docker.args"
-( cd "$TMP" && ARMDOT_LICENSE_FILE_PATH="lic.key" builder_run_direct scripts/build-extension.sh x ) >/dev/null 2>&1
+( cd "$TMP" && ARMDOT_LICENSE_FILE_PATH="lic.key" DUPLO_ARMDOT_DIR="$CFG" builder_run_direct scripts/build-extension.sh x ) >/dev/null 2>&1
 if grep -q -- " -v $TMP/lic.key:/run/armdot/license.key:ro" "$TMP/docker.args"; then ok; else bad "$(cat "$TMP/docker.args")"; fi
 
 t "license variable set to a missing file: the launch refuses before docker runs"
 : > "$TMP/docker.args"
-( ARMDOT_LICENSE_FILE_PATH="$TMP/nope.key" builder_run_direct scripts/build-extension.sh x ) >/dev/null 2>"$TMP/err"
+( ARMDOT_LICENSE_FILE_PATH="$TMP/nope.key" DUPLO_ARMDOT_DIR="$CFG" builder_run_direct scripts/build-extension.sh x ) >/dev/null 2>"$TMP/err"
 rc=$?
 msg="ERROR: ARMDOT_LICENSE_FILE_PATH names a missing or empty file: $TMP/nope.key"
 if [ "$rc" -ne 0 ] && [ ! -s "$TMP/docker.args" ] && grep -q "$msg" "$TMP/err"; then
