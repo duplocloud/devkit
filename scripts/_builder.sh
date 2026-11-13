@@ -515,7 +515,7 @@ builder_dispatch() {
     error:toolchain)
       echo "ERROR: missing build tool(s): $(builder_missing_tools)" >&2
       echo "       This is running inside a container with no reachable runtime, so the build cannot be" >&2
-      echo "       delegated. Use an image that ships the toolchain (.NET SDK 8 + Node 22), e.g." >&2
+      echo "       delegated. Use an image that ships the toolchain (.NET SDK 10 + Node 22), e.g." >&2
       echo "       build/Dockerfile.builder in this repo." >&2
       exit 1 ;;
     error:runtime)

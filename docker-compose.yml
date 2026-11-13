@@ -298,7 +298,7 @@ services:
       # localhost on UI_PORT, and some people type 127.0.0.1 instead, so both are listed.
       - ALLOWED_ORIGINS=http://localhost:${UI_PORT:-4200},http://127.0.0.1:${UI_PORT:-4200}
 
-  # Build toolchain for extensions (.NET SDK 8 + Node 22). Behind a profile so the `compose pull`
+  # Build toolchain for extensions (.NET SDK 10 + Node 22). Behind a profile so the `compose pull`
   # and `up` in run.sh skip it entirely — a user who only runs the platform never downloads it. The
   # build wrapper starts it on demand with `$RUNTIME compose run --rm --no-deps builder`.
   #

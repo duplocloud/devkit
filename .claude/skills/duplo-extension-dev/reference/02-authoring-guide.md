@@ -123,7 +123,10 @@ The `duplo-extension-dev` skill (`../SKILL.md`) does this — both inside an Ext
 your local machine:
 
 1. `GET …/extensions/sdk-version` → pin; `GET …/extensions/sdk-bundle` → unzip to `backend/sdk-packages`.
-2. `dotnet publish backend -c Release -o dist/backend -p:DuploSdkVersion=<ver>` (SDK is compile-only).
+2. `dotnet restore backend -p:TargetFramework=<tfm> -p:DuploSdkVersion=<ver>`, then
+   `dotnet publish backend --no-restore -c Release -o dist/backend -p:TargetFramework=<tfm> -p:DuploSdkVersion=<ver>`
+   (SDK is compile-only). `<tfm>` is `net10.0` for SDK 1.2.0 and later and `net8.0` below it; restore runs on its own
+   because a property given to publish does not reach its implicit restore.
 3. `(cd frontend && npm ci && npm run build)` → `frontend/dist/remoteEntry.json` + its ESM chunks.
    The host parses ONLY a **Native Federation `remoteEntry.json`** — a Webpack `remoteEntry.js` will not load.
 4. Zip `{manifest.json, backend/, fe/, skills/}`.

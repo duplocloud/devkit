@@ -43,6 +43,13 @@ t "BUILDER_TAG=latest, left over in an older .env, still takes the pinned image"
 printf 'BUILDER_TAG=latest\n' > "$ENV"; got="$(resolve :)"
 if [ "$got" = "$pinned" ]; then ok; else bad "$got"; fi
 
+t "build/Dockerfile.builder builds the toolchain on the .NET 10 SDK image"
+if grep -qE '^FROM mcr\.microsoft\.com/dotnet/sdk:10\.0' build/Dockerfile.builder; then ok; else bad "$(grep -n '^FROM' build/Dockerfile.builder | tr '\n' ' ')"; fi
+
+t "build/Dockerfile.builder pre-creates both CLI home directories, which the .NET 10 first run needs"
+if grep -qE 'mkdir -p /tmp/build-home /tmp/dotnet-home' build/Dockerfile.builder \
+    && grep -qE 'chmod 1777 /tmp/build-home /tmp/dotnet-home' build/Dockerfile.builder; then ok; else bad "Dockerfile.builder"; fi
+
 t "BUILDER_IMAGE in the environment still replaces the image outright"
 : > "$ENV"; got="$(resolve 'export BUILDER_IMAGE=example.com/mine:1')"
 if [ "$got" = "example.com/mine:1" ]; then ok; else bad "$got"; fi

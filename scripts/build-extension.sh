@@ -2,7 +2,7 @@
 # Build an extension into <dir>/dist/extension.zip, against the locally-running platform's SDK feed.
 # Mirrors the duplo-extension-dev skill (fetch SDK → dotnet publish → npm build → zip).
 #
-# The build runs inside the builder container (.NET SDK 8 + Node 22) so Docker Compose is the only
+# The build runs inside the builder container (.NET SDK 10 + Node 22) so Docker Compose is the only
 # prerequisite. Pass --native, or set DUPLO_BUILD_NATIVE=1, to use a toolchain you installed yourself.
 # A build already running inside a container (e.g. the agent's) stays native automatically — see
 # scripts/_builder.sh.
@@ -213,6 +213,34 @@ for v in $(printf '%s' "${DUPLO_SDK_VERSIONS:-}" | tr ',' ' '); do
   [ -n "$v" ] && SDK_VERSIONS+=("$v")
 done
 
+# The SDK's reference assemblies fix the runtime an extension has to target: 1.2.0 moved the host to .NET 10, and an
+# assembly built for net10.0 does not load on a .NET 8 host, while one built for net8.0 loads on both. The target
+# framework therefore follows the SDK version rather than the csproj, so one checkout builds for whichever host it
+# points at, and the installer, which matches a build to a host by SDK version, only ever hands a host a build it
+# can load. A prerelease suffix is ignored, and the parts compare as numbers, so 1.10 sorts after 1.2.
+target_framework_for() {
+  local v="${1%%-*}" major minor
+  major="${v%%.*}"; minor="${v#*.}"; minor="${minor%%.*}"
+  if [ "${major:-0}" -gt 1 ] 2>/dev/null || { [ "${major:-0}" -eq 1 ] && [ "${minor:-0}" -ge 2 ]; } 2>/dev/null; then
+    echo net10.0
+  else
+    echo net8.0
+  fi
+}
+# An older SDK cannot build a newer framework, and the failure it gives is a NETSDK error deep in the publish. The
+# pinned toolchain image moves in a reviewed change, so a build that needs more than it ships says so up front.
+require_dotnet_for() {
+  local tfm="$1" sdk_ver="$2" need have
+  need="${tfm#net}"; need="${need%%.*}"
+  have="$(dotnet --version 2>/dev/null | cut -d. -f1)"
+  if [ -n "$have" ] && [ "$have" -lt "$need" ] 2>/dev/null; then
+    echo "ERROR: SDK $sdk_ver needs a $tfm build, which needs .NET SDK $need, and this toolchain is .NET SDK $have." >&2
+    echo "       In the builder container, set BUILDER_IMAGE to a toolchain that ships .NET SDK $need, or build the one in" >&2
+    echo "       build/Dockerfile.builder. With --native, install .NET SDK $need." >&2
+    exit 1
+  fi
+}
+
 CSPROJ=$(find "$DIR/backend" -maxdepth 1 -name '*.csproj' | head -1)
 [ -n "$CSPROJ" ] || { echo "No .csproj under $DIR/backend" >&2; exit 1; }
 # The nuget.config local SDK source resolves against backend/, so the directory has to exist even in feed mode
@@ -333,10 +361,21 @@ build_one() {
   case "$out" in /*) ;; *) out="$PWD/$out" ;; esac
   rm -rf "$out"; mkdir -p "$out"
 
+  local tfm; tfm="$(target_framework_for "$sdk_ver")"
+  echo "    [$sdk_ver] target framework: $tfm"
+  require_dotnet_for "$tfm" "$sdk_ver"
+
   [ "$OBFUSCATE" = 1 ] && echo "==> [$sdk_ver] Obfuscating the extension assembly with ArmDot $ARMDOT_VERSION"
   echo "==> [$sdk_ver] Building backend ($(basename "$CSPROJ"))"
-  ( cd "$DIR/backend" && dotnet publish "$(basename "$CSPROJ")" -c Release -o "$out/backend" -p:DuploSdkVersion="$sdk_ver" \
-      "${OBFUSCATE_PROPS[@]}" )
+  # The framework is passed as a property so no csproj changes when the host moves. A property given to dotnet publish
+  # does not reach the restore it runs first, which then resolves the csproj's own framework and the publish fails
+  # with NETSDK1005, so restore runs on its own with the same properties and publish skips its own. The obfuscation
+  # properties go to the restore too: they are what makes Directory.Build.targets import the ArmDot packages, and a
+  # publish that skips its own restore can only load what the restore resolved.
+  ( cd "$DIR/backend" && dotnet restore "$(basename "$CSPROJ")" -p:TargetFramework="$tfm" -p:DuploSdkVersion="$sdk_ver" \
+      "${OBFUSCATE_PROPS[@]}" \
+      && dotnet publish "$(basename "$CSPROJ")" --no-restore -c Release -o "$out/backend" -p:TargetFramework="$tfm" \
+           -p:DuploSdkVersion="$sdk_ver" "${OBFUSCATE_PROPS[@]}" )
 
   # The extension is hot-loaded into a child AssemblyLoadContext that serves the whole SDK closure from the host's
   # Default context, so those DLLs must not ship in the bundle (they only bloat it past the ingress limit). Compute
@@ -346,7 +385,7 @@ build_one() {
   cat > "$BASELINE/_sdkbaseline.csproj" <<CSPROJ_EOF
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>$tfm</TargetFramework>
     <UseAppHost>false</UseAppHost>
   </PropertyGroup>
   <ItemGroup>
