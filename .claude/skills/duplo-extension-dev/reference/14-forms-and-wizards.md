@@ -57,7 +57,8 @@ form like any other control:
 
 - A not-found value shows as a disabled "… not found" option. While the list loads, or after it fails, the value
   is kept and counts as valid — so a saved value moves between levels unchanged.
-- Gate Save on `f.invalid`: a pending "+ New" keeps the form invalid until the admin adds it.
+- Gate Save on `f.invalid` only while a "+ New" is pending: it keeps the form invalid until the admin adds it. Don't
+  gate on a not-found value; the backend tolerates a stale scope.
 
 ## Multi-step wizards — there is NO library stepper
 

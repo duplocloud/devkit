@@ -276,7 +276,8 @@ in [02](reference/02-authoring-guide.md#frontendsetup).
   - **Settings endpoint:** the platform has none for agents. Add a plain `[Authorize]` `ControllerBase` routed at
     `SETTINGS_URL` (`v1/aiservicedesk/admin/extensions/<idName>/settings`) that serves GET/PUT of one settings
     object ([02](reference/02-authoring-guide.md#frontendsetup)). Until then the localStorage fallback keeps
-    values in one browser only, and provisioning can't read them.
+    values in one browser only, and provisioning can't read them. Once the controller exists, delete the 404
+    fallback (the `catchError` branches, `FALLBACK_KEY`, the `local` note).
   - To use a connection at provisioning, attach its scope to the workspace or the Admin Workspace
     ([07](reference/07-scope-credentials.md#creating-the-connection--the-connections-kit) step 3) and read it from
     `spec.ScopeIds`.
@@ -294,6 +295,10 @@ in [02](reference/02-authoring-guide.md#frontendsetup).
        links and workspace-relative navigation there, or route them sensibly. A workspace-only call must not
        block the page. Tell the mounts apart with the template's `canMatch` / `SETUP_PATH`
        (`extension.routes.ts`).
+     - **Old settings route:** keep it, with a guard that returns a `UrlTree` to
+       `/ai/suite/admin/<relativeUrl>` (not `redirectTo`, which keeps the old URL so the setup mount check misses).
+       The guard must not fire on the setup mount itself. Remove the old menu entries and buttons that linked to it.
+       Reference: `extension.routes.ts:12` in duploai-issue-reporter.
   2. No setup page → add it from the template. In the copied `settings.service.ts`, re-point the
      `REMOTE_DuploHttpClient` import to the agent's own service.
   3. Setup page present → update it to match the agent's features: one connection per provider the agent uses,

@@ -165,6 +165,20 @@ elif [[ "$OUT" != *"✗ frontend.headerActions"* ]]; then bad "no ✗ line: $OUT
 elif [ -e "$MARK" ]; then bad "toolchain invoked: $(cat "$MARK")"
 else ok; fi
 
+# Leftover template provider type: `type: 'helloworld'` must fail the naming gate.
+mk "$(wrap "[$ACT]")"; mkdir -p "$TMP/ext/frontend/src"
+printf "const T = { type: 'helloworld', label: 'X' };\n" > "$TMP/ext/frontend/src/a.ts"
+t "--validate-only fails a renamed extension that keeps type: 'helloworld'"
+OUT="$(run_build "$TMP/ext")"; RC=$?
+if [ "$RC" = 0 ] || [ "$RC" = 99 ]; then bad "rc=$RC: $OUT"
+elif [[ "$OUT" != *"template 'Hello'/'hw-' identifiers"* ]]; then bad "no leftover line: $OUT"
+else ok; fi
+printf "const T = { type: 'acme', label: 'X' };\n" > "$TMP/ext/frontend/src/a.ts"
+t "--validate-only passes once the provider type is renamed"
+OUT="$(run_build "$TMP/ext")"; RC=$?
+[ "$RC" = 0 ] && ok || bad "rc=$RC: $OUT"
+rm -rf "$TMP/ext/frontend"
+
 echo
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -48,7 +48,7 @@ export class SetupComponent implements OnInit {
         this.loading.set(false);
       },
       error: err => {
-        this.loading.set(false);
+        // Stay locked: Save would overwrite settings that never loaded.
         this.formErrors()?.reportError(err);
       },
     });

@@ -368,14 +368,20 @@ settings once. `frontend.setup` points the portal at it:
   settings object. `[Authorize]` runs the Admin Workspace grant check on `/aiservicedesk/admin` routes; the build
   gate requires it on every plain controller. Precedent for a plain `[Authorize]` controller:
   `samples/admin-settings/backend/AdminSettingsReadController.cs`. Until the endpoint exists, the template's
-  localStorage fallback keeps values in one browser only, and provisioning can't read them.
+  localStorage fallback keeps values in one browser only, and provisioning can't read them. Once it exists, delete
+  the fallback (the `catchError` branches, `FALLBACK_KEY`, the `local` note).
+- **Existing settings route:** keep the old workspace route, with a guard that returns a `UrlTree` to
+  `/ai/suite/admin/<relativeUrl>` (not `redirectTo`, which keeps the old URL so the setup mount check misses). The
+  guard must not fire on the setup mount. Remove the old menu entries. Reference: `extension.routes.ts:12` in
+  duploai-issue-reporter.
 
 #### Build check
 
-`scripts/validate-setup.sh <manifest.json>` applies a stricter form of the portal's rule and fails on an invalid
+`scripts/validate-setup.sh <manifest.json>` applies the portal's rule, stricter on `title`, and fails on an invalid
 entry: not an object, a missing or non-`extensions/` `relativeUrl`, no matching admin route, or a non-string
 `title`. With a sibling `frontend/src`, it also fails when no `SETUP_PATH` there equals `relativeUrl`. No
-`frontend.setup` passes. `build-extension.sh` runs it in its naming gate, so `--validate-only` covers it too. The
+`frontend.setup` passes. The manifest `id` and `frontend.remote.remoteEntry`, which the portal also requires, are
+checked elsewhere. `build-extension.sh` runs it in its naming gate, so `--validate-only` covers it too. The
 same gate fails a renamed extension that keeps the template's setup names (`hw-setup`, `HELLO_WORLD_TYPE`,
 `HelloSettings`, `helloworld/settings`, `extensions/helloworld-setup`).
 
