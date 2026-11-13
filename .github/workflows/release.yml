@@ -1,10 +1,16 @@
-# Releases each extension in this repo on push to main, through duplocloud/actions/release-extension.
+# Releases each extension in this repo on push to main, dev or rc, through duplocloud/actions/release-extension.
 #
 # For every extensions/<name>/ the action builds the bundle with scripts/build-all.sh, then signs it, cuts one GitHub
 # Release per build tagged <name>-v<version>-sdk-<sdkVersion> at the built commit, uploads it, and registers it with
 # the console as an unpublished version. The action's README has the rules: a build already released is resumed, not
 # rebuilt, and an extension whose content changed at a version that already has a release fails the job, so bumping
 # manifest.version is how you publish a new version to the extension library.
+#
+# main releases to the prod console and the prod bucket. dev and rc release to the dev console and the non-prod bucket,
+# with the release tagged <name>-dev-v<version>-sdk-<sdkVersion> (or -rc-) and marked a prerelease, so a dev build never
+# takes the tag the main release of that version will use. The dev console has its own publisher keys, so the non-prod
+# side reads CONSOLE_DEV_API_KEY, CONSOLE_DEV_SIGNING_KEY and CONSOLE_DEV_SIGNING_CERT, and uploads through a URL the dev
+# console issues rather than the AWS role, which trusts main alone.
 #
 # This file ships with the dev-kit. After scripts/init-project.sh makes the repo yours, set these repo secrets
 # (same as Extension CI): DUPLO_HOST + DUPLO_TOKEN, since the build fetches the host SDK feed from DUPLO_HOST, which
@@ -28,7 +34,7 @@ name: Extension Release
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev, rc]
   workflow_dispatch:
     inputs:
       publish:
@@ -47,13 +53,15 @@ concurrency:
 
 jobs:
   release:
-    # A dispatch from any other branch skips the job, so only main's code ever releases, signs or publishes.
-    if: github.ref == 'refs/heads/main'
+    # A dispatch from any other branch skips the job, so only main, dev and rc ever release, sign or publish.
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/rc'
     runs-on: ubuntu-latest
     env:
       DUPLO_TARGET: remote
       DUPLO_HOST: ${{ secrets.DUPLO_HOST }}
       DUPLO_TOKEN: ${{ secrets.DUPLO_TOKEN }}
+      # main is the prod side. Anything else that reaches this job is dev or rc, the non-prod side.
+      PROD: ${{ github.ref == 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -81,47 +89,68 @@ jobs:
           CONSOLE_API_KEY: ${{ secrets.CONSOLE_API_KEY }}
           CONSOLE_SIGNING_KEY: ${{ secrets.CONSOLE_SIGNING_KEY }}
           CONSOLE_SIGNING_CERT: ${{ vars.CONSOLE_SIGNING_CERT }}
+          CONSOLE_DEV_API_KEY: ${{ secrets.CONSOLE_DEV_API_KEY }}
+          CONSOLE_DEV_SIGNING_KEY: ${{ secrets.CONSOLE_DEV_SIGNING_KEY }}
+          CONSOLE_DEV_SIGNING_CERT: ${{ vars.CONSOLE_DEV_SIGNING_CERT }}
           ARMDOT_LICENSE_KEY: ${{ secrets.ARMDOT_LICENSE_KEY }}
           EXTENSION_PUBLISHER_ROLE_ARN: ${{ vars.EXTENSION_PUBLISHER_ROLE_ARN }}
           CONSOLE_TEAM: ${{ vars.CONSOLE_TEAM }}
         run: |
           missing=()
-          for v in DUPLO_HOST DUPLO_TOKEN CONSOLE_API_KEY; do [ -n "${!v:-}" ] || missing+=("$v"); done
-          case "$GITHUB_REPOSITORY_OWNER" in
-            duplocloud|duplocloud-internal)
-              for v in CONSOLE_SIGNING_KEY CONSOLE_SIGNING_CERT ARMDOT_LICENSE_KEY EXTENSION_PUBLISHER_ROLE_ARN; do
-                [ -n "${!v:-}" ] || missing+=("$v")
-              done ;;
-            *) [ -n "${CONSOLE_TEAM:-}" ] || missing+=(CONSOLE_TEAM) ;;
-          esac
+          for v in DUPLO_HOST DUPLO_TOKEN; do [ -n "${!v:-}" ] || missing+=("$v"); done
+          if [ "$PROD" = true ]; then
+            [ -n "${CONSOLE_API_KEY:-}" ] || missing+=(CONSOLE_API_KEY)
+            case "$GITHUB_REPOSITORY_OWNER" in
+              duplocloud|duplocloud-internal)
+                for v in CONSOLE_SIGNING_KEY CONSOLE_SIGNING_CERT ARMDOT_LICENSE_KEY EXTENSION_PUBLISHER_ROLE_ARN; do
+                  [ -n "${!v:-}" ] || missing+=("$v")
+                done ;;
+              *) [ -n "${CONSOLE_TEAM:-}" ] || missing+=(CONSOLE_TEAM) ;;
+            esac
+          else
+            [ -n "${CONSOLE_DEV_API_KEY:-}" ] || missing+=(CONSOLE_DEV_API_KEY)
+            case "$GITHUB_REPOSITORY_OWNER" in
+              duplocloud|duplocloud-internal)
+                for v in CONSOLE_DEV_SIGNING_KEY CONSOLE_DEV_SIGNING_CERT ARMDOT_LICENSE_KEY; do
+                  [ -n "${!v:-}" ] || missing+=("$v")
+                done ;;
+              *) [ -n "${CONSOLE_TEAM:-}" ] || missing+=(CONSOLE_TEAM) ;;
+            esac
+          fi
           [ ${#missing[@]} -eq 0 ] && exit 0
           echo "::error::This release needs ${missing[*]} set as repository or organization secrets and variables. The" \
-            "DUPLO_* secrets name the host the build takes its SDK from, CONSOLE_API_KEY registers the version, CONSOLE_TEAM" \
-            "names the console team that key belongs to outside DuploCloud's organizations, and in those organizations the" \
-            "signing, license and role values are required. See docs/releasing-extensions.md."
+            "DUPLO_* secrets name the host the build takes its SDK from, the console key registers the version (CONSOLE_API_KEY" \
+            "on main, CONSOLE_DEV_API_KEY on dev and rc), CONSOLE_TEAM names the console team that key belongs to outside" \
+            "DuploCloud's organizations, and in those organizations the signing and license values for that side are" \
+            "required, plus the role variable on main. See docs/releasing-extensions.md."
           exit 1
 
-      # Only Duplo's organizations hold the role, and only the repositories its trust list names can assume it, so a
-      # repository outside that list fails here, before anything is built, rather than at the upload.
+      # Only Duplo's organizations hold the role, only the repositories its trust list names can assume it, and the trust
+      # admits main alone, so a repository outside that list fails here, before anything is built, rather than at the
+      # upload. dev and rc skip it and upload through a URL the dev console issues.
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         if: >-
           steps.guard.outputs.build == 'true' &&
+          github.ref == 'refs/heads/main' &&
           (github.repository_owner == 'duplocloud' || github.repository_owner == 'duplocloud-internal') &&
           vars.EXTENSION_PUBLISHER_ROLE_ARN != ''
         with:
           role-to-assume: ${{ vars.EXTENSION_PUBLISHER_ROLE_ARN }}
           aws-region: us-west-2
 
-      - uses: duplocloud/actions/release-extension@bc17a896897aa32a0d9c9997c1f5e56d76812cf1 # v1
+      - uses: duplocloud/actions/release-extension@4fb35be22cb52767a6ac392db933fba8bc5bb138 # v1, pin moves to the tagged release once duplocloud/actions releases the channel input
         if: steps.guard.outputs.build == 'true'
         with:
-          console-api-key: ${{ secrets.CONSOLE_API_KEY }}
-          console-url: ${{ vars.CONSOLE_URL || 'https://console.duplocloud.com' }}
+          # Each side has its own console, keys and bucket. main is prod; dev and rc are the non-prod side.
+          console-api-key: ${{ env.PROD == 'true' && secrets.CONSOLE_API_KEY || secrets.CONSOLE_DEV_API_KEY }}
+          console-url: ${{ env.PROD == 'true' && (vars.CONSOLE_URL || 'https://console.duplocloud.com') || (vars.CONSOLE_DEV_URL || 'https://dev-console.prod-apps.duplocloud.net') }}
           console-team: ${{ vars.CONSOLE_TEAM }}
-          signing-key: ${{ secrets.CONSOLE_SIGNING_KEY }}
-          signing-cert: ${{ vars.CONSOLE_SIGNING_CERT }}
+          signing-key: ${{ env.PROD == 'true' && secrets.CONSOLE_SIGNING_KEY || secrets.CONSOLE_DEV_SIGNING_KEY }}
+          signing-cert: ${{ env.PROD == 'true' && vars.CONSOLE_SIGNING_CERT || vars.CONSOLE_DEV_SIGNING_CERT }}
           armdot-license: ${{ secrets.ARMDOT_LICENSE_KEY }}
-          bundle-bucket: ${{ vars.BUNDLE_BUCKET || 'duplo-helpdesk-channels' }}
+          bundle-bucket: ${{ env.PROD == 'true' && (vars.BUNDLE_BUCKET || 'duplo-helpdesk-channels') || (vars.BUNDLE_BUCKET_NONPROD || 'duplo-helpdesk-bundles-nonprod') }}
+          # A non-prod release gets its own tag family and is marked a prerelease. Empty on main.
+          channel: ${{ github.ref == 'refs/heads/dev' && 'dev' || github.ref == 'refs/heads/rc' && 'rc' || '' }}
           # SDK versions to build against from the package feed, one per line, one bundle and one release per version.
           # The action exports them to the build as DUPLO_SDK_VERSIONS, so a job env of that name would be overwritten.
           # Empty builds one bundle from the host's SDK.

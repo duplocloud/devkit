@@ -37,6 +37,25 @@ bundle is plain, signed only when the repository supplies its own key and certif
 through a URL the console issues for the console key, so a customer's repository needs nothing from
 DuploCloud beyond that key.
 
+## Releasing from dev and RC
+
+A push to `main` releases to the prod console and the prod bucket. A push to `dev` or `rc` releases the same way to
+the non-prod side: the dev console at `https://dev-console.prod-apps.duplocloud.net` and the non-prod bundle bucket,
+which dev and RC portals install from through the dev license server. The run is the same action with a different
+console, different keys and a channel.
+
+The channel keeps the two sides apart on GitHub. A dev build is tagged `<slug>-dev-v<version>-sdk-<sdkVersion>` (an RC
+build `-rc-`) and its release is marked a prerelease, so it never takes the tag the main release of that version will
+use, and a resumed run only ever reads back a release from its own channel. The already-released rule applies within a
+channel: a version released from `dev` whose extension then changes fails the `dev` run until `manifest.version` moves,
+and says nothing about `main`.
+
+The dev console issues its own publisher keys, so the non-prod side has its own secrets. In DuploCloud's organizations
+a repository sets `CONSOLE_DEV_API_KEY` and `CONSOLE_DEV_SIGNING_KEY` as secrets and `CONSOLE_DEV_SIGNING_CERT` as a
+variable, beside the prod values. The ArmDot license is the same on both sides. The upload goes through a URL the dev
+console issues, not the publisher role, since the role's trust admits `main` alone. A repository outside DuploCloud's
+organizations that releases from `dev` or `rc` needs only `CONSOLE_DEV_API_KEY` and the same `CONSOLE_TEAM` variable,
+the way `main` needs `CONSOLE_API_KEY`.
 ## Releasing to your own portal
 
 This section is for a team outside DuploCloud's organizations. The same `release.yml` runs. What differs is

@@ -204,7 +204,7 @@ dev-kit URL used by upgrades. Both are sourced, not run.
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
 | `.github/workflows/extension-ci.yml` | push | Builds `extensions/`. Can hot-load on a manual run. |
-| `.github/workflows/release.yml` | push to `main`, or manual | Releases every extension through `duplocloud/actions/release-extension`: builds each one, cuts a GitHub Release per build tagged `<name>-v<version>-sdk-<sdkVersion>`, uploads it and registers it with the console as an unpublished version. Bumping `manifest.version` is how you release a new version. It does not hot-load. |
+| `.github/workflows/release.yml` | push to `main`, `dev` or `rc`, or manual | Releases every extension through `duplocloud/actions/release-extension`: builds each one, cuts a GitHub Release per build tagged `<name>-v<version>-sdk-<sdkVersion>`, uploads it and registers it with the console as an unpublished version. `main` releases to the prod console; `dev` and `rc` release to the dev console under a channel tag (`<name>-dev-v…`). Bumping `manifest.version` is how you release a new version. It does not hot-load. |
 
 Both need repo secrets `DUPLO_HOST` and `DUPLO_TOKEN`. By default the build fetches the host SDK feed from
 `DUPLO_HOST`, so it must be reachable from CI — a real platform, not `localhost`. With the repository variable
