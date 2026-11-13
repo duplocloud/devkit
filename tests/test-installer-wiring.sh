@@ -43,7 +43,7 @@ else bad "scripts/check-image-arches.sh IMAGES has no helpdesk-installer line"; 
 # fetch-terraform-extension.sh nor a build can write extensions/.
 t "run.sh creates extensions/ before the stack starts"
 MK="$(grep -n '^mkdir -p extensions$' run.sh | head -1 | cut -d: -f1)"
-UP="$(grep -n 'compose up -d' run.sh | head -1 | cut -d: -f1)"
+UP="$(grep -n 'compose up -d$' run.sh | head -1 | cut -d: -f1)"
 if [ -n "$MK" ] && [ -n "$UP" ] && [ "$MK" -lt "$UP" ]; then ok; else bad "no 'mkdir -p extensions' ahead of compose up"; fi
 
 t "README covers installing a local build and from the Available tab"
@@ -117,37 +117,100 @@ t "run.sh generates MONGO_ROOT_PASSWORD once and blanks it on --reset"
 grep -qE 'getenv MONGO_ROOT_PASSWORD\)" \] \|\| setenv MONGO_ROOT_PASSWORD "\$\(openssl rand' run.sh \
   && sed -n '/^if \[ "\$RESET" = 1 \]; then/,/^fi/p' run.sh | grep -q 'MONGO_ROOT_PASSWORD' && ok || bad "run.sh"
 
-t "run.sh refuses to generate a password over a mongo volume initialised with the old one"
-grep -q 'MONGO_ROOT_PASSWORD=authpass' run.sh && grep -qF -- '--reset' run.sh && ok || bad "run.sh"
+t "run.sh rotates the password in place over a mongo volume initialised with the old one, and no longer offers keeping it"
+grep -q 'rotate_old_mongo_password' run.sh && ! grep -q 'MONGO_ROOT_PASSWORD=authpass' run.sh \
+  && sed -n '/^if \[ "\$RESET" = 1 \]; then/,/^fi/p' run.sh | grep -q 'MONGO_ROOT_PASSWORD_PENDING' && ok || bad "run.sh"
 
-# The guard runs against a stub runtime, so each branch is taken without a runtime: a volume listing that fails, a
-# volume with the old password present, and no such volume. getenv and compose_project are stubbed around it.
-old_volume_guard() {
-  local d; d="$(mktemp -d)"; printf '%s\n' '#!/bin/sh' "$1" > "$d/rt"; chmod +x "$d/rt"
-  ( RUNTIME="$d/rt"; getenv() { :; }; compose_project() { printf devkit; }
-    eval "$(sed -n '/^refuse_old_mongo_volume()/,/^}/p' run.sh)"; refuse_old_mongo_volume ) 2>"$d/err"
-  GUARD_RC=$?; GUARD_ERR="$(cat "$d/err")"; rm -rf "$d"
+# The rotation runs against a stub runtime and a scratch .env, so every branch is taken without a database. The stub
+# answers `volume` by whether VOL is set, records `compose up` with the password it was given, and plays mongosh: a password is accepted when it
+# equals the one in the state file, and a changeUserPassword eval moves the state file to the value passed in
+# MONGO_NEW_PASSWORD. getenv, setenv, compose_project and sleep are stubbed around the functions under test.
+rotate_case() {  # rotate_case <VOL:0|1> <accepted password> [pending in .env]
+  local d; d="$(mktemp -d)"; R_DIR="$d"
+  printf '%s\n' "$2" > "$d/pw"; : > "$d/calls"; : > "$d/env"
+  [ -n "${3:-}" ] && printf 'MONGO_ROOT_PASSWORD_PENDING=%s\n' "$3" > "$d/env"
+  cat > "$d/rt" <<EOF
+#!/usr/bin/env bash
+echo "\$*" >> "$d/calls"
+case "\$1 \$2" in
+  "volume ls") exit 0 ;;
+  "volume inspect") [ "$1" = 1 ] && [ "\$3" = devkit_mongo_data ] && exit 0; exit 1 ;;
+  "compose up") echo "up-env:\${MONGO_ROOT_PASSWORD:-}" >> "$d/calls"; exit 0 ;;
+  "compose exec")
+    pw=""; new=""; js=""
+    while [ \$# -gt 0 ]; do case "\$1" in -p) pw="\$2"; shift ;; -e) new="\${2#MONGO_NEW_PASSWORD=}"; shift ;; --eval) js="\$2"; shift ;; esac; shift; done
+    [ "\$pw" = "\$(cat "$d/pw")" ] || exit 1
+    case "\$js" in *changeUserPassword*) printf '%s\n' "\$new" > "$d/pw"; echo "change:\$new" >> "$d/calls" ;; esac
+    exit 0 ;;
+esac
+exit 1
+EOF
+  chmod +x "$d/rt"
+  ( RUNTIME="$d/rt"; ENV="$d/env"
+    getenv() { grep -E "^$1=" "$ENV" 2>/dev/null | head -1 | cut -d= -f2- || true; }
+    setenv() { grep -vE "^$1=" "$ENV" > "$ENV.n" 2>/dev/null || true; printf '%s=%s\n' "$1" "$2" >> "$ENV.n"; mv "$ENV.n" "$ENV"; }
+    compose_project() { printf devkit; }; sleep() { :; }
+    eval "$(sed -n '/^MONGO_OLD_PASSWORD=/p; /^mongo_eval()/,/^}/p; /^rotate_old_mongo_password()/,/^}/p' run.sh)"
+    rotate_old_mongo_password ) >"$d/out" 2>"$d/err"
+  R_RC=$?; R_ERR="$(cat "$d/err")"; R_CALLS="$(cat "$d/calls")"
+  R_PW="$(grep -E '^MONGO_ROOT_PASSWORD=' "$d/env" | cut -d= -f2-)"; R_PENDING="$(grep -E '^MONGO_ROOT_PASSWORD_PENDING=' "$d/env" | cut -d= -f2-)"
+  R_DB="$(cat "$d/pw")"; rm -rf "$d"
 }
 
-t "the old-volume guard stops the run when the runtime cannot list volumes"
-old_volume_guard 'echo "Cannot connect to the daemon" >&2; exit 1'
-[ "$GUARD_RC" -ne 0 ] && grep -q 'Cannot connect to the daemon' <<<"$GUARD_ERR" && ! grep -q 'authpass' <<<"$GUARD_ERR" \
-  && ok || bad "rc=$GUARD_RC $GUARD_ERR"
+t "rotation: the run stops when the runtime cannot list volumes"
+d="$(mktemp -d)"; printf '%s\n' '#!/bin/sh' 'echo "Cannot connect to the daemon" >&2; exit 1' > "$d/rt"; chmod +x "$d/rt"
+( RUNTIME="$d/rt"; getenv() { :; }; compose_project() { printf devkit; }
+  eval "$(sed -n '/^rotate_old_mongo_password()/,/^}/p' run.sh)"; rotate_old_mongo_password ) 2>"$d/err"
+rc=$?; [ "$rc" -ne 0 ] && grep -q 'Cannot connect to the daemon' "$d/err" && ok || bad "rc=$rc $(cat "$d/err")"; rm -rf "$d"
 
-t "the old-volume guard refuses when the project's mongo volume exists, found by exact name"
-old_volume_guard 'case "$1 $2" in "volume ls") exit 0;; "volume inspect") [ "$3" = devkit_mongo_data ] && exit 0; exit 1;; esac; exit 1'
-[ "$GUARD_RC" -ne 0 ] && grep -q 'MONGO_ROOT_PASSWORD=authpass' <<<"$GUARD_ERR" && ok || bad "rc=$GUARD_RC $GUARD_ERR"
+t "rotation: no such volume leaves .env alone and starts nothing"
+rotate_case 0 authpass
+[ "$R_RC" -eq 0 ] && [ -z "$R_PW" ] && ! grep -q 'compose up' <<<"$R_CALLS" && ok || bad "rc=$R_RC $R_CALLS"
 
-t "the old-volume guard lets a run through when no such volume exists"
-old_volume_guard 'case "$1 $2" in "volume ls") exit 0;; *) exit 1;; esac'
-[ "$GUARD_RC" -eq 0 ] && [ -z "$GUARD_ERR" ] && ok || bad "rc=$GUARD_RC $GUARD_ERR"
+t "rotation: an old volume gets a generated password applied through the old one, then written to .env"
+rotate_case 1 authpass
+[ "$R_RC" -eq 0 ] && grep -qE '^change:[0-9a-f]{64}$' <<<"$R_CALLS" && [ "$R_PW" = "$R_DB" ] && [ -n "$R_PW" ] && [ -z "$R_PENDING" ] \
+  && grep -q 'compose up -d mongo' <<<"$R_CALLS" && grep -q '^up-env:authpass$' <<<"$R_CALLS" \
+  && ok || bad "rc=$R_RC pw=$R_PW db=$R_DB pending=$R_PENDING calls=$R_CALLS $R_ERR"
+
+t "rotation: a pending password the database already answers to is promoted without another change"
+rotate_case 1 pend1234 pend1234
+[ "$R_RC" -eq 0 ] && ! grep -q '^change:' <<<"$R_CALLS" && [ "$R_PW" = pend1234 ] && [ -z "$R_PENDING" ] \
+  && ok || bad "rc=$R_RC pw=$R_PW pending=$R_PENDING calls=$R_CALLS"
+
+t "rotation: a pending password the database does not know yet is applied as is, never replaced by a third"
+rotate_case 1 authpass pend1234
+[ "$R_RC" -eq 0 ] && grep -q '^change:pend1234$' <<<"$R_CALLS" && [ "$R_PW" = pend1234 ] && [ "$R_DB" = pend1234 ] \
+  && ok || bad "rc=$R_RC pw=$R_PW db=$R_DB calls=$R_CALLS"
+
+t "rotation: a database answering to neither password stops the run, writes no password and names --reset"
+rotate_case 1 somethingelse
+[ "$R_RC" -ne 0 ] && [ -z "$R_PW" ] && ! grep -q '^change:' <<<"$R_CALLS" && grep -qF -- '--reset' <<<"$R_ERR" \
+  && ok || bad "rc=$R_RC pw=$R_PW calls=$R_CALLS $R_ERR"
+
+t "rotation: a failed password change writes nothing to .env"
+d="$(mktemp -d)"; : > "$d/env"
+cat > "$d/rt" <<EOF
+#!/usr/bin/env bash
+case "\$1 \$2" in "volume ls"|"compose up") exit 0 ;; "volume inspect") exit 0 ;;
+  "compose exec") case "\$*" in *changeUserPassword*) exit 1 ;; *" -p authpass "*) exit 0 ;; esac; exit 1 ;; esac; exit 1
+EOF
+chmod +x "$d/rt"
+( RUNTIME="$d/rt"; ENV="$d/env"
+  getenv() { grep -E "^$1=" "$ENV" 2>/dev/null | head -1 | cut -d= -f2- || true; }
+  setenv() { grep -vE "^$1=" "$ENV" > "$ENV.n" 2>/dev/null || true; printf '%s=%s\n' "$1" "$2" >> "$ENV.n"; mv "$ENV.n" "$ENV"; }
+  compose_project() { printf devkit; }; sleep() { :; }
+  eval "$(sed -n '/^MONGO_OLD_PASSWORD=/p; /^mongo_eval()/,/^}/p; /^rotate_old_mongo_password()/,/^}/p' run.sh)"
+  rotate_old_mongo_password ) >/dev/null 2>"$d/err"
+rc=$?; [ "$rc" -ne 0 ] && ! grep -q '^MONGO_ROOT_PASSWORD=.' "$d/env" && grep -q '^MONGO_ROOT_PASSWORD_PENDING=.' "$d/env" \
+  && ok || bad "rc=$rc $(cat "$d/env") $(cat "$d/err")"; rm -rf "$d"
 
 t ".env.example lists MONGO_ROOT_PASSWORD with the stable secrets"
 grep -qE '^MONGO_ROOT_PASSWORD=$' .env.example && ok || bad ".env.example"
 
-t "no file carries the old fixed mongo password, except as the documented way to keep an old database"
+t "no file carries the old fixed mongo password, except as the constant the rotation tries"
 left="$(grep -rIn --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist 'authpass' . \
-  | grep -v 'MONGO_ROOT_PASSWORD=authpass' | grep -v '^./tests/test-installer-wiring.sh:')"
+  | grep -v '^./run.sh:[0-9]*:MONGO_OLD_PASSWORD=authpass' | grep -v '^./tests/test-installer-wiring.sh:')"
 [ -z "$left" ] && ok || bad "$(printf '%s' "$left" | cut -d: -f1,2 | tr '\n' ' ')"
 
 t "README's mongosh recovery reads the password from .env"

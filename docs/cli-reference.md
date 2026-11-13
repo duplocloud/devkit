@@ -68,10 +68,10 @@ On an EC2 host the provider prompt first probes whether the instance role can ac
    license server emails the address a link, and the run polls for up to 2 minutes after it is clicked.
 6. Resolves password and LLM provider: flag, then `.env`, then prompt.
 7. Generates `Encryption__MasterKey`, `Authentication__JwtSharedSecret`, `MONGO_ROOT_PASSWORD` and `Agent__ApiAuthToken`
-   once, if unset.
-   A run that would generate the mongo password over a data volume initialised before the key existed stops
-   instead, since the database would not know the new password: `--reset` recreates the database, or
-   `MONGO_ROOT_PASSWORD=authpass` in `.env` keeps it.
+   once, if unset. A data volume initialised before the mongo key existed still answers to the old fixed password, so
+   the run starts mongo alone, changes the root password to the generated value, and writes it to `.env` only once the
+   database has taken it. A run that stops between the two steps finishes the rotation next time with the same
+   value. A database that answers to neither password stops the run and names `--reset`.
 8. `docker compose pull`, then `docker compose up -d`.
 9. Waits up to ~4.5 minutes for the studio to answer on `/healthz` — an anonymous route, because this
    happens before the admin token exists.

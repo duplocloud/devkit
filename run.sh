@@ -214,20 +214,52 @@ compose_project() {
 }
 # Mongo takes its root password only when it initialises an empty data volume, so a volume from before
 # MONGO_ROOT_PASSWORD existed still answers to the old fixed password, and a generated one would lock the studio out
-# of it. The volume is looked up by its compose name, and a runtime that cannot list volumes stops the run too, since
-# its empty answer would otherwise read as no volume. A --reset whose teardown worked leaves nothing here to find.
-refuse_old_mongo_volume() {
-  local err
+# of it. Such a volume gets its password rotated in place: mongo is started alone, the root user's password is changed
+# through the old one, and .env is written only once the database has taken the new value. The new value is kept in
+# MONGO_ROOT_PASSWORD_PENDING from before the change until after the write, so a run that stops between the two picks
+# the same value up next time, trying it first and the old password second, and never generates a third. The volume is
+# looked up by its compose name, and a runtime that cannot list volumes stops the run too, since its empty answer would
+# otherwise read as no volume. A --reset whose teardown worked leaves nothing here to find.
+MONGO_OLD_PASSWORD=authpass
+# mongo_eval <password> <js> [compose exec options…]: run one mongosh expression against the admin database, quietly.
+mongo_eval() {
+  local pw="$1" js="$2"; shift 2
+  "$RUNTIME" compose exec -T "$@" mongo mongosh --quiet -u authuser -p "$pw" --authenticationDatabase admin --eval "$js" >/dev/null 2>&1
+}
+rotate_old_mongo_password() {
+  local err pending answers="" i
   if ! err="$("$RUNTIME" volume ls -q 2>&1 >/dev/null)"; then
     echo "  ✖ $RUNTIME could not list volumes, so whether MongoDB's data volume predates the generated password is unknown:" >&2
     echo "    $err" >&2
     exit 1
   fi
   "$RUNTIME" volume inspect "$(compose_project)_mongo_data" >/dev/null 2>&1 || return 0
-  echo "  ✖ MongoDB's data volume was initialised with the old fixed password, and this run would generate a new one" >&2
-  echo "    the database does not know. Run ./run.sh --reset to recreate the database with a generated password," >&2
-  echo "    or set MONGO_ROOT_PASSWORD=authpass in .env to keep this database as it is." >&2
-  exit 1
+  pending="$(getenv MONGO_ROOT_PASSWORD_PENDING)"
+  [ -n "$pending" ] || { pending="$(openssl rand -hex 32)"; setenv MONGO_ROOT_PASSWORD_PENDING "$pending"; }
+  echo "==> MongoDB's data volume predates the generated password; rotating the root password in place…"
+  # The image refuses to start with the root username set and the password empty, even over an initialised volume
+  # where it applies neither, so the lone mongo gets the old password for this step. The full start below reads the
+  # new one from .env.
+  MONGO_ROOT_PASSWORD="$MONGO_OLD_PASSWORD" "$RUNTIME" compose up -d mongo >/dev/null 2>&1 \
+    || { echo "  ✖ $RUNTIME could not start mongo to rotate its password." >&2; exit 1; }
+  for i in $(seq 1 30); do
+    if mongo_eval "$pending" 'db.adminCommand({ping:1})'; then answers=pending; break; fi
+    if mongo_eval "$MONGO_OLD_PASSWORD" 'db.adminCommand({ping:1})'; then answers=old; break; fi
+    sleep 2
+  done
+  case "$answers" in
+    pending) ;;   # an earlier run changed it and stopped before writing .env
+    old) mongo_eval "$MONGO_OLD_PASSWORD" 'db.getSiblingDB("admin").changeUserPassword("authuser", process.env.MONGO_NEW_PASSWORD)' \
+           -e "MONGO_NEW_PASSWORD=$pending" \
+           || { echo "  ✖ Changing MongoDB's root password failed. The old password still applies and nothing was written to .env." >&2; exit 1; } ;;
+    *) echo "  ✖ MongoDB answered to neither the old fixed root password nor the pending one within 60 seconds." >&2
+       echo "    If its root password was changed by hand, set MONGO_ROOT_PASSWORD in .env to it. Otherwise run" >&2
+       echo "    ./run.sh --reset to recreate the database with a generated password." >&2
+       exit 1 ;;
+  esac
+  setenv MONGO_ROOT_PASSWORD "$pending"
+  setenv MONGO_ROOT_PASSWORD_PENDING ""
+  echo "    done. MONGO_ROOT_PASSWORD in .env now holds the new password."
 }
 setenv() {
   python3 - "$ENV" "$1" "${2-}" <<'PY'
@@ -684,7 +716,7 @@ if [ "$RESET" = 1 ]; then
   for k in Authentication__LocalAdminEmail Authentication__LocalAdminPassword Authentication__SuperUsers \
            DEVKIT_MODEL ANTHROPIC_API_KEY AWS_REGION AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
            CLAUDE_MODEL CLAUDE_EXTRA_MODELS "${GATEWAY_KEYS[@]}" "${SUBSCRIPTION_KEYS[@]}" \
-           Encryption__MasterKey Authentication__JwtSharedSecret MONGO_ROOT_PASSWORD Agent__ApiAuthToken DUPLO_ADMIN_TOKEN EXTENSION_DEV_WORKSPACE_ID \
+           Encryption__MasterKey Authentication__JwtSharedSecret MONGO_ROOT_PASSWORD MONGO_ROOT_PASSWORD_PENDING Agent__ApiAuthToken DUPLO_ADMIN_TOKEN EXTENSION_DEV_WORKSPACE_ID \
            EXTENSION_DEV_PERMSET_ID EXTENSION_DEV_PERMSETGROUP_ID \
            QDRANT_PROVIDER_ID QDRANT_SCOPE_ID QDRANT_COLLECTION_ID; do
     setenv "$k" ""
@@ -1050,7 +1082,7 @@ setenv AIStudio__IsMasterDisabled true
 # embedded mid-key, which rendered as a wrapped line in .env and failed the backend's key validation.
 [ -n "$(getenv Encryption__MasterKey)" ] || setenv Encryption__MasterKey "$(openssl rand -base64 96 | tr -d '\r\n')"
 [ -n "$(getenv Authentication__JwtSharedSecret)" ] || setenv Authentication__JwtSharedSecret "$(openssl rand -hex 32)"
-[ -n "$(getenv MONGO_ROOT_PASSWORD)" ] || refuse_old_mongo_volume
+[ -n "$(getenv MONGO_ROOT_PASSWORD)" ] || rotate_old_mongo_password
 [ -n "$(getenv MONGO_ROOT_PASSWORD)" ] || setenv MONGO_ROOT_PASSWORD "$(openssl rand -hex 32)"
 # The studio sends this as a bearer on every agent call and the agent rejects any call without it. Both read .env.
 [ -n "$(getenv Agent__ApiAuthToken)" ] || setenv Agent__ApiAuthToken "$(openssl rand -hex 32)"
