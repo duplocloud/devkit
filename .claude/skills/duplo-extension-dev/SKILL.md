@@ -26,6 +26,7 @@ from a built-in resource (Network, Namespace, …).
 > [06-registration](reference/06-registration.md) — in-platform vs local load, SDK pinning, reloading changed code ·
 > [07-scope-credentials](reference/07-scope-credentials.md) — reading the selected scopes' credentials in a skill ·
 > [08-parent-child-and-menus](reference/08-parent-child-and-menus.md) — multi-resource extensions and `frontend.menus[]` ·
+> Navbar buttons: `frontend.headerActions[]` — [02-authoring-guide](reference/02-authoring-guide.md#frontendheaderactions) ·
 > [09-result-templates](reference/09-result-templates.md) — the declarative renderer is not supported ·
 > [10-sdk-api](reference/10-sdk-api.md) — cloud access from C# (`IScopeCredentials`, `IScopeClientFactory`) ·
 > [11-deprovisioning](reference/11-deprovisioning.md) — delete/deprovision per mode ·
