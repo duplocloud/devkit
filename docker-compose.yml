@@ -11,10 +11,16 @@ services:
     image: mongo:7.0.14
     restart: unless-stopped
     ports:
-      - "${MONGO_PORT:-27017}:27017"
+      # Bound to 127.0.0.1 deliberately: the dev kit is documented as running on EC2 hosts, so a bare
+      # "27017:27017" would hand full read/write on every database to anything that can reach the host.
+      # The studio reaches mongo in-network at mongo:27017. The loopback port stays published so mongosh
+      # and Compass work from the host.
+      - "127.0.0.1:${MONGO_PORT:-27017}:27017"
     environment:
+      # run.sh generates the password once into .env. Mongo applies it only when it initialises an empty
+      # data volume, so changing it later needs ./run.sh --reset.
       - MONGO_INITDB_ROOT_USERNAME=authuser
-      - MONGO_INITDB_ROOT_PASSWORD=authpass
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
       - MONGO_INITDB_DATABASE=auth-service
     volumes:
       # loaded_extensions records live here → previously-loaded extensions are replayed on restart.
@@ -27,9 +33,8 @@ services:
     image: qdrant/qdrant:v1.18.2
     restart: unless-stopped
     ports:
-      # Bound to 127.0.0.1 deliberately, unlike the mongo line above: the fixed API key below is only
-      # safe because nothing off this host can reach Qdrant, and the dev kit is documented as running on
-      # EC2 hosts. A bare "6333:6333" would publish it on every interface.
+      # Bound to 127.0.0.1 for the same reason as mongo above: the fixed API key below is only safe
+      # because nothing off this host can reach Qdrant.
       - "127.0.0.1:${QDRANT_PORT:-6333}:6333"
     environment:
       # Fixed, and deliberately not a secret — Qdrant is reachable only on the compose network and
@@ -70,7 +75,7 @@ services:
     env_file:
       - ./.env
     environment:
-      - MongoDB__ConnectionString=mongodb://authuser:authpass@mongo:27017/?retryWrites=false
+      - MongoDB__ConnectionString=mongodb://authuser:${MONGO_ROOT_PASSWORD}@mongo:27017/?retryWrites=false
       - MongoDB__DatabaseName=duplo-ai-helpdesk
       - ASPNETCORE_URLS=http://+:60021
       # Published-image paths (Dockerfile.core stages resources at /app; SDK feed + extension-studio dir).
@@ -99,7 +104,7 @@ services:
   # secret, so no host port is published.
   installer:
     # Defaults to .env.example's pin, so `docker compose up` before run.sh copies INSTALLER_TAG into .env still starts.
-    image: quay.io/duplocloud/helpdesk-installer:${INSTALLER_TAG:-main-4780968f}
+    image: quay.io/duplocloud/helpdesk-installer:${INSTALLER_TAG:-main-af01f400}
     restart: unless-stopped
     environment:
       - INSTALLER_PLATFORM=compose
@@ -137,13 +142,17 @@ services:
       init-perms:
         condition: service_completed_successfully
 
+  # No published port. The exec endpoint runs scripts inside this container, which holds the LLM and cloud
+  # credentials and reaches the privileged dind daemon. The studio reaches it in-network at
+  # http://claude-code-agent:8000, which is all anything needs.
   claude-code-agent:
     image: quay.io/duplocloud/duplo-agent:${AGENT_TAG}
     restart: unless-stopped
-    ports:
-      - "${AGENT_PORT:-8000}:8000"
     environment:
       - PERSISTENT_VOLUME_STORAGE=/data
+      # Every route but health requires this bearer once it is set. The studio reads the same value from .env
+      # through its env_file and sends it on each agent call. Empty, the agent accepts any caller.
+      - CCA_API_AUTH_TOKEN=${Agent__ApiAuthToken:-}
       - AGENT_CALLBACK_BASE_URL=http://duplo-ai-studio:60021
       - DCAF_TOOL_CALL_LIMIT=15
       - DCAF_DEFAULT_TOOLKIT=true
@@ -275,14 +284,19 @@ services:
       init-nginx-conf:
         condition: service_completed_successfully
 
+  # Published on loopback only: the container runs privileged and the terminal server authenticates nobody, so a
+  # bare "6060:6060" would hand a root shell on this host to anything that can reach it. The browser reaches it at
+  # http://localhost:$XTERM_PORT (AIStudio__XtermHost above), which loopback still serves.
   xterm:
     image: quay.io/duplocloud/duplo-xterm:${XTERM_TAG:-main-d323e0b}
     restart: unless-stopped
     privileged: true
     ports:
-      - "${XTERM_PORT:-6060}:6060"
+      - "127.0.0.1:${XTERM_PORT:-6060}:6060"
     environment:
-      - CORS_ORIGIN=*
+      # The origins the socket.io server accepts, unset meaning every origin. The portal is served from
+      # localhost on UI_PORT, and some people type 127.0.0.1 instead, so both are listed.
+      - ALLOWED_ORIGINS=http://localhost:${UI_PORT:-4200},http://127.0.0.1:${UI_PORT:-4200}
 
   # Build toolchain for extensions (.NET SDK 8 + Node 22). Behind a profile so the `compose pull`
   # and `up` in run.sh skip it entirely — a user who only runs the platform never downloads it. The
@@ -333,6 +347,9 @@ services:
       # change if a cache path is ever added, and it explains the per-uid volume names below).
       - nuget_cache:/cache/nuget
       - npm_cache:/cache/npm
+      # The ArmDot license file. /dev/null stands in when none is set, so the mount is always valid and the
+      # variable below stays empty, which build-extension.sh reads as "do not obfuscate".
+      - ${ARMDOT_LICENSE_FILE_PATH:-/dev/null}:/run/armdot/license.key:ro
     environment:
       - DUPLO_BUILD_NATIVE=1
       - DUPLO_TARGET=${DUPLO_TARGET:-local}
@@ -345,6 +362,8 @@ services:
       - DUPLO_HOST=${DUPLO_HOST:-}
       - DUPLO_TOKEN=${DUPLO_TOKEN:-}
       - DUPLO_ADMIN_TOKEN=${DUPLO_ADMIN_TOKEN:-}
+      - ARMDOT_LICENSE_FILE_PATH=${ARMDOT_LICENSE_FILE_PATH:+/run/armdot/license.key}
+      - DUPLO_SDK_VERSIONS=${DUPLO_SDK_VERSIONS:-}
 
 volumes:
   nginx_conf:

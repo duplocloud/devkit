@@ -205,6 +205,30 @@ runtime_rosetta_check || exit 1
 
 # ── .env helpers (line-based; safe for tokens/keys with special chars) ────────
 getenv() { grep -E "^$1=" "$ENV" 2>/dev/null | head -1 | cut -d= -f2- || true; }
+# The compose project name, which prefixes every volume the stack owns. Compose derives it from the directory name
+# unless COMPOSE_PROJECT_NAME says otherwise, lowercased and stripped to [a-z0-9_-].
+compose_project() {
+  local n; n="$(getenv COMPOSE_PROJECT_NAME)"; [ -n "${COMPOSE_PROJECT_NAME:-}" ] && n="$COMPOSE_PROJECT_NAME"
+  [ -n "$n" ] || n="$(basename "$PWD")"
+  printf '%s' "$n" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]//g; s/^[_-]+//'
+}
+# Mongo takes its root password only when it initialises an empty data volume, so a volume from before
+# MONGO_ROOT_PASSWORD existed still answers to the old fixed password, and a generated one would lock the studio out
+# of it. The volume is looked up by its compose name, and a runtime that cannot list volumes stops the run too, since
+# its empty answer would otherwise read as no volume. A --reset whose teardown worked leaves nothing here to find.
+refuse_old_mongo_volume() {
+  local err
+  if ! err="$("$RUNTIME" volume ls -q 2>&1 >/dev/null)"; then
+    echo "  ✖ $RUNTIME could not list volumes, so whether MongoDB's data volume predates the generated password is unknown:" >&2
+    echo "    $err" >&2
+    exit 1
+  fi
+  "$RUNTIME" volume inspect "$(compose_project)_mongo_data" >/dev/null 2>&1 || return 0
+  echo "  ✖ MongoDB's data volume was initialised with the old fixed password, and this run would generate a new one" >&2
+  echo "    the database does not know. Run ./run.sh --reset to recreate the database with a generated password," >&2
+  echo "    or set MONGO_ROOT_PASSWORD=authpass in .env to keep this database as it is." >&2
+  exit 1
+}
 setenv() {
   python3 - "$ENV" "$1" "${2-}" <<'PY'
 import sys
@@ -660,7 +684,7 @@ if [ "$RESET" = 1 ]; then
   for k in Authentication__LocalAdminEmail Authentication__LocalAdminPassword Authentication__SuperUsers \
            DEVKIT_MODEL ANTHROPIC_API_KEY AWS_REGION AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
            CLAUDE_MODEL CLAUDE_EXTRA_MODELS "${GATEWAY_KEYS[@]}" "${SUBSCRIPTION_KEYS[@]}" \
-           Encryption__MasterKey Authentication__JwtSharedSecret DUPLO_ADMIN_TOKEN EXTENSION_DEV_WORKSPACE_ID \
+           Encryption__MasterKey Authentication__JwtSharedSecret MONGO_ROOT_PASSWORD Agent__ApiAuthToken DUPLO_ADMIN_TOKEN EXTENSION_DEV_WORKSPACE_ID \
            EXTENSION_DEV_PERMSET_ID EXTENSION_DEV_PERMSETGROUP_ID \
            QDRANT_PROVIDER_ID QDRANT_SCOPE_ID QDRANT_COLLECTION_ID; do
     setenv "$k" ""
@@ -1026,6 +1050,10 @@ setenv AIStudio__IsMasterDisabled true
 # embedded mid-key, which rendered as a wrapped line in .env and failed the backend's key validation.
 [ -n "$(getenv Encryption__MasterKey)" ] || setenv Encryption__MasterKey "$(openssl rand -base64 96 | tr -d '\r\n')"
 [ -n "$(getenv Authentication__JwtSharedSecret)" ] || setenv Authentication__JwtSharedSecret "$(openssl rand -hex 32)"
+[ -n "$(getenv MONGO_ROOT_PASSWORD)" ] || refuse_old_mongo_volume
+[ -n "$(getenv MONGO_ROOT_PASSWORD)" ] || setenv MONGO_ROOT_PASSWORD "$(openssl rand -hex 32)"
+# The studio sends this as a bearer on every agent call and the agent rejects any call without it. Both read .env.
+[ -n "$(getenv Agent__ApiAuthToken)" ] || setenv Agent__ApiAuthToken "$(openssl rand -hex 32)"
 
 if [ "$MODEL" = anthropic ]; then
   KEY="$(resolve "$F_ANTHROPIC" ANTHROPIC_API_KEY 'Anthropic API key' secret)"

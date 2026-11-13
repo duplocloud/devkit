@@ -33,17 +33,17 @@ set_manifest() {
 
 change() { echo "$1" > "$D/code.txt"; git -C "$REPO" commit -qam "$1"; }
 
-# bundle <fe entry file>: the dist/extension.zip a build leaves, with its frontend entry under fe/.
+# bundle <fe entry file> [sdk]: the dist/extension.zip a host-mode build leaves, or dist/sdk-<sdk>/extension.zip for a
+# per-version build, with its frontend entry under fe/.
 bundle() {
-  local p; p="$(mktemp -d)"; mkdir -p "$p/fe"; cp "$D/manifest.json" "$p/"; echo x > "$p/fe/$1"
-  mkdir -p "$D/dist"; rm -f "$D/dist/extension.zip"; ( cd "$p" && zip -qr "$D/dist/extension.zip" . ); rm -rf "$p"
+  local p out; p="$(mktemp -d)"; mkdir -p "$p/fe"; cp "$D/manifest.json" "$p/"; echo x > "$p/fe/$1"
+  out="$D/dist/${2:+sdk-$2/}extension.zip"
+  mkdir -p "$(dirname "$out")"; rm -f "$out"; ( cd "$p" && zip -qr "$out" . ); rm -rf "$p"
 }
 
-# The script resolves the repo from its own path, as it does when devkit copies it into an extension repo, so its
-# sourced helpers (_publishers.sh, _publish.sh) have to travel with it.
+# The script resolves the repo from its own path, as it does when devkit copies it into an extension repo.
 run() {
   mkdir -p "$REPO/scripts"; cp "$ROOT/scripts/check-extension-pr.sh" "$REPO/scripts/" 2>/dev/null
-  cp "$ROOT"/scripts/_*.sh "$REPO/scripts/" 2>/dev/null
   "$REPO/scripts/check-extension-pr.sh" main 2>&1
 }
 
@@ -87,16 +87,15 @@ new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'; chang
 OUT="$(run)"; RC=$?
 if [ "$RC" = 0 ] && grep -q "::warning.*remoteEntry.js" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
 
+t "warns about a webpack frontend in a per-SDK-version bundle (dist/sdk-<v>/extension.zip)"
+new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'; change two; bundle remoteEntry.js 1.0.6
+OUT="$(run)"; RC=$?
+if [ "$RC" = 0 ] && grep -q "::warning.*sdk-1.0.6/extension.zip" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
+
 t "is quiet about a Native Federation frontend (fe/remoteEntry.json)"
 new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'; change two; bundle remoteEntry.json
 OUT="$(run)"; RC=$?
 if [ "$RC" = 0 ] && ! grep -q "::warning" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
-
-t "warns about an id outside the publisher allowlist in a Duplo org"
-new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'; change two
-jq -n '{schemaVersion:1, publishers:[]}' > "$REPO/pub.json"
-OUT="$(PUBLISHERS_FILE="$REPO/pub.json" GITHUB_REPOSITORY=duplocloud/demo GITHUB_REPOSITORY_OWNER=duplocloud run)"; RC=$?
-if [ "$RC" = 0 ] && grep -q "::warning.*allowlist" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
 
 t "warns about a manifest that declares no resource"
 new_repo; jq '.version="0.1.1" | .skills=[{folder:"duplo.demo/0.1.1/skills/provision-demo",isBuiltIn:true}] | del(.resources)' \
@@ -119,6 +118,31 @@ t "warns about a non-semver version in a Duplo org"
 new_repo; set_manifest 'v1.0.0' '["duplo.demo/v1.0.0/skills/provision-demo"]'; change two
 OUT="$(GITHUB_REPOSITORY_OWNER=duplocloud run)"; RC=$?
 if [ "$RC" = 0 ] && grep -q "::warning.*not strict semver" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
+
+# frontend_lib <dependency spec>: the extension's frontend depends on ng-common-lib at that spec.
+frontend_lib() {
+  mkdir -p "$D/frontend"
+  jq -n --arg v "$1" '{dependencies:{"@duplocloud-internal/ng-common-lib":$v}}' > "$D/frontend/package.json"
+  git -C "$REPO" add -A; git -C "$REPO" commit -qm lib
+}
+
+t "warns about an ng-common-lib older than 0.5.1, naming the theme migration skill"
+new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'
+frontend_lib 'file:vendor/duplocloud-internal-ng-common-lib-0.4.0.tgz'
+OUT="$(run)"; RC=$?
+if [ "$RC" = 0 ] && grep -q "::warning.*0.4.0.*duplo-extension-theme-migration" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
+
+t "warns about ng-common-lib 0.5.0 for its missing token defaults, not as light-only"
+new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'
+frontend_lib 'file:vendor/duplocloud-internal-ng-common-lib-0.5.0.tgz'
+OUT="$(run)"; RC=$?
+if [ "$RC" = 0 ] && grep -q "::warning.*0.5.0.*defaults" <<<"$OUT" && ! grep -q "stays light" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
+
+t "is quiet about ng-common-lib 0.5.1 and later"
+new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'
+frontend_lib 'file:vendor/duplocloud-internal-ng-common-lib-0.5.1.tgz'
+OUT1="$(run)"; RC1=$?; frontend_lib '^0.10.0'; OUT2="$(run)"; RC=$((RC1 | $?))
+if [ "$RC" = 0 ] && ! grep -q "::warning" <<<"$OUT1$OUT2"; then ok; else bad "rc=$RC out=$OUT1$OUT2"; fi
 
 echo
 echo "passed $PASS, failed $FAIL"

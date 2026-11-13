@@ -11,27 +11,34 @@
 # into the build container, so anything outside it does not exist in there. `--native` has no such limit
 # and takes a path anywhere on disk.
 #
-# Usage: ./scripts/build-extension.sh [--native] <extension-dir>   # e.g. ./extension or samples/helloworld
+# Usage: ./scripts/build-extension.sh [--native] [--validate-only] <extension-dir>   # e.g. ./extension or samples/helloworld
+# --validate-only runs just the manifest/naming gate (no SDK fetch, no builder, no build) and exits.
 set -euo pipefail
+# _builder.sh is sourced before the cd so the license path resolves against the caller's directory, not the repo
+# root. It defines functions only, and builder_dispatch (below) is what needs _target.sh sourced first.
+# shellcheck source=scripts/_builder.sh
+source "$(dirname "$0")/_builder.sh"  # → native, or re-launch this build in the builder container
+builder_resolve_license || exit 1
 cd "$(dirname "$0")/.."
 
 # Strip --native before the positional arg is read, so it works in either order.
-for a in "$@"; do shift; case "$a" in --native) DUPLO_BUILD_NATIVE=1 ;; *) set -- "$@" "$a" ;; esac; done
+VALIDATE_ONLY=0
+for a in "$@"; do shift; case "$a" in --native) DUPLO_BUILD_NATIVE=1 ;; --validate-only) VALIDATE_ONLY=1 ;; *) set -- "$@" "$a" ;; esac; done
 
-DIR="${1:?usage: build-extension.sh [--native] <extension-dir>}"
+DIR="${1:?usage: build-extension.sh [--native] [--validate-only] <extension-dir>}"
 DIR="${DIR%/}"
-# shellcheck source=scripts/_target.sh
-source "$(dirname "$0")/_target.sh"   # → BASE_URL (+ TOKEN) from .env / env per DUPLO_TARGET
-# shellcheck source=scripts/_builder.sh
-source "$(dirname "$0")/_builder.sh"  # → native, or re-launch this build in the builder container
-# shellcheck source=scripts/_sdk_digest.sh
-source "$(dirname "$0")/_sdk_digest.sh"  # → sdk_digest, stamped into the bundle manifest beside sdkVersion
-BASE_URL="${BASE_URL%/}"               # tolerate a trailing slash in DUPLO_HOST (avoids // in URLs)
+if [ "$VALIDATE_ONLY" != 1 ]; then
+  # shellcheck source=scripts/_target.sh
+  source "$(dirname "$0")/_target.sh"   # → BASE_URL (+ TOKEN) from .env / env per DUPLO_TARGET
+  # shellcheck source=scripts/_sdk_digest.sh
+  source "$(dirname "$0")/_sdk_digest.sh"  # → sdk_digest, stamped into the bundle manifest beside sdkVersion
+  BASE_URL="${BASE_URL%/}"               # tolerate a trailing slash in DUPLO_HOST (avoids // in URLs)
+fi
 [ -f "$DIR/manifest.json" ] || { echo "No manifest.json in $DIR" >&2; exit 1; }
 
 # Delegates to the builder container unless we're already native (see the header). Never returns in
 # the container case.
-builder_dispatch scripts/build-extension.sh "$DIR"
+[ "$VALIDATE_ONLY" = 1 ] || builder_dispatch scripts/build-extension.sh "$DIR"
 
 # From here down we are native and the toolchain is present — builder_dispatch guarantees it.
 
@@ -69,6 +76,9 @@ done < <(jq -r '.frontend.menus // [] | .. | objects | .relativeUrl? // empty' "
 if jq -e '.frontend.menu' "$MANIFEST" >/dev/null 2>&1; then
   echo "  ✗ legacy 'frontend.menu' is deprecated — use the 'frontend.menus' array" >&2; viol=1
 fi
+# shellcheck source=scripts/validate-header-actions.sh
+source "$(dirname "$0")/validate-header-actions.sh"
+validate_header_actions "$MANIFEST" || viol=1
 while IFS= read -r m; do
   name=$(printf '%s' "$m" | sed -E 's/.*BsonCollection\("([^"]*)".*/\1/')
   case "$name" in extension_*) ;; *)
@@ -84,11 +94,79 @@ if [ -d "$DIR/skills" ]; then
         | grep -vE 'environment/(extensions/|extension-studio)' | grep -vE 'environment/\{' || true)
   [ -n "$bad" ] && { echo "  ! skill callback URL(s) not under 'environment/extensions/' — confirm they target this extension's restSegment:" >&2; printf '%s\n' "$bad" | sed 's/^/      /' >&2; }
 fi
+# Admin extension scope (reference/21-admin-resources.md). An AdminResourcesController serves a route with no
+# {workspaceId}, gated by the Admin Workspace's grants, and owns its rows in the system Admin Workspace; a workspace
+# controller must never sit under the admin prefix. The manifest marks admin surfaces with "scope": "admin" on the top-level menu node + its routes.
+has_admin=0; has_ws=0
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  # `|| true`: a file with no Route(" attribute (a child that only routes its actions via [HttpPost("~/…")], or
+  # one that names ResourcesController< in a comment) must not abort the script under pipefail.
+  route=$( { grep -oE 'Route\("[^"]*"\)' "$f" || true; } | head -1 | sed -E 's/Route\("([^"]*)"\)/\1/')
+  # A child controller often has no class-level [Route] and roots its actions instead (03-base-classes).
+  [ -n "$route" ] || route=$( { grep -oE 'Http[A-Za-z]+\("~/[^"]*"' "$f" || true; } | head -1 | sed -E 's/.*"~\/([^"]*)"/\1/')
+  if grep -qE ':[[:space:]]*AdminResourcesController<' "$f"; then
+    has_admin=1
+    case "$route" in v1/aiservicedesk/admin/data/environment/extensions/*) ;; *)
+      echo "  ✗ $(basename "$f"): an AdminResourcesController must be routed at 'v1/aiservicedesk/admin/data/environment/extensions/<…>' (got '$route')" >&2; viol=1 ;;
+    esac
+    # Mirrors the host's startup check: an admin controller whose entity is not a registered access node fails
+    # the access registry rebuild, and the extension load is rolled back.
+    grep -qE '^[[:space:]]*\[([^]/]*[,[:space:]])?AccessControl\(' "$f" || {
+      echo "  ✗ $(basename "$f"): an AdminResourcesController must declare its access node — [AccessControl(Parent = typeof(Workspace), ParentIdProperty = \"OwnerWorkspaceId\")] — or the host rejects the load" >&2; viol=1; }
+  elif grep -qE ':[[:space:]]*ChildResourceController<' "$f" && grep -qE 'override string GetWorkspaceIdFromRoute' "$f"; then
+    # Admin child: the SDK has no admin ChildResourceController, so the extension's child controller
+    # overrides GetWorkspaceIdFromRoute (+ the workspaceId actions) itself — see reference/21-admin-resources.md.
+    has_admin=1
+    case "$route" in v1/aiservicedesk/admin/data/environment/extensions/*) ;; *)
+      echo "  ✗ $(basename "$f"): an admin child controller (overrides GetWorkspaceIdFromRoute) must be routed under 'v1/aiservicedesk/admin/data/environment/extensions/<…>' (got '$route')" >&2; viol=1 ;;
+    esac
+    for a in CanDeprovision Deprovision ForceReconcile CreateTicket GetTicketStatus; do
+      grep -qE "override[[:space:]]+(async[[:space:]]+)?Task<IActionResult>[[:space:]]+$a\(" "$f" || {
+        echo "  ✗ $(basename "$f"): admin child controller must override $a with a [BindNever] string? workspaceId (the admin route has no {workspaceId}; otherwise it returns 400)" >&2; viol=1; }
+    done
+  elif grep -qE ':[[:space:]]*(ResourcesController|ChildResourceController)<' "$f"; then
+    has_ws=1
+    case "$route" in *aiservicedesk/admin/*)
+      echo "  ✗ $(basename "$f"): '$route' is an admin route — derive from AdminResourcesController (or, for a child, override GetWorkspaceIdFromRoute; see reference/21-admin-resources.md)" >&2; viol=1 ;;
+    esac
+  fi
+done < <(grep -rlE 'Controller<' "$DIR/backend" --include='*.cs' 2>/dev/null | grep -vE '/(bin|obj)/' || true)
+while IFS= read -r sc; do
+  echo "  ✗ frontend extension scope '$sc' must be 'workspace' or 'admin' (this is not a Provider scope)" >&2; viol=1
+done < <(jq -r '[.frontend.routes[]?.scope, .frontend.menus[]?.scope] | map(select(. != null and . != "workspace" and . != "admin")) | .[]' "$MANIFEST")
+while IFS= read -r n; do
+  echo "  ✗ frontend.menus node '$n' sets the extension 'scope' — only the TOP-LEVEL node of a menu tree may (the whole tree follows it)" >&2; viol=1
+done < <(jq -r '.frontend.menus // [] | .[] | (.children // []) | .. | objects | select(has("scope")) | (.id // .title)' "$MANIFEST")
+while IFS=$'\t' read -r u sc; do
+  [ -n "$u" ] || continue
+  echo "  ✗ menu link '$u' is in a '$sc'-extension-scope menu tree but no frontend.routes[] entry has path '$u' with that extension scope (omitted = workspace)" >&2; viol=1
+done < <(jq -r '(.frontend.routes // []) as $r | .frontend.menus // [] | .[] | (.scope // "workspace") as $s
+  | [.. | objects | .relativeUrl? // empty] | .[] as $u
+  | select(([$r[] | select(.path == $u) | (.scope // "workspace")] | index($s)) == null) | "\($u)\t\($s)"' "$MANIFEST")
+# A plain controller (ControllerBase/Controller, e.g. a read-only workspace view of an admin resource) gets no
+# authorization unless it says so: the host has no fallback policy, and only [Authorize] runs the tenant policy
+# (workspace membership; Admin Workspace grants on /aiservicedesk/admin). Resource controllers inherit it from their base.
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  # Attribute lines only (also `[ApiController, Authorize]`) — a doc comment mentioning [Authorize] must not count.
+  grep -qE '^[[:space:]]*\[([^]/]*[,[:space:]])?Authorize([](,[:space:]]|$)' "$f" || {
+    echo "  ✗ $(basename "$f"): a controller deriving from ControllerBase/Controller must carry [Authorize] — without it its routes are anonymous (see reference/21-admin-resources.md)" >&2; viol=1; }
+done < <(grep -rlE ':[[:space:]]*(ControllerBase|Controller)[[:space:]]*($|\{|,)' "$DIR/backend" --include='*.cs' 2>/dev/null | grep -vE '/(bin|obj)/' || true)
+if [ "$has_admin" = 1 ] && [ "$has_ws" = 0 ]; then
+  if [ -d "$DIR/frontend/src" ] && ! grep -rqF 'admin/data/environment' "$DIR/frontend/src" 2>/dev/null; then
+    echo "  ✗ the backend is admin-scoped but no frontend file calls '/v1/aiservicedesk/admin/data/environment/…' — point the FE service base() at the admin route" >&2; viol=1
+  fi
+  if [ -d "$DIR/skills" ] && grep -rqE 'user/data/workspaces/[^ ]*/environment/extensions/' "$DIR/skills" 2>/dev/null; then
+    echo "  ! skill callback URL(s) use '…/user/data/workspaces/…' but the resource is admin-scoped — post to '…/admin/data/environment/extensions/<…>/{id}/status|results'" >&2
+  fi
+fi
 # Frontend ↔ backend route parity: the FE service builds its data URL from REST_SEGMENT, which MUST be the full
 # 'extensions/<…>' path AND (for a single top-level resource) equal the manifest restSegment. A bare leaf 404s
 # every list/get/create/view-template call — the #1 scaffolding pitfall. See reference/00-naming.md.
 if [ -d "$DIR/frontend/src" ]; then
-  fe_segs=$(grep -rhoE "REST_SEGMENT[[:space:]]*=[[:space:]]*'[^']+'" "$DIR/frontend/src" 2>/dev/null \
+  # `|| true`: a frontend with no REST_SEGMENT constant must not abort the script silently under pipefail.
+  fe_segs=$( { grep -rhoE "REST_SEGMENT[[:space:]]*=[[:space:]]*'[^']+'" "$DIR/frontend/src" 2>/dev/null || true; } \
             | sed -E "s/.*'([^']+)'.*/\1/" | sort -u)
   while IFS= read -r seg; do
     [ -n "$seg" ] || continue
@@ -130,74 +208,152 @@ if [ "$viol" -ne 0 ]; then
   exit 1
 fi
 echo "    naming OK"
+[ "$VALIDATE_ONLY" != 1 ] || exit 0
 
-echo "==> Fetching SDK feed from $BASE_URL"
-auth=()
-[ -n "${TOKEN:-}" ] && auth=(-H "Authorization: Bearer $TOKEN")
-# Capture the response first (don't pipe straight to jq) so a non-JSON body yields a clear error, not a
-# cryptic "jq: parse error". No -f: an HTTP error's body + status are the diagnostic, keep them.
-# -L follows http→https redirects.
-SDK_CODE=$(curl -sSL -m 30 -o /tmp/sdk-version-resp.$$ -w '%{http_code}' "${auth[@]}" \
-  "$BASE_URL/v1/aiservicedesk/extensions/sdk-version" 2>/dev/null || echo 000)
-SDK_RESP=$(cat /tmp/sdk-version-resp.$$ 2>/dev/null || true); rm -f /tmp/sdk-version-resp.$$
-SDK_VER=$(printf '%s' "$SDK_RESP" | jq -r '.version // empty' 2>/dev/null || true)
-if [ -z "$SDK_VER" ]; then
-  echo "ERROR: could not read the host SDK version from $BASE_URL/v1/aiservicedesk/extensions/sdk-version" >&2
-  echo "       HTTP $SDK_CODE — response (first 300 chars): $(printf '%s' "$SDK_RESP" | tr -d '\r' | head -c 300)" >&2
-  echo "       Check DUPLO_HOST is the AI Helpdesk studio base URL (serving /v1/aiservicedesk), is reachable," >&2
-  echo "       has no trailing path — and that TOKEN is set: in a platform ticket that means DUPLO_TOKEN in the" >&2
-  echo "       env plus DUPLO_TARGET=remote (auto-detected when DUPLO_HOST+DUPLO_TOKEN are both set)." >&2
-  exit 1
-fi
-echo "    host SDK version: $SDK_VER"
-mkdir -p "$DIR/backend/sdk-packages"
-curl -fsSL -m 120 "${auth[@]}" "$BASE_URL/v1/aiservicedesk/extensions/sdk-bundle" -o "$DIR/dist-sdk.zip" \
-  || { echo "ERROR: failed to download the SDK bundle from $BASE_URL/v1/aiservicedesk/extensions/sdk-bundle" >&2; exit 1; }
-unzip -oq "$DIR/dist-sdk.zip" -d "$DIR/backend/sdk-packages" \
-  || { echo "ERROR: SDK bundle is not a valid zip — got $(file -b "$DIR/dist-sdk.zip" 2>/dev/null). Check DUPLO_HOST." >&2; exit 1; }
-# Digest a fresh extraction, not sdk-packages/: that directory accumulates packages from earlier builds, and the
-# digest must describe only the SDK this build compiled against. See scripts/_sdk_digest.sh for the definition.
-SDK_FEED="$(mktemp -d)"
-unzip -oq "$DIR/dist-sdk.zip" -d "$SDK_FEED"
-SDK_DIGEST="$(sdk_digest "$SDK_FEED")" || { rm -rf "$SDK_FEED"; echo "ERROR: the SDK bundle from $BASE_URL is empty." >&2; exit 1; }
-rm -rf "$SDK_FEED" "$DIR/dist-sdk.zip"
-echo "    host SDK digest: $SDK_DIGEST"
+# --- Which SDKs to build against. ----------------------------------------------------------------------------
+# Empty (the default) keeps today's single build from the running host's SDK, stamped with its digest, at
+# dist/extension.zip. A non-empty DUPLO_SDK_VERSIONS (one per line, or comma-separated) builds one bundle per
+# version, each restored from the package feed (nuget.config's nuget.org source) rather than a host, so no
+# DUPLO_HOST is needed to build. Each goes to dist/sdk-<version>/extension.zip, which is what the release action
+# walks. The release action hands the list over one per line, so a repository variable holds that form too.
+SDK_VERSIONS=()
+for v in $(printf '%s' "${DUPLO_SDK_VERSIONS:-}" | tr ',' ' '); do
+  [ -n "$v" ] && SDK_VERSIONS+=("$v")
+done
 
 CSPROJ=$(find "$DIR/backend" -maxdepth 1 -name '*.csproj' | head -1)
 [ -n "$CSPROJ" ] || { echo "No .csproj under $DIR/backend" >&2; exit 1; }
+# The nuget.config local SDK source resolves against backend/, so the directory has to exist even in feed mode
+# (where it stays empty and restore falls through to nuget.org).
+mkdir -p "$DIR/backend/sdk-packages"
 
-# The host-provided-assembly baseline (created later) lives under backend/, inside this extension's compile
-# root. A copy left by a prior interrupted run would dupe AssemblyInfo and fail the publish below with CS0579,
-# so purge any leftover up-front and guarantee removal on exit (success OR failure) via a trap.
-BASELINE="$DIR/backend/_sdkbaseline"
-rm -rf "$BASELINE"
-trap 'rm -rf "$BASELINE" 2>/dev/null || true' EXIT
-
-echo "==> Building backend ($(basename "$CSPROJ"))"
-( cd "$DIR/backend" && dotnet publish "$(basename "$CSPROJ")" -c Release -o ../dist/backend -p:DuploSdkVersion="$SDK_VER" )
-
+# --- Frontend: built once and shared by every SDK bundle (it is SDK-independent). ----------------------------
 echo "==> Building frontend"
-# Strict install, matching the host portal. Where a dependency has no Angular 22 release (ngx-toastr,
-# at time of writing), the frontend's package.json pins it with an `overrides` block rather than
-# loosening the whole install. If a new conflict appears, add an override; do not restore the
-# legacy peer-deps flag.
-# npm ci when a lock exists (deterministic — the committed lock is what makes the strict install
-# reproducible); plain npm install only as the no-lock fallback. NEVER delete package-lock.json.
+# Strict install, matching the host portal. npm ci when a lock exists (deterministic), plain npm install only as
+# the no-lock fallback. NEVER delete package-lock.json, and NOT `npm ci || npm install`: a failing ci must fail
+# the build rather than silently fall back and rewrite the lock.
 ( cd "$DIR/frontend" \
   && if [ -f package-lock.json ]; then npm ci; else npm install; fi \
   && npm run build )
-# (if/else, NOT `npm ci || npm install`: a FAILING npm ci must fail the build, never silently fall back
-#  to npm install and rewrite the lock.)
+validate_header_action_exposes "$MANIFEST" "$DIR/frontend/dist/remoteEntry.json" \
+  || { echo "ERROR: a frontend.headerActions expose is missing from the built remoteEntry.json." >&2; exit 1; }
 
-# The extension is hot-loaded into a child AssemblyLoadContext whose Resolving hook serves any assembly the
-# host already has (the WHOLE SDK closure — Duplo.Ai.*, Mongo, AWS, AspNetCore, …) from the host's Default
-# context, for shared type identity. Those DLLs in the publish output are therefore never loaded from the
-# bundle; shipping them only bloats it past the load-bundle ingress body limit (HTTP 413). Compute the
-# host-provided set by publishing a minimal project that references ONLY the SDK meta-package (full runtime
-# closure) against the same feed, then ship just the assemblies the host does NOT provide.
-echo "==> Computing host-provided assembly set (to keep the bundle to extension-private DLLs)"
-rm -rf "$BASELINE"; mkdir -p "$BASELINE"   # BASELINE defined + trap-guarded near the top
-cat > "$BASELINE/_sdkbaseline.csproj" <<EOF
+# --- Obfuscation setup: once, SDK-independent (it depends only on ARMDOT_LICENSE_FILE_PATH). -----------------
+# The baseline (built per version inside build_one) lives under backend/, inside the compile root. A copy left by
+# a prior interrupted run, or by the previous version of a feed build, would dupe AssemblyInfo and fail the publish
+# with CS0579, so purge it up-front, after each version's use, and on exit via the trap. ArmDot obfuscation of the
+# extension's own assembly is on only when ARMDOT_LICENSE_FILE_PATH names a license. The import rides in through a
+# Directory.Build.targets dropped beside the csproj for this build, so the extension's own project file never changes.
+BASELINE="$DIR/backend/_sdkbaseline"
+rm -rf "$BASELINE"
+OBFUSCATE=0
+OBFUSCATE_PROPS=(-p:DuploObfuscate=false)
+OBF_TARGETS="$DIR/backend/Directory.Build.targets"
+trap 'rm -rf "$BASELINE" 2>/dev/null || true' EXIT
+# project_refs <csproj>: the projects it references, one absolute path per line. An Include is written with either
+# separator and, when relative, is relative to the csproj's directory. The directory part is resolved on disk so a
+# ../ segment compares against backend/ by location; one that does not exist is left as written for dotnet to report.
+# The file is read as one line first, since an element with several attributes puts Include on its own line, and
+# XML comments are dropped so a reference left commented out is not read. An Include that holds an MSBuild property,
+# a wildcard or a list has no directory on disk as written, so it is printed as written, with no prefix, and the
+# caller reads it as outside.
+project_refs() {
+  local csproj="$1" dir ref
+  dir="$(cd "$(dirname "$csproj")" && pwd -P)"
+  { tr '\n' ' ' < "$csproj" 2>/dev/null | sed -E 's/<!--([^-]|-[^-])*-->//g' \
+      | grep -oE '<ProjectReference[^>]*Include="[^"]+"' || true; } \
+    | sed -E 's/.*Include="([^"]+)".*/\1/' | tr '\\' '/' \
+    | while IFS= read -r ref; do
+        case "$ref" in
+          *'$('*|*'*'*|*'?'*|*';'*) printf '%s\n' "$ref"; continue ;;
+          /*) ;;
+          *) ref="$dir/$ref" ;;
+        esac
+        [ -d "$(dirname "$ref")" ] && ref="$(cd "$(dirname "$ref")" && pwd -P)/$(basename "$ref")"
+        printf '%s\n' "$ref"
+      done
+}
+# targets_above <csproj>: the Directory.Build.targets MSBuild would import for it instead of the one dropped at
+# backend/, if any: the nearest one from the project's own directory up to, but not including, backend/.
+targets_above() {
+  local d; d="$(dirname "$1")"
+  while [ "$d" != "$BACKEND_ROOT" ] && [ "${d#"$BACKEND_ROOT"/}" != "$d" ]; do
+    [ -f "$d/Directory.Build.targets" ] && { printf '%s\n' "$d/Directory.Build.targets"; return; }
+    d="$(dirname "$d")"
+  done
+}
+# check_refs <csproj>: walks its references and theirs, appending to $unprotected each one that would publish plain:
+# a project outside backend/, or one inside whose own Directory.Build.targets replaces the dropped import. A project
+# already walked is skipped, so a reference cycle ends the walk.
+check_refs() {
+  local from="$1" ref above
+  case "$seen" in *"|$from|"*) return ;; esac
+  seen="$seen|$from|"
+  while IFS= read -r ref; do
+    [ -n "$ref" ] || continue
+    case "$ref" in
+      "$BACKEND_ROOT"/*)
+        above="$(targets_above "$ref")"
+        if [ -n "$above" ]; then unprotected="$unprotected  $(basename "$from") -> $ref, which imports backend/${above#"$BACKEND_ROOT"/} instead"$'\n'
+        else check_refs "$ref"; fi ;;
+      *) unprotected="$unprotected  $(basename "$from") -> $ref"$'\n' ;;
+    esac
+  done < <(project_refs "$from")
+}
+if [ -n "${ARMDOT_LICENSE_FILE_PATH:-}" ]; then
+  ARMDOT_VERSION="$(sed -nE 's/.*<ArmDotEngineVersion>([^<]+)<.*/\1/p' build/ArmDot.Obfuscation.props)"
+  [ -n "$ARMDOT_VERSION" ] || { echo "ERROR: no ArmDotEngineVersion in build/ArmDot.Obfuscation.props" >&2; exit 1; }
+  # Only a project that imports the targets file dropped below is obfuscated, so a referenced project outside backend/,
+  # or one whose own Directory.Build.targets shadows the dropped file, publishes plain into a bundle whose manifest
+  # says obfuscated. Refuse that rather than overclaim. Every reference reachable from the entry project is checked.
+  BACKEND_ROOT="$(cd "$DIR/backend" && pwd -P)"
+  unprotected=""; seen=""
+  check_refs "$(cd "$(dirname "$CSPROJ")" && pwd -P)/$(basename "$CSPROJ")"
+  if [ -n "$unprotected" ]; then
+    echo "ERROR: a licensed build obfuscates only the projects under $DIR/backend/ that import its Directory.Build.targets," >&2
+    echo "       and these references lead to projects that do not:" >&2
+    printf '%s' "$unprotected" >&2
+    echo "  Their assemblies would ship plain in a bundle stamped as obfuscated. Move each project into its own folder" >&2
+    echo "  under backend/, add that folder to the entry project's DefaultItemExcludes so its sources are not compiled" >&2
+    echo "  twice, and keep no Directory.Build.targets between it and backend/. Or unset ARMDOT_LICENSE_FILE_PATH to" >&2
+    echo "  build without obfuscation." >&2
+    exit 1
+  fi
+  # A file identical to the template is this script's own leftover from a killed build, so it is replaced.
+  # Anything else is the extension's own and is never overwritten.
+  if [ -e "$OBF_TARGETS" ] && ! cmp -s build/Directory.Build.targets.template "$OBF_TARGETS"; then
+    echo "ERROR: $OBF_TARGETS already exists. The obfuscation import is dropped there for the build," >&2
+    echo "       so move the extension's own targets into its csproj first." >&2
+    exit 1
+  fi
+  trap 'rm -rf "$BASELINE" 2>/dev/null || true; rm -f "$OBF_TARGETS"' EXIT
+  cp build/Directory.Build.targets.template "$OBF_TARGETS"
+  OBFUSCATE=1
+  OBFUSCATE_PROPS=(-p:DuploObfuscate=true -p:ArmDotLicenseFile="$ARMDOT_LICENSE_FILE_PATH" -p:DuploDevkitBuildDir="$PWD/build/")
+fi
+
+# build_one <sdk-version> <sdk-digest> <out-dir>: publish the backend against one SDK version (obfuscated when a
+# license is set), compute the host-provided assembly set for that version, and assemble <out-dir>/extension.zip
+# with the shared frontend. The SDK is resolved through nuget.config: the host bundle under backend/sdk-packages
+# in host mode, else nuget.org. An empty digest is omitted from the manifest; nothing consumes sdkDigest, and a
+# feed build has no host bundle to fingerprint.
+build_one() {
+  local sdk_ver="$1" sdk_digest="$2" out="$3"
+  # The backend publish runs from backend/, so its -o has to be absolute, not relative to the repo root.
+  case "$out" in /*) ;; *) out="$PWD/$out" ;; esac
+  rm -rf "$out"; mkdir -p "$out"
+
+  [ "$OBFUSCATE" = 1 ] && echo "==> [$sdk_ver] Obfuscating the extension assembly with ArmDot $ARMDOT_VERSION"
+  echo "==> [$sdk_ver] Building backend ($(basename "$CSPROJ"))"
+  ( cd "$DIR/backend" && dotnet publish "$(basename "$CSPROJ")" -c Release -o "$out/backend" -p:DuploSdkVersion="$sdk_ver" \
+      "${OBFUSCATE_PROPS[@]}" )
+
+  # The extension is hot-loaded into a child AssemblyLoadContext that serves the whole SDK closure from the host's
+  # Default context, so those DLLs must not ship in the bundle (they only bloat it past the ingress limit). Compute
+  # the host-provided set by publishing a project that references only the SDK meta-package against the same feed.
+  echo "==> [$sdk_ver] Computing host-provided assembly set"
+  rm -rf "$BASELINE"; mkdir -p "$BASELINE"
+  cat > "$BASELINE/_sdkbaseline.csproj" <<CSPROJ_EOF
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -205,99 +361,123 @@ cat > "$BASELINE/_sdkbaseline.csproj" <<EOF
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <PackageReference Include="Duplocloud.AiHelpdesk.Sdk" Version="[$SDK_VER]" />
+    <PackageReference Include="Duplocloud.AiHelpdesk.Sdk" Version="[$sdk_ver]" />
   </ItemGroup>
 </Project>
-EOF
-echo 'namespace _SdkBaseline; internal sealed class _ {}' > "$BASELINE/_.cs"
-if ! ( cd "$BASELINE" && dotnet publish _sdkbaseline.csproj -c Release -o ./out -p:DuploSdkVersion="$SDK_VER" ) > "$BASELINE/publish.log" 2>&1; then
-  echo "ERROR: failed to compute the host-provided SDK closure (baseline publish):" >&2
-  tail -20 "$BASELINE/publish.log" >&2
-  exit 1
-fi
-PROVIDED=$(mktemp)
-( cd "$BASELINE/out" && ls -1 *.dll 2>/dev/null ) | sort -u > "$PROVIDED"
-echo "    host provides $(wc -l < "$PROVIDED" | tr -d ' ') assemblies (excluded from the bundle)"
+CSPROJ_EOF
+  echo 'namespace _SdkBaseline; internal sealed class _ {}' > "$BASELINE/_.cs"
+  # Never obfuscated: the baseline only lists what the host provides. It sits under backend/, so the dropped
+  # Directory.Build.targets reaches it unless told otherwise.
+  if ! ( cd "$BASELINE" && dotnet publish _sdkbaseline.csproj -c Release -o ./out -p:DuploSdkVersion="$sdk_ver" \
+           -p:DuploObfuscate=false ) > "$BASELINE/publish.log" 2>&1; then
+    echo "ERROR: [$sdk_ver] failed to compute the host-provided SDK closure (baseline publish):" >&2
+    tail -20 "$BASELINE/publish.log" >&2
+    return 1
+  fi
+  local provided; provided=$(mktemp)
+  ( cd "$BASELINE/out" && ls -1 ./*.dll 2>/dev/null | sed 's|^\./||' ) | sort -u > "$provided"
+  echo "    host provides $(wc -l < "$provided" | tr -d ' ') assemblies (excluded from the bundle)"
 
-echo "==> Assembling bundle"
-PKG="$DIR/dist/pkg"
-rm -rf "$PKG"; mkdir -p "$PKG/backend" "$PKG/fe" "$PKG/skills"
-# Bundle manifest with the real host SDK version and the digest of the SDK feed it was compiled against pinned
-# in, and both <id>/<version>/ paths derived from id+version. The host stages the bundle to
-# <ExtensionStudioPath>/<id>/<version>/ but reads the entry assembly from backend.assemblyDir and each
-# provisioning skill from skills[].folder, so all three have to agree.
-# Maintained by hand they drift the moment you bump version alone, and what that breaks depends on the target:
-#
-#   backend.assemblyDir  a host that still has the old version on disk keeps running the OLD backend DLL and
-#                        says nothing; a host that's never seen it refuses the install outright with
-#                        "Extension entry assembly not found: .../<old version>/backend/<dll>".
-#   skills[].folder      quieter in both directions. The loader's seeder returns early on a missing directory,
-#                        so a fresh host loads fine with the skill silently absent — Agent-mode provisioning
-#                        then fails later with a confusing "no skill" — and a host holding the old version
-#                        seeds the OLD skill.
-#
-# Both are always <id>/<version>/…, so compute them here instead of trusting the checked-in values. The skill
-# tail varies per entry (skills/<name>), so only the first two segments are replaced; a manifest with no
-# skills array is left alone rather than given an empty one.
-jq --arg v "$SDK_VER" --arg d "$SDK_DIGEST" '
-    .sdkVersion = $v
-  | .sdkDigest = $d
-  | .backend.assemblyDir = (.id + "/" + .version + "/backend")
-  | .id as $i | .version as $r
-  | if (.skills | type) == "array" then
-      .skills = [ .skills[]
-        | if ((.folder | split("/") | length) > 2)
-          then .folder = ($i + "/" + $r + "/" + (.folder | split("/") | .[2:] | join("/")))
-          else . end ]
-    else . end
-' "$DIR/manifest.json" > "$PKG/manifest.json"
-# Report drift rather than repairing it silently, so the checked-in value gets fixed at the source too.
-_ad_src=$(jq -r '.backend.assemblyDir // ""' "$MANIFEST")
-_ad_out=$(jq -r '.backend.assemblyDir' "$PKG/manifest.json")
-[ "$_ad_src" = "$_ad_out" ] || echo "    NOTE: stale backend.assemblyDir '$_ad_src' in $MANIFEST — bundled as '$_ad_out'"
-_sk_src=$(jq -r '[.skills[]?.folder] | join(", ")' "$MANIFEST")
-_sk_out=$(jq -r '[.skills[]?.folder] | join(", ")' "$PKG/manifest.json")
-[ "$_sk_src" = "$_sk_out" ] || echo "    NOTE: stale skills[].folder '$_sk_src' in $MANIFEST — bundled as '$_sk_out'"
-# Ship only backend assemblies the host does NOT already provide, plus each kept DLL's sidecars. Native
-# runtimes/ are host-provided too (Mongo/AWS natives load via the host's Default-ALC copies), so skip them.
-kept=0; dropped=0
-shopt -s nullglob
-for f in "$DIR"/dist/backend/*.dll; do
-  base=$(basename "$f")
-  if grep -qxF "$base" "$PROVIDED"; then dropped=$((dropped+1)); continue; fi
-  cp "$f" "$PKG/backend/"; kept=$((kept+1))
-  stem="${base%.dll}"
-  for side in "$stem.pdb" "$stem.deps.json" "$stem.runtimeconfig.json"; do
-    [ -f "$DIR/dist/backend/$side" ] && cp "$DIR/dist/backend/$side" "$PKG/backend/"
+  echo "==> [$sdk_ver] Assembling bundle"
+  local pkg="$out/pkg"
+  rm -rf "$pkg"; mkdir -p "$pkg/backend" "$pkg/fe" "$pkg/skills"
+  # Stamp the real SDK version and digest, the obfuscation marker, and the id/version-derived paths the loader
+  # reads (backend.assemblyDir and skills[].folder), computed here so they never drift from id+version.
+  jq --arg v "$sdk_ver" --arg d "$sdk_digest" --arg ob "$([ "$OBFUSCATE" = 1 ] && echo "$ARMDOT_VERSION")" '
+      .sdkVersion = $v
+    | if $d != "" then .sdkDigest = $d else del(.sdkDigest) end
+    | if $ob != "" then .obfuscation = {tool: "armdot", version: $ob} else del(.obfuscation) end
+    | .backend.assemblyDir = (.id + "/" + .version + "/backend")
+    | .id as $i | .version as $r
+    | if (.skills | type) == "array" then
+        .skills = [ .skills[]
+          | if ((.folder | split("/") | length) > 2)
+            then .folder = ($i + "/" + $r + "/" + (.folder | split("/") | .[2:] | join("/")))
+            else . end ]
+      else . end
+  ' "$MANIFEST" > "$pkg/manifest.json"
+
+  # Ship only backend assemblies the host does NOT provide, plus each kept DLL's sidecars.
+  local kept=0 dropped=0 f base stem side
+  shopt -s nullglob
+  for f in "$out"/backend/*.dll; do
+    base=$(basename "$f")
+    if grep -qxF "$base" "$provided"; then dropped=$((dropped+1)); continue; fi
+    cp "$f" "$pkg/backend/"; kept=$((kept+1))
+    stem="${base%.dll}"
+    for side in "$stem.pdb" "$stem.deps.json" "$stem.runtimeconfig.json"; do
+      [ -f "$out/backend/$side" ] && cp "$out/backend/$side" "$pkg/backend/"
+    done
   done
-done
-shopt -u nullglob
-rm -f "$PROVIDED"; rm -rf "$BASELINE"
-[ "$kept" -gt 0 ] || { echo "ERROR: nothing left to ship after excluding host-provided assemblies — aborting (the extension's own DLL was unexpectedly treated as host-provided)." >&2; exit 1; }
-echo "    backend: shipped $kept assembly file(s), dropped $dropped host-provided"
-# Sanity check: native runtimes/ (5x libmongocrypt ≈ 33MB, AWS/Mongo natives) are host-provided and
-# normally should not ship — their presence usually means an old/untrimmed publish leaked in and the
-# bundle balloons. Warn (do not fail) so the bundle still builds; investigate with a sample if it appears.
-if [ -d "$PKG/backend/runtimes" ]; then
-  echo "    WARNING: native runtimes/ present in the bundle backend/ — the host usually provides these." >&2
-  echo "             If the bundle is unexpectedly large, check <ExcludeAssets>runtime</ExcludeAssets> on the SDK ref." >&2
+  shopt -u nullglob
+  rm -f "$provided"; rm -rf "$BASELINE"
+  [ "$kept" -gt 0 ] || { echo "ERROR: [$sdk_ver] nothing left to ship after excluding host-provided assemblies (the extension's own DLL was treated as host-provided)." >&2; return 1; }
+  echo "    backend: shipped $kept assembly file(s), dropped $dropped host-provided"
+  if [ -d "$pkg/backend/runtimes" ]; then
+    echo "    WARNING: [$sdk_ver] native runtimes/ present in the bundle backend/ — the host usually provides these." >&2
+  fi
+
+  cp -r "$DIR/frontend/dist/." "$pkg/fe/"
+  [ -d "$DIR/skills" ] && cp -r "$DIR/skills/." "$pkg/skills/"
+  [ -d "$DIR/resources-frontend-templates" ] && cp -r "$DIR/resources-frontend-templates" "$pkg/resources-frontend-templates"
+  # Replace, don't append: zip updates in place, so a stale archive would keep entries no longer in $pkg.
+  rm -f "$out/extension.zip"
+  ( cd "$pkg" && zip -rq "$out/extension.zip" . )
+  echo "==> [$sdk_ver] Done: $out/extension.zip"
+  du -sh "$pkg/backend" "$pkg/fe" "$out/extension.zip" 2>/dev/null | sed 's/^/    /'
+}
+
+if [ "${#SDK_VERSIONS[@]}" -eq 0 ]; then
+  # Host mode (unchanged behaviour): fetch the running host's SDK, stamp its digest, write dist/extension.zip.
+  echo "==> Fetching SDK feed from $BASE_URL"
+  auth=()
+  [ -n "${TOKEN:-}" ] && auth=(-H "Authorization: Bearer $TOKEN")
+  # Capture the response first (don't pipe to jq) so a non-JSON body gives a clear error. No -f: the body + status
+  # are the diagnostic. -L follows http->https redirects.
+  SDK_CODE=$(curl -sSL -m 30 -o /tmp/sdk-version-resp.$$ -w '%{http_code}' "${auth[@]}" \
+    "$BASE_URL/v1/aiservicedesk/extensions/sdk-version" 2>/dev/null || echo 000)
+  SDK_RESP=$(cat /tmp/sdk-version-resp.$$ 2>/dev/null || true); rm -f /tmp/sdk-version-resp.$$
+  SDK_VER=$(printf '%s' "$SDK_RESP" | jq -r '.version // empty' 2>/dev/null || true)
+  if [ -z "$SDK_VER" ]; then
+    echo "ERROR: could not read the host SDK version from $BASE_URL/v1/aiservicedesk/extensions/sdk-version" >&2
+    echo "       HTTP $SDK_CODE — response (first 300 chars): $(printf '%s' "$SDK_RESP" | tr -d '\r' | head -c 300)" >&2
+    echo "       Check DUPLO_HOST is the AI Helpdesk studio base URL (serving /v1/aiservicedesk), is reachable," >&2
+    echo "       has no trailing path, and that TOKEN is set. To build without a host, set DUPLO_SDK_VERSIONS." >&2
+    exit 1
+  fi
+  echo "    host SDK version: $SDK_VER"
+  curl -fsSL -m 120 "${auth[@]}" "$BASE_URL/v1/aiservicedesk/extensions/sdk-bundle" -o "$DIR/dist-sdk.zip" \
+    || { echo "ERROR: failed to download the SDK bundle from $BASE_URL/v1/aiservicedesk/extensions/sdk-bundle" >&2; exit 1; }
+  unzip -oq "$DIR/dist-sdk.zip" -d "$DIR/backend/sdk-packages" \
+    || { echo "ERROR: SDK bundle is not a valid zip — got $(file -b "$DIR/dist-sdk.zip" 2>/dev/null). Check DUPLO_HOST." >&2; exit 1; }
+  # Digest a fresh extraction, not sdk-packages/, which accumulates packages from earlier builds.
+  SDK_FEED="$(mktemp -d)"
+  unzip -oq "$DIR/dist-sdk.zip" -d "$SDK_FEED"
+  SDK_DIGEST="$(sdk_digest "$SDK_FEED")" || { rm -rf "$SDK_FEED"; echo "ERROR: the SDK bundle from $BASE_URL is empty." >&2; exit 1; }
+  # Admin scope needs a host SDK that ships AdminResourcesController. Probe for the type rather than compare
+  # version numbers: the loader pins an extension to exactly the version the host reports, so a minimum-version
+  # check says nothing about whether the feature is there. (Whole-archive unzip -p: path globs are not portable.
+  # Not grep -q: it would stop reading early, SIGPIPE unzip, and pipefail would report a miss.)
+  if [ "$has_admin" = 1 ]; then
+    found=0
+    for n in "$SDK_FEED"/Duplo.Ai.DataManagement.*.nupkg; do
+      [ -f "$n" ] && unzip -p "$n" 2>/dev/null | grep -a 'AdminResourcesController' >/dev/null && found=1
+    done
+    [ "$found" = 1 ] || { rm -rf "$SDK_FEED"; echo "ERROR: the host SDK ($SDK_VER) has no AdminResourcesController — this host cannot load admin-scoped extensions (reference/21-admin-resources.md)." >&2; exit 1; }
+    echo "    host SDK supports admin-scoped resources"
+  fi
+  rm -rf "$SDK_FEED" "$DIR/dist-sdk.zip"
+  echo "    host SDK digest: $SDK_DIGEST"
+
+  build_one "$SDK_VER" "$SDK_DIGEST" "$DIR/dist"
+else
+  # Feed mode: one bundle per listed SDK version, restored from nuget.org (nuget.config), no host needed. The
+  # admin-scope probe above is host-mode only, since here the owner names the SDK versions to compile against.
+  echo "==> Building ${#SDK_VERSIONS[@]} bundle(s) from the SDK feed: ${SDK_VERSIONS[*]}"
+  # Start from an empty dist/, as build_one does in host mode, so a host bundle or a per-version bundle from a
+  # version no longer listed cannot survive and be deployed by deploy-all.sh.
+  rm -rf "$DIR/dist"
+  for v in "${SDK_VERSIONS[@]}"; do
+    build_one "$v" "" "$DIR/dist/sdk-$v"
+  done
 fi
-cp -r "$DIR/frontend/dist/." "$PKG/fe/"
-[ -d "$DIR/skills" ] && cp -r "$DIR/skills/." "$PKG/skills/"
-# LEGACY: declarative Result view-templates are not supported (reference/09-result-templates.md); an older
-# extension may still carry a resources-frontend-templates/ dir, so keep copying it to the bundle root where the loader's
-# RegisterViewTemplatesRoot registers {Type}/{subType}.view-template.json for the inherited
-# GET …/view-template endpoint (otherwise that endpoint 404s and the FE only has its
-# local fallback). See reference/09-result-templates.md.
-[ -d "$DIR/resources-frontend-templates" ] && cp -r "$DIR/resources-frontend-templates" "$PKG/resources-frontend-templates"
-# Replace, don't append — `zip` updates in place, so a stale archive from a prior build keeps entries no
-# longer in $PKG (e.g. the old full backend closure) and the bundle never shrinks.
-rm -f "$DIR/dist/extension.zip"
-( cd "$PKG" && zip -rq ../extension.zip . )
-
-# Size report — a healthy bundle is single-digit MB. If the zip is hundreds of MB, the backend closure or
-# natives leaked in (rebuild with this script; keep <ExcludeAssets>runtime</ExcludeAssets> on the SDK ref).
-echo "==> Bundle size"
-du -sh "$PKG/backend" "$PKG/fe" "$DIR/dist/extension.zip" 2>/dev/null | sed 's/^/    /'
-
-echo "==> Done: $DIR/dist/extension.zip"

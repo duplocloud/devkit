@@ -16,7 +16,6 @@
       "restSegment": "extensions/network-stacks",
       "subType": "network-stack",
       "archetype": "typed",
-      "registrar": "DevOpsResource",
       "entityType": "Duplo.Extension.NetworkStack.NetworkStack",
       "specType": "Duplo.Extension.NetworkStack.NetworkStackSpec",
       "resultType": "Duplo.Extension.NetworkStack.NetworkStackResult",

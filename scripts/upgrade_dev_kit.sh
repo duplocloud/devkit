@@ -20,10 +20,10 @@ cd "$(dirname "$0")/.."   # repo root
 #   FRAMEWORK_FILES  — individual files, overwritten in place (never deleted).
 # Keep these lists in sync when adding framework paths.
 FRAMEWORK_DIRS=( .agents .claude .github nginx packages samples scripts )
-# build/ holds only the extension build toolchain's Dockerfile, but `build` is a near-universal name for
-# a project's own output/scripts — so it is merged, NOT mirrored. An adopted repo that already has a
-# build/ keeps everything in it; a --delete here would reap a user directory on an upgrade they asked
-# for. (It can't go in FRAMEWORK_FILES: rsync won't create the missing parent for a single file.)
+# build/ holds the extension build toolchain's Dockerfile and the ArmDot obfuscation MSBuild files, but `build`
+# is a near-universal name for a project's own output/scripts, so it is merged, NOT mirrored. An adopted repo
+# that already has a build/ keeps everything in it; a --delete here would reap a user directory on an upgrade
+# they asked for. (It can't go in FRAMEWORK_FILES: rsync won't create the missing parent for a single file.)
 FRAMEWORK_MERGE_DIRS=( docs build )
 FRAMEWORK_FILES=( .env.example .gitignore docker-compose.yml logs.sh PRIVACY.md README.md run.sh stop.sh todo.md )
 

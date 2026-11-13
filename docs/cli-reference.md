@@ -67,7 +67,11 @@ On an EC2 host the provider prompt first probes whether the instance role can ac
    [configuration.md § Licensing](configuration.md#licensing). This is where a run can wait on you: the
    license server emails the address a link, and the run polls for up to 2 minutes after it is clicked.
 6. Resolves password and LLM provider: flag, then `.env`, then prompt.
-7. Generates `Encryption__MasterKey` and `Authentication__JwtSharedSecret` once, if unset.
+7. Generates `Encryption__MasterKey`, `Authentication__JwtSharedSecret`, `MONGO_ROOT_PASSWORD` and `Agent__ApiAuthToken`
+   once, if unset.
+   A run that would generate the mongo password over a data volume initialised before the key existed stops
+   instead, since the database would not know the new password: `--reset` recreates the database, or
+   `MONGO_ROOT_PASSWORD=authpass` in `.env` keeps it.
 8. `docker compose pull`, then `docker compose up -d`.
 9. Waits up to ~4.5 minutes for the studio to answer on `/healthz` — an anonymous route, because this
    happens before the admin token exists.
@@ -125,7 +129,7 @@ combine.
 `--reset` blanks these keys, then sets up fresh: `Authentication__LocalAdminEmail`,
 `Authentication__LocalAdminPassword`, `Authentication__SuperUsers`, `DEVKIT_MODEL`, `ANTHROPIC_API_KEY`,
 `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `Encryption__MasterKey`,
-`Authentication__JwtSharedSecret`, `DUPLO_ADMIN_TOKEN`, `EXTENSION_DEV_WORKSPACE_ID`,
+`Authentication__JwtSharedSecret`, `MONGO_ROOT_PASSWORD`, `Agent__ApiAuthToken`, `DUPLO_ADMIN_TOKEN`, `EXTENSION_DEV_WORKSPACE_ID`,
 `EXTENSION_DEV_PERMSET_ID`, `EXTENSION_DEV_PERMSETGROUP_ID`, `QDRANT_PROVIDER_ID`, `QDRANT_SCOPE_ID`,
 `QDRANT_COLLECTION_ID`.
 
@@ -160,7 +164,7 @@ Your `extensions/` directory is **never** touched by any of these — it is only
 
 | Script | What it does |
 | --- | --- |
-| `build-extension.sh <extension-dir>` | Validate naming, fetch the host SDK, `dotnet publish`, `npm build`, and zip to `<dir>/dist/extension.zip`. |
+| `build-extension.sh <extension-dir>` | Validate naming, fetch the host SDK, `dotnet publish`, `npm build`, and zip to `<dir>/dist/extension.zip`. With `DUPLO_SDK_VERSIONS` set to a list of versions, one per line, it restores each of those SDK versions from the package feed instead, with no host, and writes one `<dir>/dist/sdk-<v>/extension.zip` per version. |
 | `build-all.sh` | Build every `extensions/<name>/manifest.json` in the repo. What CI runs. |
 | `deploy-extension.sh <path-to-extension.zip>` | Hot-load one bundle onto the platform — no restart. |
 | `deploy-all.sh` | Hot-load every built bundle. Run after `build-all.sh`. |
@@ -173,6 +177,10 @@ be renamed. Each violation prints a `✗` line, then:
 ```
 ERROR: extension naming validation failed — fix the ✗ items above (reference/00-naming.md).
 ```
+
+With `ARMDOT_LICENSE_FILE_PATH` set to an ArmDot license file, `build-extension.sh` also obfuscates the
+extension's own assembly and stamps the bundle's manifest with `obfuscation`. See "Obfuscating a build" in
+[releasing-extensions.md](releasing-extensions.md).
 
 ### Platform registration
 
@@ -196,10 +204,14 @@ dev-kit URL used by upgrades. Both are sourced, not run.
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
 | `.github/workflows/extension-ci.yml` | push | Builds `extensions/`. Can hot-load on a manual run. |
-| `.github/workflows/release.yml` | push to `main`, or manual | Builds every extension and cuts a GitHub Release with `extension.zip` attached — but only when `manifest.version` is new and its `<name>-v<version>` tag does not exist. Bumping `manifest.version` is how you publish. The deploy step is intentionally commented out. |
+| `.github/workflows/release.yml` | push to `main`, or manual | Releases every extension through `duplocloud/actions/release-extension`: builds each one, cuts a GitHub Release per build tagged `<name>-v<version>-sdk-<sdkVersion>`, uploads it and registers it with the console as an unpublished version. Bumping `manifest.version` is how you release a new version. It does not hot-load. |
 
-Both need repo secrets `DUPLO_HOST` and `DUPLO_TOKEN`. The build fetches the host SDK feed from
-`DUPLO_HOST`, so it must be reachable from CI — a real platform, not `localhost`.
+Both need repo secrets `DUPLO_HOST` and `DUPLO_TOKEN`. By default the build fetches the host SDK feed from
+`DUPLO_HOST`, so it must be reachable from CI — a real platform, not `localhost`. With the repository variable
+`DUPLO_SDK_VERSIONS` set, `extension-ci.yml` builds one bundle per listed SDK version from the package feed
+and needs the host only to deploy. `release.yml` still needs the host, plus `CONSOLE_API_KEY`, the `CONSOLE_TEAM`
+variable outside DuploCloud's organizations, and the signing, license and role values inside them.
+[Releasing extensions](releasing-extensions.md) has the full list.
 
 It is your repo: commit `extensions/` and push. `dist/`, `node_modules/`, and `backend/sdk-packages/` are
 gitignored, and `.env` is never committed.

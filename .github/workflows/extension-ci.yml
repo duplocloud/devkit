@@ -3,8 +3,10 @@
 # This file ships with the dev-kit. After `scripts/init-project.sh` makes the repo yours, set these repo secrets:
 #   DUPLO_HOST   — your platform base URL (e.g. https://portal.example.duplocloud.net)
 #   DUPLO_TOKEN  — an Administrator bearer token for that platform
-# The build fetches the host SDK feed from DUPLO_HOST (so it must be reachable from CI — a public DuploCloud,
-# not localhost). Deploy (hot-load) runs on push to main, and on a manual run with deploy=true. PRs build only.
+# By default the build fetches the host SDK feed from DUPLO_HOST (so it must be reachable from CI — a public
+# DuploCloud, not localhost). Set the repo variable DUPLO_SDK_VERSIONS (one version per line) to build
+# against those SDK versions from the package feed instead, with no host needed to build. Deploy (hot-load) still needs
+# DUPLO_HOST, and runs on push to main and on a manual run with deploy=true. PRs build only.
 #
 # The build itself runs in the toolchain container that scripts/build-all.sh starts (no setup-dotnet /
 # setup-node here — CI and a laptop build with one pinned toolchain). To pull that image instead of
@@ -28,9 +30,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      DUPLO_TARGET: remote
+      # No DUPLO_TARGET here: _target.sh auto-detects it. With DUPLO_HOST+DUPLO_TOKEN set it resolves remote (the
+      # host-mode build, and deploy); with neither it stays local, which a feed build never calls. Forcing remote
+      # would make a feed build (no host) fail in _target.sh, so DUPLO_HOST is required only for deploy now.
       DUPLO_HOST: ${{ secrets.DUPLO_HOST }}
       DUPLO_TOKEN: ${{ secrets.DUPLO_TOKEN }}
+      # SDK versions to build against, one per line, restored from the package feed. Empty builds
+      # one bundle from the running host's SDK (needs DUPLO_HOST); set it to build one bundle per version, no host.
+      DUPLO_SDK_VERSIONS: ${{ vars.DUPLO_SDK_VERSIONS }}
       # Lifted to env so the login step can gate on its presence: the `secrets` context is not available
       # in an `if:` expression, but `env` is. A fork PR gets no org secrets, so this is empty there.
       QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
@@ -64,6 +71,17 @@ jobs:
           username: ${{ secrets.QUAY_USERNAME }}
           password: ${{ secrets.QUAY_PASSWORD }}
 
+      # A run that will deploy fails here by name, before the build stops on the same unset secrets.
+      - name: Check the secrets the deploy needs
+        if: >
+          steps.guard.outputs.build == 'true' &&
+          (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy))
+        run: |
+          missing=(); for v in DUPLO_HOST DUPLO_TOKEN; do [ -n "${!v:-}" ] || missing+=("$v"); done
+          [ ${#missing[@]} -eq 0 ] && exit 0
+          echo "::error::Deploying needs ${missing[*]} set as repository secrets: the platform base URL and an Administrator token."
+          exit 1
+
       - name: Build all extensions
         if: steps.guard.outputs.build == 'true'
         run: ./scripts/build-all.sh
@@ -83,6 +101,9 @@ jobs:
             extensions/*/dist/extension.zip
             extension/*/dist/extension.zip
             extension/dist/extension.zip
+            extensions/*/dist/sdk-*/extension.zip
+            extension/*/dist/sdk-*/extension.zip
+            extension/dist/sdk-*/extension.zip
 
       # Deploy on push to main (auto) or a manual run with deploy=true. PRs build only.
       - name: Deploy all extensions (hot-load to DuploCloud)

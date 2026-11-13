@@ -111,7 +111,8 @@ back out a build that hangs the studio when it starts. Stop the studio, disable 
 
 ```bash
 docker compose stop duplo-ai-studio
-docker compose exec mongo mongosh -u authuser -p authpass --authenticationDatabase admin duplo-ai-helpdesk \
+docker compose exec mongo mongosh -u authuser -p "$(grep '^MONGO_ROOT_PASSWORD=' .env | cut -d= -f2-)" \
+  --authenticationDatabase admin duplo-ai-helpdesk \
   --eval 'db.loaded_extensions.updateOne({ExtensionId: "[id]", IsCurrent: true}, {$set: {Status: NumberInt(1)}})'
 docker compose start duplo-ai-studio
 ```
@@ -129,6 +130,7 @@ for each `docker compose` above.
 | [Architecture](docs/architecture.md) | How the services fit together and how hot-loading works |
 | [Configuration](docs/configuration.md) | Every `.env` variable, its default, and its effect |
 | [CLI reference](docs/cli-reference.md) | `run.sh`, `stop.sh`, `logs.sh`, and every script — flags and behavior |
+| [Releasing extensions](docs/releasing-extensions.md) | What a push to `main` releases, signs and registers through the release-extension action, who publishes, and how to release to your own portal |
 | [Upgrading](docs/upgrading.md) | Taking framework updates without losing your work |
 | [Troubleshooting](docs/troubleshooting.md) | Symptoms, causes, and fixes |
 | [FAQ](docs/faq.md) | Licensing, data, and platform support |

@@ -110,7 +110,7 @@ Pin the published images the stack runs.
 | `AGENT_TAG` | `main-d27e511` | The `claude-code-agent` image that executes provisioning tickets. A `main` build — it carries no extension-specific changes. |
 | `UI_TAG` | `2a949c536be71efd4501dd60ca6fdda4f7b4676a` | The Angular portal image. A `duplo-ui` git SHA, pinned to a build that renders the license state. |
 | `XTERM_TAG` | `main-d323e0b` | The in-browser terminal image. |
-| `INSTALLER_TAG` | `main-4780968f` | The extension installer image. Its own keys are under [Installing an extension](../README.md#installing-an-extension). |
+| `INSTALLER_TAG` | `main-af01f400` | The extension installer image. Its own keys are under [Installing an extension](../README.md#installing-an-extension). |
 | `STUDIO_PLATFORM` | `linux/amd64` | Docker platform for the studio image. On Apple Silicon the studio image is amd64-only and runs emulated. Leave as-is unless you have an arm64 image. |
 
 `STUDIO_TAG` and `UI_TAG` are required — `run.sh` exits if either is empty:
@@ -124,16 +124,19 @@ Doing so pins them: they stop tracking `.env.example`.
 
 ## Host ports
 
-Offset from the platform's standard ports (60021 / 4200 / 8000 / 27017 / 6060) so this dev kit can run
+Offset from the platform's standard ports (60021 / 4200 / 27017 / 6060) so this dev kit can run
 **alongside** a local DuploCloud platform stack without clashing.
 
 | Variable | Default | Service |
 | --- | --- | --- |
 | `STUDIO_PORT` | `60031` | Studio API — `http://localhost:60031` |
 | `UI_PORT` | `4210` | Portal UI — `http://localhost:4210` |
-| `AGENT_PORT` | `8010` | `claude-code-agent` |
-| `MONGO_PORT` | `27018` | MongoDB |
-| `XTERM_PORT` | `6061` | In-browser terminal |
+| `MONGO_PORT` | `27018` | MongoDB, on `127.0.0.1` only |
+| `XTERM_PORT` | `6061` | In-browser terminal, on `127.0.0.1` only |
+
+`claude-code-agent` has no host port. The studio reaches it on the compose network at
+`http://claude-code-agent:8000` and authenticates with `Agent__ApiAuthToken` (below), so it is never published
+on the host.
 
 Change any of these if they still collide with something on your machine, then re-run `./run.sh`.
 
@@ -200,6 +203,8 @@ Managed by `./run.sh` — leave them blank in a fresh `.env` and let it prompt.
 | `Authentication__FrontendBaseUrl` | Defaults to `http://localhost:$UI_PORT`. |
 | `Authentication__JwtSharedSecret` | Generated once (`openssl rand -hex 32`). Regenerated only on `--reset`. |
 | `Encryption__MasterKey` | Generated once (`openssl rand -base64 96`). Regenerated only on `--reset`. |
+| `MONGO_ROOT_PASSWORD` | Mongo's root password, generated once (`openssl rand -hex 32`). Mongo applies it only when it initialises an empty data volume, so it is regenerated only on `--reset`, and a run that would generate one over an existing volume stops and says so. |
+| `Agent__ApiAuthToken` | Generated once (`openssl rand -hex 32`). Regenerated only on `--reset`. The studio sends it as a bearer on every call to `claude-code-agent`, which receives it as `CCA_API_AUTH_TOKEN` and returns 401 to any call without it. |
 | `AIStudio__IsMasterDisabled` | `true`. Required for standalone operation with no DuploCloud master. |
 | `AIStudio__DevKitMode` | `true`. Dev-kit only: exposes the per-extension **Clean Database** admin action, which drops one extension's data collections. |
 
