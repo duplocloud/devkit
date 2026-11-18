@@ -59,3 +59,20 @@ with a built-in is caught only at review. `frontend.remote.remoteEntry` is `veri
 a standalone step you run yourself after `npm run build` (it is not wired into `build-extension.sh`).
 Skill-callback URLs are **warned** about but not failed: the gate prints a `!` line for any
 `…/environment/<segment>` under `skills/` that isn't namespaced, then continues.
+
+## Legacy opt-out
+An extension that **takes over an existing built-in feature** keeps that feature's customer-facing URLs, REST
+routes and Mongo collections, because live customer data, bookmarks and permission rules already point at them.
+It declares that in `manifest.json`:
+
+```json
+"naming": { "legacy": true, "reason": "Live customer data and routes predate extension naming" }
+```
+
+- It skips only the namespacing rules: the `extensions/` path checks, `extension_` collections, controller and
+  skill-callback routes, and the `REST_SEGMENT` checks. The legacy `frontend.menu` key and leftover template
+  identifiers still fail the build.
+- `reason` is required; an empty one fails the build. The gate prints it on every build
+  (`naming.legacy: <reason>`), so the exception stays visible in every log.
+- It is not for new extensions. A new extension has no existing names to keep, and its non-namespaced names
+  collide with built-ins at runtime exactly as described above.
