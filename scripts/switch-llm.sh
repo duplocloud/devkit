@@ -33,6 +33,7 @@ ENV=.env
 . ./scripts/_runtime.sh          # → $RUNTIME (docker | podman)
 . ./scripts/_provider_gateway.sh
 . ./scripts/_provider_subscription.sh
+. ./scripts/_env_secrets.sh      # → env_supplied/env_take/env_isolate: provider secrets from the environment
 runtime_resolve || exit 1
 
 NONINTERACTIVE=0
@@ -145,7 +146,7 @@ status() {
     if [ "$stashed" = 1 ]; then
       echo "  $p: stashed credentials available — switching back needs no re-entry"
     else
-      echo "  $p: no stash — switching to it will prompt (or take flags)"
+      echo "  $p: no stash — switching to it will prompt (or take flags, or an exported variable)"
     fi
   done
 }
@@ -183,19 +184,31 @@ BEDROCK_EXTRA_MODELS="us.anthropic.claude-opus-5"
 
 case "$TARGET" in
   anthropic)
-    KEY="$(resolve "$F_ANTHROPIC" ANTHROPIC_API_KEY 'Anthropic API key' secret)"
-    setenv ANTHROPIC_API_KEY "$KEY"
+    if env_supplied "$F_ANTHROPIC" ANTHROPIC_API_KEY; then
+      env_take ANTHROPIC_API_KEY
+      echo "    using ANTHROPIC_API_KEY from the environment — not saved to .env; set it again to restart the stack."
+    else
+      KEY="$(resolve "$F_ANTHROPIC" ANTHROPIC_API_KEY 'Anthropic API key' secret)"
+      setenv ANTHROPIC_API_KEY "$KEY"
+    fi
     setenv CLAUDE_MODEL "claude-sonnet-5"
     setenv CLAUDE_EXTRA_MODELS "claude-opus-5"
     [ -z "$(getenv ANTHROPIC_BASE_URL)" ] || echo "    note: ANTHROPIC_BASE_URL is still set in .env — the agent will send your Anthropic key THERE, not to api.anthropic.com. Clear it (./scripts/switch-llm.sh gateway then back, or edit .env) unless that's intended."
     LLM_DESC="direct Anthropic"
     ;;
   bedrock)
-    AK="$(resolve "$F_AWS_KEY" AWS_ACCESS_KEY_ID 'AWS access key id')"
-    SK="$(resolve "$F_AWS_SECRET" AWS_SECRET_ACCESS_KEY 'AWS secret access key' secret)"
-    ST="$F_AWS_TOKEN"; [ -z "$ST" ] && ST="$(getenv AWS_SESSION_TOKEN)"
+    if env_supplied "$F_AWS_KEY" AWS_ACCESS_KEY_ID && env_supplied "$F_AWS_SECRET" AWS_SECRET_ACCESS_KEY; then
+      env_take AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+      env_take_session_token "$F_AWS_TOKEN"
+      echo "    using AWS credentials from the environment — not saved to .env; set them again to restart the stack."
+    else
+      AK="$(resolve "$F_AWS_KEY" AWS_ACCESS_KEY_ID 'AWS access key id')"
+      SK="$(resolve "$F_AWS_SECRET" AWS_SECRET_ACCESS_KEY 'AWS secret access key' secret)"
+      ST="$F_AWS_TOKEN"; [ -z "$ST" ] && ST="$(getenv AWS_SESSION_TOKEN)"
+      setenv AWS_ACCESS_KEY_ID "$AK"; setenv AWS_SECRET_ACCESS_KEY "$SK"; setenv AWS_SESSION_TOKEN "$ST"
+    fi
     RG="$F_AWS_REGION"; [ -z "$RG" ] && RG="$(getenv AWS_REGION)"; [ -z "$RG" ] && RG="us-west-2"
-    setenv AWS_ACCESS_KEY_ID "$AK"; setenv AWS_SECRET_ACCESS_KEY "$SK"; setenv AWS_SESSION_TOKEN "$ST"; setenv AWS_REGION "$RG"
+    setenv AWS_REGION "$RG"
     setenv CLAUDE_MODEL "$BEDROCK_MODEL"
     setenv CLAUDE_EXTRA_MODELS "$BEDROCK_EXTRA_MODELS"
     [ -z "$(getenv ANTHROPIC_API_KEY)" ] || echo "    note: ANTHROPIC_API_KEY is still set in .env — the agent prefers it over Bedrock."
@@ -229,6 +242,7 @@ if ! runtime_compose_running_services | grep -qx claude-code-agent; then
 fi
 
 echo "==> Recreating the agent with the new provider…"
+env_isolate   # only provider keys this run took from the environment reach the agent
 "$RUNTIME" compose up -d claude-code-agent
 
 echo "==> Registering $(getenv CLAUDE_MODEL) ($LLM_DESC) as the System default LLM…"
