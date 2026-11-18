@@ -8,6 +8,20 @@ signed in to the portal. You also need an AWS account you can create an IAM user
 
 ---
 
+> **Already have an AWS profile or IAM Identity Center on this machine?** Skip the console and the portal
+> wizard below — run `./scripts/cloud-connect-wizard.sh` and choose AWS (it asks how you sign in, lists your
+> profile names, logs in to SSO if needed, connects and verifies), or `/duplo-cloud-connect` in Claude Code, or
+> run the command yourself:
+>
+> ```bash
+> ./scripts/connect-cloud.sh aws --name aws-readonly --profile <your-profile>
+> ```
+>
+> It resolves the profile once (a `credential_process` such as `duplo-jit` runs in your terminal), checks
+> the identity with STS, and creates the provider, credential and scope below, attached to `extension-dev`.
+> Temporary credentials expire — re-run the same command to reconnect. Then continue at
+> [2.6](#26-prove-it-works). The GCP equivalent is [connect-gcp.md](connect-gcp.md).
+
 ## Why an access key, and not a role
 
 The published DuploCloud material leads with an IAM role. That works when a *hosted* HelpDesk

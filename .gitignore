@@ -37,3 +37,7 @@ Thumbs.db
 
 # Local scratch — credentials, API exports, throwaway files. Never committed.
 temp/
+
+# Cloud-connection records written by scripts/connect-cloud.sh (ids, names, expiry — no secrets; the
+# secrets live in the compose volume). Per checkout, like .env.
+.devkit-cloud/

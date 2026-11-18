@@ -229,7 +229,8 @@ if ! runtime_compose_running_services | grep -qx claude-code-agent; then
 fi
 
 echo "==> Recreating the agent with the new provider…"
-"$RUNTIME" compose up -d claude-code-agent
+# runtime_compose: a key exported in this shell must not displace the provider just written to .env.
+runtime_compose up -d claude-code-agent
 
 echo "==> Registering $(getenv CLAUDE_MODEL) ($LLM_DESC) as the System default LLM…"
 if LLM_PROVIDER_LABEL="$LLM_DESC" ./scripts/register-llm.sh; then

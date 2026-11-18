@@ -6,7 +6,7 @@
 # that you then edit in the UI (AI Admin → Skills / Personas) rather than build from scratch.
 #
 # Idempotent by NAME, like register-agent.sh: an existing skill or persona is adopted, never rewritten,
-# so your edits to the placeholder SKILL.md survive every subsequent ./run.sh.
+# so your edits to the starter SKILL.md survive every subsequent ./run.sh.
 #
 # Usage: ./scripts/register-persona.sh [workspace-id]
 set -euo pipefail
@@ -30,39 +30,59 @@ print(next((x["id"] for x in (items or []) if x.get("name")==os.environ["N"] and
 # ── the 'devops' skill (format SkillMd — content lives in the record, editable in the UI) ─────────
 SKILL_ID="$(id_by_name skills "$SKILL_NAME")"
 if [ -n "$SKILL_ID" ]; then
-  # Never PUT over it: by now this is whatever you wrote in the UI, not the placeholder we shipped.
+  # Never PUT over it: by now this is whatever you wrote in the UI, not the starter we shipped.
   echo "==> Skill '$SKILL_NAME' already registered (id: $SKILL_ID) — leaving its content alone"
 else
-  echo "==> Registering placeholder skill '$SKILL_NAME'"
+  echo "==> Registering starter skill '$SKILL_NAME'"
+  # NOTE: this text sits inside a single-quoted shell string — no apostrophes or triple quotes in it.
   SKILL_ID=$(python3 -c '
 import json
 skill_md = """---
 name: devops
-description: "Placeholder DevOps skill. Replace this with your own. MUST invoke when:
-  (1) the user asks about deploying, operating or troubleshooting infrastructure;
-  (2) the task involves CI/CD, Kubernetes or cloud resources."
+description: "Read-only DevOps help on the cloud scopes selected for this ticket. MUST invoke when:
+  (1) the user asks to list, show, check or troubleshoot AWS or GCP resources (buckets, service accounts,
+  instances, clusters, logs, permissions);
+  (2) the task involves CI/CD, Kubernetes or cloud infrastructure."
 ---
 
 # DevOps
 
-This is a starter skill created by the dev kit so the Skill -> Persona -> Workspace chain is wired up
-end to end. It does nothing useful yet — edit it under AI Admin -> Skills.
+A starter skill: scope-aware, read-only cloud help. Edit it under AI Admin -> Skills; your edits are kept
+across every ./run.sh.
 
 ## Core principle
 
-Say, in a sentence or two, how the task this skill covers actually works.
+A request like "List buckets" or "List service accounts" is answered with the cloud scope selected for
+this ticket. The user should not have to repeat the cloud, account or project.
 
 ## Steps
 
-1. Replace these steps with the real procedure.
-2. Be specific: name the commands, APIs and files the agent should use.
+1. Look at the scopes selected for this ticket. If exactly one is suitable for the request (an AWS scope
+   for S3 or IAM, a GCP scope for Cloud Storage or service accounts), use it without asking.
+2. Run the read-only command with the profile or configuration that scope provides, asking for compact
+   output that is complete, for example
+   `aws s3api list-buckets --profile <scope profile> --query "Buckets[].Name" --output json` or
+   `gcloud storage buckets list --configuration <scope config> --format=json`. Use the normal tool
+   approval flow. Request only the fields the user asked for (for example names).
+3. Return the requested names. Derive any count or total only from a complete actual result.
+4. If the output comes back abbreviated, truncated or saved to a file, it is incomplete: rerun a more
+   compact read-only listing, or read the saved result, using the normal approvals. Never guess or
+   estimate a total from truncated output, and never fill in from memory.
+
+## When to ask
+
+Ask a short question only when no selected scope fits, several selected scopes fit and the request does
+not say which, or the request names a cloud, account or project that conflicts with the selected scope.
 
 ## Best practices
 
-- Spell out the trigger conditions in the description above — that is how the agent decides when to
-  apply this skill at all.
+- Read-only by default. Make no writes, deletions or permission or IAM changes unless the user explicitly
+  asks for them, and never as a side effect of a read-only request.
+- Never use an account, profile or project that is not among the selected scopes, even if one is
+  available on the machine.
+- Never print or store credentials or tokens.
 """
-print(json.dumps({"name":"devops","type":"Custom","description":"Starter DevOps skill — edit me.",
+print(json.dumps({"name":"devops","type":"Custom","description":"Starter DevOps skill: read-only, scope-aware cloud help.",
                   "skillMd":skill_md,"format":"SkillMd","metaData":{}}))' \
     | curl -fsS --max-time 15 -X POST "$BASE_URL/v1/aiservicedesk/admin/data/skills" \
         -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" --data-binary @- \
