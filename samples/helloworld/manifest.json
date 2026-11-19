@@ -16,7 +16,6 @@
       "restSegment": "extensions/helloworlds",
       "subType": "hello-world",
       "archetype": "typed",
-      "registrar": "DevOpsResource",
       "entityType": "Duplo.Extension.HelloWorld.HelloWorld",
       "specType": "Duplo.Extension.HelloWorld.HelloWorldSpec",
       "resultType": "Duplo.Extension.HelloWorld.HelloWorldResult",

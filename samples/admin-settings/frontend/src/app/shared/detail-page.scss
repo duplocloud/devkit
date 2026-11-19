@@ -1,0 +1,299 @@
+// Template-G detail page — the Extension Studio details-page shell, ported for an extension remote.
+// Source of truth: duplo-ui/portal/ai-studio/src/app/environment/extensions/view-extension/
+// view-extension.component.scss. Wire it from your VIEW component with
+// `styleUrl: '../shared/detail-page.scss'` — styles are view-encapsulated, so each detail view owns a copy
+// of these rules, exactly as the platform page does. The lifecycle rail carries its own stylesheet.
+// See reference/19-detail-page.md for the anatomy this styles.
+@use './g-structure' as *;
+
+// The host layout pads the content area (~2rem); pull the page back to the mock's tighter inset so the
+// header sits flush like the Studio page — the same negative-margin trick the platform's own pages use.
+// If your remote mounts under a container with different padding, delete this block rather than fight it.
+.ext-detail-page {
+  margin: -10px -24px 0 -27px;
+  padding: 12px 16px 24px;
+  min-height: 100%;
+}
+
+.g-btn-ghost {
+  @extend %g-btn-ghost;
+}
+
+@include dots-loader;
+
+// ── Header — NO card. A flex row directly on the page background. ─────────────────────────────────
+.g-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.g-tile-ic {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: $g-primary-50;
+  color: $g-primary;
+  display: grid;
+  place-items: center;
+  flex: none;
+
+  i,
+  svg {
+    width: 26px;
+    height: 26px;
+  }
+}
+
+.g-head-main {
+  flex: 1;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.g-head-t {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+
+  h1 {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: $g-headings;
+    margin: 0;
+  }
+}
+
+.g-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 5px;
+  color: $g-body;
+  font-size: 13px;
+  flex-wrap: wrap;
+
+  .sep {
+    color: $g-neutral-400;
+  }
+
+  .k {
+    color: $g-muted;
+  }
+
+  .g-meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+  }
+
+  .mono {
+    font-family: $g-mono;
+    font-size: 12px;
+    color: $g-headings;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.g-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  padding-top: 5px;
+}
+
+// Spec | Result segmented switcher — dark active segment.
+.seg {
+  background: $g-white;
+  border: 1px solid $g-border;
+  border-radius: 8px;
+  padding: 3px;
+  display: inline-flex;
+  gap: 2px;
+
+  button {
+    border: 0;
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    color: $g-body;
+    background: transparent;
+    font-family: inherit;
+
+    &.active {
+      background: $g-secondary;
+      color: $g-white;
+      font-weight: 600;
+    }
+  }
+}
+
+// ── Body grid: main card left, lifecycle rail right ──────────────────────────────────────────────
+.g-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 10px;
+  align-items: start;
+}
+
+.g-main {
+  @extend %g-card;
+  padding: 2px 14px 14px;
+  min-width: 0;
+}
+
+// The Spec view's top gap. The Studio gets it from the `pt-1` utility on `<div class="g-sec pt-1">`
+// (1rem in this theme); making it structural too means a view that drops that one token still renders
+// the Studio's gap instead of the section heading touching the card edge. In the Result view the first
+// child is <scrollable-nav-tab>, so this rule does nothing there — the strip sits flush, as on the Studio.
+.g-main > .g-sec:first-child {
+  padding-top: 1rem;
+}
+
+.g-tabs {
+  @extend %g-tabs;
+}
+
+.tab-count {
+  font-size: 11px;
+  color: $g-muted;
+  font-weight: 500;
+  margin-left: 4px;
+}
+
+// ── Sections + tiles ─────────────────────────────────────────────────────────────────────────────
+.g-sec {
+  margin: 0 0 12px;
+}
+
+.g-sec-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+
+  h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: $g-headings;
+    margin: 0;
+  }
+
+  // Right-aligned slot for section-level actions (Plan / Apply, refresh, …).
+  .g-sec-actions {
+    margin-left: auto;
+    display: inline-flex;
+    gap: 6px;
+  }
+}
+
+.g-tiles {
+  display: grid;
+  gap: 8px;
+
+  &.c3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  &.c2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.g-tile {
+  @extend %g-card;
+  padding: 9px 11px;
+  min-width: 0;
+  min-height: 68px;
+
+  &.wide {
+    grid-column: span 2;
+  }
+
+  &.full {
+    grid-column: 1 / -1;
+  }
+}
+
+.g-tl {
+  @extend %g-tl;
+}
+
+.g-tv {
+  @extend %g-tv;
+
+  small {
+    color: $g-muted;
+    font-size: 11px;
+    font-weight: 400;
+    width: 100%;
+  }
+
+  .mono {
+    font-family: $g-mono;
+    font-size: 13px;
+  }
+
+  .trunc {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+}
+
+.g-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+
+  &.success { background: $g-success; }
+  &.danger { background: $g-danger; }
+  &.warning { background: $g-warning; }
+  &.secondary { background: $g-neutral-400; }
+}
+
+// Quiet divider between tile sections.
+.g-sep {
+  border: 0;
+  border-top: 1px solid $g-border;
+  margin: 12px 0 10px;
+}
+
+// Dense key/value table inside a card (ConfigMap data, subnet lists, …).
+.g-kv {
+  width: 100%;
+  font-size: 13px;
+  border-collapse: collapse;
+
+  th,
+  td {
+    padding: 6px 8px;
+    border-bottom: 1px solid $g-border;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  th {
+    @extend %g-tl;
+    margin: 0;
+  }
+
+  tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .mono {
+    font-family: $g-mono;
+    font-size: 12px;
+  }
+}

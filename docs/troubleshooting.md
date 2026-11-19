@@ -61,7 +61,7 @@ duplo-ui: Bind for 0.0.0.0:4210 failed: port is already allocated
 
 **Why** — the dev kit's ports are mostly offset from the platform's standard ports so both can run at once,
 but a port can still be taken by something else on your machine. The defaults are `STUDIO_PORT=60031`,
-`UI_PORT=4210`, `AGENT_PORT=8010`, `MONGO_PORT=27018`, `XTERM_PORT=6061`, `QDRANT_PORT=6333`.
+`UI_PORT=4210`, `MONGO_PORT=27018`, `XTERM_PORT=6061`, `QDRANT_PORT=6333`.
 
 `QDRANT_PORT` is the exception to the offset: 6333 is Qdrant's own default, so a Qdrant you already run
 locally will hold it. `compose up -d` is not guarded against this — one clashing port aborts the

@@ -5,16 +5,20 @@
     DLL. Compiled by the duplo-extension-dev skill with `dotnet publish` (same flow as hello-world):
       1. GET  {host}/v1/aiservicedesk/extensions/sdk-version  -> -p:DuploSdkVersion=<value>
       2. GET  {host}/v1/aiservicedesk/extensions/sdk-bundle   -> unzip into ./sdk-packages
-      3. dotnet publish -c Release -o <dist>/backend  (restores SDK from ./sdk-packages via nuget.config)
+      3. dotnet restore, then dotnet publish without a restore of its own, -c Release -o <dist>/backend, both
+         with -p:TargetFramework picked from that version (restores SDK from ./sdk-packages via nuget.config)
     The SDK is referenced compile-only (ExcludeAssets="runtime") and exact-pinned to the running host version.
   -->
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseAppHost>false</UseAppHost>
     <IsPackable>false</IsPackable>
     <DuploSdkVersion Condition="'$(DuploSdkVersion)' == ''">1.0.0</DuploSdkVersion>
+    <!-- The framework follows the SDK version: 1.0.x and 1.1.x ship net8.0 assemblies, 1.2.0 and later only net10.0.
+         build-extension.sh passes TargetFramework by the same rule; this is what an IDE or a plain publish gets. -->
+    <TargetFramework Condition="$([MSBuild]::VersionLessThan('$(DuploSdkVersion)', '1.2.0'))">net8.0</TargetFramework>
+    <TargetFramework Condition="'$(TargetFramework)' == ''">net10.0</TargetFramework>
   </PropertyGroup>
 
   <ItemGroup>

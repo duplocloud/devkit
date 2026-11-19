@@ -23,10 +23,13 @@
 # This is for local development. The token authenticates as one person against their own
 # subscription, so it does not belong in a shared or deployed stack.
 
-SUBSCRIPTION_DEFAULT_MODEL="claude-sonnet-5"
+SUBSCRIPTION_DEFAULT_MODEL="claude-sonnet-5-5"
+# Earlier values of SUBSCRIPTION_DEFAULT_MODEL (space-separated). An existing .env still holding one
+# of these is upgraded to the current default; see provider_subscription_configure.
+SUBSCRIPTION_PREVIOUS_DEFAULTS="claude-sonnet-5"
 # Registered alongside the default so the ticket LLM picker offers both. Bare ids, same as the
 # `anthropic` arm: this path is the first-party API, which is exactly what those ids name.
-SUBSCRIPTION_EXTRA_MODELS="claude-opus-5"
+SUBSCRIPTION_EXTRA_MODELS="claude-opus-5-5"
 
 # Strip leading/trailing whitespace from a pasted token. Normalization, NOT validation: no valid
 # opaque bearer token has whitespace at its edges, so this cannot turn away a good token whatever
@@ -77,7 +80,22 @@ TXT
     *)           echo "    note: expected a token beginning sk-ant-oat… — continuing anyway, but check it came from 'claude setup-token'." >&2 ;;
   esac
 
-  model="$F_SUBSCRIPTION_MODEL"; [ -z "$model" ] && model="$(getenv CLAUDE_MODEL)"
+  model="$F_SUBSCRIPTION_MODEL"
+  if [ -z "$model" ]; then
+    model="$(getenv CLAUDE_MODEL)"
+    # Unlike the anthropic/bedrock arms, this one keeps the .env model across runs, so a bumped
+    # default would never reach an existing install. A value equal to a previous default is ours,
+    # not the user's choice: move it to the current default. Anything else (or an explicit
+    # --subscription-model, even an old default) is a deliberate pick and is kept.
+    # Plain string equality per entry — no glob matching — so a hand-edited value containing *, ? or [
+    # can only ever equal itself, never match a previous default by accident.
+    for prev in $SUBSCRIPTION_PREVIOUS_DEFAULTS; do
+      if [ "$model" = "$prev" ]; then
+        echo "    note: CLAUDE_MODEL was the previous default '$model' — moving to $SUBSCRIPTION_DEFAULT_MODEL." >&2
+        model="$SUBSCRIPTION_DEFAULT_MODEL"; break
+      fi
+    done
+  fi
   [ -n "$model" ] || model="$SUBSCRIPTION_DEFAULT_MODEL"
   # A model id carried over from another provider — a Bedrock inference-profile id or a gateway's
   # namespaced id — is rejected outright by the first-party API. Fall back rather than fail on

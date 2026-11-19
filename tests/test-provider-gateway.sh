@@ -36,11 +36,11 @@ reset_env() { : > "$ENV"; F_GATEWAY_URL=""; F_GATEWAY_TOKEN=""; F_GATEWAY_MODEL=
 echo "gateway provider:"
 
 t "writes URL, token and model from flags"
-reset_env; F_GATEWAY_URL="https://openrouter.ai/api"; F_GATEWAY_TOKEN="sk-or-abc"; F_GATEWAY_MODEL="anthropic/claude-sonnet-5"
+reset_env; F_GATEWAY_URL="https://openrouter.ai/api"; F_GATEWAY_TOKEN="sk-or-abc"; F_GATEWAY_MODEL="anthropic/claude-sonnet-5-5"
 provider_gateway_configure >/dev/null 2>&1
 if [ "$(getenv ANTHROPIC_BASE_URL)" = "https://openrouter.ai/api" ] \
    && [ "$(getenv ANTHROPIC_AUTH_TOKEN)" = "sk-or-abc" ] \
-   && [ "$(getenv CLAUDE_MODEL)" = "anthropic/claude-sonnet-5" ]; then ok; else bad "$(cat "$ENV")"; fi
+   && [ "$(getenv CLAUDE_MODEL)" = "anthropic/claude-sonnet-5-5" ]; then ok; else bad "$(cat "$ENV")"; fi
 
 t "blanks ANTHROPIC_API_KEY so the agent takes the gateway path, not the proxy path"
 reset_env; setenv ANTHROPIC_API_KEY "sk-ant-leftover"
@@ -72,10 +72,10 @@ reset_env; F_GATEWAY_URL="https://bifrost.local"; F_GATEWAY_TOKEN="none"; F_GATE
 provider_gateway_configure >/dev/null 2>&1
 if grep -qx 'ANTHROPIC_AUTH_TOKEN=' "$ENV"; then ok; else bad "token=$(getenv ANTHROPIC_AUTH_TOKEN)"; fi
 
-t "model defaults to claude-sonnet-5 when not given"
+t "model defaults to claude-sonnet-5-5 when not given"
 reset_env; F_GATEWAY_URL="https://bifrost.local"; F_GATEWAY_TOKEN="t"
 provider_gateway_configure >/dev/null 2>&1
-if [ "$(getenv CLAUDE_MODEL)" = "claude-sonnet-5" ]; then ok; else bad "$(getenv CLAUDE_MODEL)"; fi
+if [ "$(getenv CLAUDE_MODEL)" = "claude-sonnet-5-5" ]; then ok; else bad "$(getenv CLAUDE_MODEL)"; fi
 
 t "reuses values already in .env on a re-run (no flags)"
 reset_env; setenv ANTHROPIC_BASE_URL "https://saved.example"; setenv ANTHROPIC_AUTH_TOKEN "saved-tok"; setenv CLAUDE_MODEL "saved-model"
@@ -120,6 +120,33 @@ t "GATEWAY_KEYS lists every key the arm writes (for --reset)"
 if printf '%s\n' "${GATEWAY_KEYS[@]}" | grep -qx ANTHROPIC_BASE_URL \
    && printf '%s\n' "${GATEWAY_KEYS[@]}" | grep -qx ANTHROPIC_AUTH_TOKEN \
    && printf '%s\n' "${GATEWAY_KEYS[@]}" | grep -qx CLAUDE_CODE_AUTO_COMPACT_WINDOW; then ok; else bad "${GATEWAY_KEYS[*]:-unset}"; fi
+
+# This arm keeps the .env model across runs, so a bumped default never reaches an existing install on
+# its own. An exact previous default (bare id, i.e. the prompt default accepted) is upgraded; a gateway's
+# own names, explicit flags and anything else are kept (PR #86 review).
+echo "gateway provider — previous-default migration:"
+t "upgrades the previous default (claude-sonnet-5) left in .env, with a note"
+reset_env; setenv CLAUDE_MODEL "claude-sonnet-5"; F_GATEWAY_URL="https://x.example"; F_GATEWAY_TOKEN="t"
+note="$(provider_gateway_configure 2>&1 >/dev/null)"
+if [ "$(getenv CLAUDE_MODEL)" = "claude-sonnet-5-5" ] && grep -q "previous default 'claude-sonnet-5'" <<<"$note" \
+   && grep -q -- '--gateway-model' <<<"$note"; then ok; else bad "CLAUDE_MODEL=$(getenv CLAUDE_MODEL); $note"; fi
+
+t "keeps a gateway-namespaced id (anthropic/claude-sonnet-5)"
+reset_env; setenv CLAUDE_MODEL "anthropic/claude-sonnet-5"; F_GATEWAY_URL="https://x.example"; F_GATEWAY_TOKEN="t"
+provider_gateway_configure >/dev/null 2>&1
+if [ "$(getenv CLAUDE_MODEL)" = "anthropic/claude-sonnet-5" ]; then ok; else bad "$(getenv CLAUDE_MODEL)"; fi
+
+t "keeps an explicit --gateway-model for the run that passes it, even a previous default"
+reset_env; F_GATEWAY_URL="https://x.example"; F_GATEWAY_TOKEN="t"; F_GATEWAY_MODEL="claude-sonnet-5"
+provider_gateway_configure >/dev/null 2>&1
+if [ "$(getenv CLAUDE_MODEL)" = "claude-sonnet-5" ]; then ok; else bad "$(getenv CLAUDE_MODEL)"; fi
+
+for v in '*' 'claude-*' '[c]laude-sonnet-5'; do
+  t "keeps a glob-looking .env value ($v) — no pattern matching"
+  reset_env; setenv CLAUDE_MODEL "$v"; F_GATEWAY_URL="https://x.example"; F_GATEWAY_TOKEN="t"
+  provider_gateway_configure >/dev/null 2>&1
+  if [ "$(getenv CLAUDE_MODEL)" = "$v" ]; then ok; else bad "$(getenv CLAUDE_MODEL)"; fi
+done
 
 echo; echo "$PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

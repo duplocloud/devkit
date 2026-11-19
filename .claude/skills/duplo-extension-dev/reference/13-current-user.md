@@ -26,6 +26,16 @@ export class MyExtComponent {
 Reactive (recompute on user/tenant change): `toSignal(this.session.currentUser)` and read `.email` off it.
 Fallback (rarely needed): `GET /admin/GetUserRoleInfo` via `REMOTE_DuploHttpClient` returns `{ Username, Roles }`.
 
+**Refresh timers** (`UserSession` in the common lib, `models/authnz.model.ts`) drive a list's re-fetch:
+
+| Method | Emits | Use for |
+|---|---|---|
+| `getTenantRefreshTimer(immediate?, frequency?)` | `[tenant, tenantChanged]` on first load (if `immediate`), every poll tick and every workspace switch | a **workspace** resource's list ([02](02-authoring-guide.md#frontend)) |
+| `getRefreshTimer(immediate?, frequency?)` | a tick number on first load (if `immediate`) and every poll tick — no workspace | an **admin** resource's list: it has no workspace to switch ([21](21-admin-resources.md), `samples/admin-settings`) |
+
+`getTenantRefreshTimer` is built on `getRefreshTimer`.
+Pipe either through `takeUntilDestroyed(this.destroyRef)`.
+
 ## Backend (typed extension — inject `ICurrentUser`)
 The SDK exposes `ICurrentUser` (a host singleton, so it injects into hot-loaded extensions). Read it inside a
 request-scoped call (controller action, hook, `EnrichResultAsync`):

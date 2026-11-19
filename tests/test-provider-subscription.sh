@@ -36,12 +36,12 @@ t "writes the token and a default model from flags"
 reset_env; F_SUBSCRIPTION_TOKEN="sk-ant-oat01-abc"
 provider_subscription_configure >/dev/null 2>&1
 if [ "$(getenv CLAUDE_CODE_OAUTH_TOKEN)" = "sk-ant-oat01-abc" ] \
-   && [ "$(getenv CLAUDE_MODEL)" = "claude-sonnet-5" ]; then ok; else bad "$(cat "$ENV")"; fi
+   && [ "$(getenv CLAUDE_MODEL)" = "claude-sonnet-5-5" ]; then ok; else bad "$(cat "$ENV")"; fi
 
 t "an explicit model flag wins over the default"
-reset_env; F_SUBSCRIPTION_TOKEN="sk-ant-oat01-abc"; F_SUBSCRIPTION_MODEL="claude-sonnet-5"
+reset_env; F_SUBSCRIPTION_TOKEN="sk-ant-oat01-abc"; F_SUBSCRIPTION_MODEL="claude-sonnet-5-5"
 provider_subscription_configure >/dev/null 2>&1
-if [ "$(getenv CLAUDE_MODEL)" = "claude-sonnet-5" ]; then ok; else bad "$(getenv CLAUDE_MODEL)"; fi
+if [ "$(getenv CLAUDE_MODEL)" = "claude-sonnet-5-5" ]; then ok; else bad "$(getenv CLAUDE_MODEL)"; fi
 
 # The agent puts subscription auth next-to-last in its precedence chain, so either of these
 # left over from a previous provider would win and the token would never be read. Blanking
@@ -68,14 +68,14 @@ if provider_subscription_configure >/dev/null 2>&1; then bad "returned 0 with no
 # A Bedrock inference-profile id is rejected outright by the first-party API, so a model left
 # over from a Bedrock run must not be carried onto this path.
 t "replaces a leftover us.anthropic.* model id with the bare default"
-reset_env; setenv CLAUDE_MODEL "us.anthropic.claude-sonnet-5"; F_SUBSCRIPTION_TOKEN="sk-ant-oat01-abc"
+reset_env; setenv CLAUDE_MODEL "us.anthropic.claude-sonnet-5-5"; F_SUBSCRIPTION_TOKEN="sk-ant-oat01-abc"
 provider_subscription_configure >/dev/null 2>&1
-if [ "$(getenv CLAUDE_MODEL)" = "claude-sonnet-5" ]; then ok; else bad "$(getenv CLAUDE_MODEL)"; fi
+if [ "$(getenv CLAUDE_MODEL)" = "claude-sonnet-5-5" ]; then ok; else bad "$(getenv CLAUDE_MODEL)"; fi
 
 t "replaces a leftover gateway-namespaced model id with the bare default"
-reset_env; setenv CLAUDE_MODEL "anthropic/claude-sonnet-5"; F_SUBSCRIPTION_TOKEN="sk-ant-oat01-abc"
+reset_env; setenv CLAUDE_MODEL "anthropic/claude-sonnet-5-5"; F_SUBSCRIPTION_TOKEN="sk-ant-oat01-abc"
 provider_subscription_configure >/dev/null 2>&1
-if [ "$(getenv CLAUDE_MODEL)" = "claude-sonnet-5" ]; then ok; else bad "$(getenv CLAUDE_MODEL)"; fi
+if [ "$(getenv CLAUDE_MODEL)" = "claude-sonnet-5-5" ]; then ok; else bad "$(getenv CLAUDE_MODEL)"; fi
 
 t "keeps a bare model id already in .env"
 reset_env; setenv CLAUDE_MODEL "claude-opus-4-8"; F_SUBSCRIPTION_TOKEN="sk-ant-oat01-abc"
@@ -119,20 +119,56 @@ case "$warn_out" in *WARNING*) bad "$warn_out" ;; *) ok ;; esac
 t "SUBSCRIPTION_KEYS lists every key the arm writes (for --reset)"
 if printf '%s\n' "${SUBSCRIPTION_KEYS[@]}" | grep -qx CLAUDE_CODE_OAUTH_TOKEN; then ok; else bad "${SUBSCRIPTION_KEYS[*]:-unset}"; fi
 
+# This arm keeps the .env model across runs, so an install created on the previous default would
+# never pick up a new one. A value equal to a previous default is upgraded; a deliberate pick isn't.
+t "upgrades the previous default (claude-sonnet-5) left in .env to the current default"
+reset_env; setenv CLAUDE_MODEL "claude-sonnet-5"; F_SUBSCRIPTION_TOKEN="sk-ant-oat01-abc"
+provider_subscription_configure >/dev/null 2>&1
+if [ "$(getenv CLAUDE_MODEL)" = "claude-sonnet-5-5" ]; then ok; else bad "$(getenv CLAUDE_MODEL)"; fi
+
+t "keeps an explicit --subscription-model even when it is a previous default"
+reset_env; F_SUBSCRIPTION_TOKEN="sk-ant-oat01-abc"; F_SUBSCRIPTION_MODEL="claude-sonnet-5"
+provider_subscription_configure >/dev/null 2>&1
+if [ "$(getenv CLAUDE_MODEL)" = "claude-sonnet-5" ]; then ok; else bad "$(getenv CLAUDE_MODEL)"; fi
+F_SUBSCRIPTION_MODEL=""
+
+t "keeps a non-default bare model id (claude-opus-5) in .env"
+reset_env; setenv CLAUDE_MODEL "claude-opus-5"; F_SUBSCRIPTION_TOKEN="sk-ant-oat01-abc"
+provider_subscription_configure >/dev/null 2>&1
+if [ "$(getenv CLAUDE_MODEL)" = "claude-opus-5" ]; then ok; else bad "$(getenv CLAUDE_MODEL)"; fi
+
+# The previous-default check is plain string equality: a hand-edited value with glob characters can
+# only equal itself, never match a previous default (PR #86 review).
+for v in '*' 'claude-*' '?laude-sonnet-5' '[c]laude-sonnet-5'; do
+  t "keeps a glob-looking .env value ($v) — no pattern matching"
+  reset_env; setenv CLAUDE_MODEL "$v"; F_SUBSCRIPTION_TOKEN="sk-ant-oat01-abc"
+  provider_subscription_configure >/dev/null 2>&1
+  if [ "$(getenv CLAUDE_MODEL)" = "$v" ]; then ok; else bad "$(getenv CLAUDE_MODEL)"; fi
+done
+
+t "every entry of a multi-entry previous-defaults list is upgraded"
+saved="$SUBSCRIPTION_PREVIOUS_DEFAULTS"; SUBSCRIPTION_PREVIOUS_DEFAULTS="claude-sonnet-5 claude-sonnet-4-6"; r=""
+for v in claude-sonnet-5 claude-sonnet-4-6; do
+  reset_env; setenv CLAUDE_MODEL "$v"; F_SUBSCRIPTION_TOKEN="sk-ant-oat01-abc"
+  provider_subscription_configure >/dev/null 2>&1; r="$r $(getenv CLAUDE_MODEL)"
+done
+SUBSCRIPTION_PREVIOUS_DEFAULTS="$saved"
+if [ "$r" = " claude-sonnet-5-5 claude-sonnet-5-5" ]; then ok; else bad "got:$r"; fi
+
 # This path talks to the first-party API with bare model ids, exactly like the `anthropic` arm —
 # so the picker should offer the same extras. (The gateway arm blanks them for a different reason:
 # a gateway names models its own way, and we only know the one id the user gave us.)
-t "registers claude-opus-5 as an extra so the picker offers it"
+t "registers claude-opus-5-5 as an extra so the picker offers it"
 reset_env; F_SUBSCRIPTION_TOKEN="sk-ant-oat01-abc"
 provider_subscription_configure >/dev/null 2>&1
-if [ "$(getenv CLAUDE_EXTRA_MODELS)" = "claude-opus-5" ]; then ok; else bad "$(getenv CLAUDE_EXTRA_MODELS)"; fi
+if [ "$(getenv CLAUDE_EXTRA_MODELS)" = "claude-opus-5-5" ]; then ok; else bad "$(getenv CLAUDE_EXTRA_MODELS)"; fi
 
 # A Bedrock/gateway id left in the extras is rejected by the first-party API just as CLAUDE_MODEL
 # would be, so the list is always rewritten rather than carried over.
 t "overwrites leftover provider-specific extras from a previous provider"
-reset_env; setenv CLAUDE_EXTRA_MODELS "us.anthropic.claude-opus-5"; F_SUBSCRIPTION_TOKEN="sk-ant-oat01-abc"
+reset_env; setenv CLAUDE_EXTRA_MODELS "us.anthropic.claude-opus-5-5"; F_SUBSCRIPTION_TOKEN="sk-ant-oat01-abc"
 provider_subscription_configure >/dev/null 2>&1
-if [ "$(getenv CLAUDE_EXTRA_MODELS)" = "claude-opus-5" ]; then ok; else bad "$(getenv CLAUDE_EXTRA_MODELS)"; fi
+if [ "$(getenv CLAUDE_EXTRA_MODELS)" = "claude-opus-5-5" ]; then ok; else bad "$(getenv CLAUDE_EXTRA_MODELS)"; fi
 
 # The title LLM being Bedrock-only is a detail of an unrelated subsystem; it told the user nothing
 # actionable on a path they'd just chosen deliberately.

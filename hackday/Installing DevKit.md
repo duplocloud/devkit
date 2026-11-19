@@ -29,7 +29,7 @@ running platform with no restart. You describe what you want in plain language a
 | **Claude Code** | This is how you build the agent — `/duplo-extension` lives in the repo's `.claude/` |
 | **An LLM key** | An Anthropic `sk-ant-…` key, **or** AWS credentials with Bedrock access, **or** an Anthropic-compatible gateway (OpenRouter, Bifrost, LiteLLM) |
 | **An email address you can read** | Work or personal both work; privacy-relay and disposable domains are **rejected** — see the callout in step 2 |
-| **Five free ports** | `4210`, `60031`, `8010`, `27018`, `6061`, plus `6333` for Qdrant |
+| **Four free ports** | `4210`, `60031`, `27018`, `6061`, plus `6333` for Qdrant |
 
 Verify the first two in one line:
 
@@ -75,7 +75,7 @@ extension directory — do it now so your Hack Day work has somewhere to live.
 > Mistyped the address? Re-run with the right one: `./run.sh --email you@yourcompany.com`. The stale
 > request is discarded and your trial is still intact.
 
-The remaining prompts: `Admin password:` (stored in the database — editing `.env` later won't change it),
+The remaining prompts: `Admin password:` and `Confirm Admin password:` (stored in the database — editing `.env` later won't change it),
 and `Select LLM provider:` (`1` anthropic, `2` bedrock) and its key.
 
 **4. Sign in.** `./run.sh` prints `✔ Platform ready` when the stack is up. Go to
