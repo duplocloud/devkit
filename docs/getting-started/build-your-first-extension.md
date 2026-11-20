@@ -1,10 +1,10 @@
-# 4. Build your first extension
+# 4. Build your first agent
 
 **What you'll do:** build **s3-guard** — an S3 security posture dashboard — by describing it to
 `/duplo-extension` in Claude Code, and load it into the platform you already have running.
 
 **What you need first:** [2. Connect AWS](connect-aws.md) — the `aws-readonly` scope, attached to the
-`extension-dev` workspace. The scan on this page reads a real AWS account through that scope, so it is
+`agent-dev` workspace. The scan on this page reads a real AWS account through that scope, so it is
 what makes the dashboard fill with your own buckets instead of nothing.
 
 [3. Connect Kubernetes](connect-kubernetes.md) is **not** needed for this page. Nothing here touches a
@@ -14,7 +14,7 @@ cluster. If you skipped it, carry on.
 
 ## 4.1 What you are building
 
-An **extension** is a first-class resource type. Not a plugin bolted onto a page, and not a script:
+An **agent** is a first-class resource type. Not a plugin bolted onto a page, and not a script:
 the platform gains a new kind of thing it can create, list, show and provision, with its own C#
 backend (controller, service, entity, its own REST route and its own database collection), its own
 Angular UI loaded into the portal as a remote, and its own provisioning logic. The platform
@@ -62,7 +62,7 @@ Leave the browser tab open; you come back to it in [4.6](#46-see-it-in-the-porta
    [1. Install and sign in](install.md#11-clone-the-dev-kit).
 
    ```bash
-   cd my-extension
+   cd my-agent
    ```
 
 2. Start Claude Code **in that directory**.
@@ -105,7 +105,7 @@ provisioning mode, where it lands in the navigation, how results are stored — 
 almost straight to a plan.
 
 ```text
-Build an extension called s3-guard: a security posture dashboard for S3 buckets.
+Build an agent called s3-guard: a security posture dashboard for S3 buckets.
 
 Use the AWS scope attached to the dev workspace for testing — if the scope name I give you
 doesn't exist, just use the one that's there, don't stop to ask. Remediate needs S3 write
@@ -188,7 +188,7 @@ Keep it to this one resource type. Do not add a parent-child hierarchy.
 > scan only reads bucket configuration, so the Overview, the scan pages, the per-bucket detail, the
 > violations and the action plans all work on read-only credentials. **Remediate** is the one thing that
 > writes, so with that scope each ticked rule comes back `AccessDenied` — shown against the rule it
-> belongs to. That is the credential refusing, not the extension failing, and there is nothing to chase.
+> belongs to. That is the credential refusing, not the agent failing, and there is nothing to chase.
 > To make **Remediate** actually apply, give that IAM user write access to the buckets you want to fix,
 > or attach a second, more privileged scope and scan with that one instead. Read-only is the safer
 > default for a machine you have just set up, which is why page 2 chose it — and if you do point
@@ -199,10 +199,10 @@ Keep it to this one resource type. Do not add a parent-child hierarchy.
 Claude Code does not start building from the paste. It works through the rest of its intake first:
 
 1. **It confirms the name.** It proposes `s3-guard` back to you and says what that name drives — the
-   extension id, the resource type, the REST route under `extensions/`, and the name of the UI remote.
+   agent id, the resource type, the REST route under `extensions/`, and the name of the UI remote.
    Confirm it or change it.
 
-2. **It confirms the scope.** It lists the scopes the `extension-dev` workspace actually has and asks
+2. **It confirms the scope.** It lists the scopes the `agent-dev` workspace actually has and asks
    which to test with. `aws-readonly` from page 2 is the one you want; the specification already tells
    it to take whatever AWS scope is there rather than stopping to ask.
 
@@ -218,23 +218,23 @@ Read that plan; it is your one chance to change the shape before anything is wri
 **once**. Approving covers the whole build, which is the point — the alternative is a permission prompt
 for every `dotnet`, `npm` and `curl` along the way.
 
-From there it runs unattended: scaffold the extension into `extensions/s3-guard/`, pin the host's SDK
+From there it runs unattended: scaffold the agent into `extensions/s3-guard/`, pin the host's SDK
 version, compile the C# backend, install and build the Angular remote, package it all into
-`extensions/s3-guard/dist/extension.zip`, and push that bundle into the running platform, which
+`extensions/s3-guard/dist/agent.zip`, and push that bundle into the running platform, which
 hot-loads it. Those last two steps are the same two commands you would run by hand:
 
 ```bash
 ./scripts/build-extension.sh  extensions/s3-guard
-./scripts/deploy-extension.sh extensions/s3-guard/dist/extension.zip
+./scripts/deploy-extension.sh extensions/s3-guard/dist/agent.zip
 ```
 
 With the installer service running, the build alone is enough, since the installer loads it. A build loaded
 by `deploy-extension.sh` is not one the installer reinstalls at the same version, so after a script load,
-bump the version or remove the extension before relying on the installer for a rebuild (see
-[Installing an extension](../../README.md#installing-an-extension)).
+bump the version or remove the agent before relying on the installer for a rebuild (see
+[Installing an agent](../../README.md#installing-an-agent)).
 
 Their flags are in the [CLI reference](../cli-reference.md). If the build fails to reach the host SDK,
-that symptom is in [troubleshooting.md](../troubleshooting.md#extensions).
+that symptom is in [troubleshooting.md](../troubleshooting.md#agents).
 
 ## 4.6 See it in the portal
 
@@ -279,12 +279,12 @@ that symptom is in [troubleshooting.md](../troubleshooting.md#extensions).
    first reports rather than replacing the first region's figure.
 
 Nothing is scanned until you create a scan — an empty **S3 Guard** group straight after the deploy is
-the extension working, not failing.
+the agent working, not failing.
 
 That is the whole loop, and it is the loop for anything else you build: describe it, approve one plan,
 and it is a first-class part of the platform.
 
 **Next:** [6. Where to next](where-to-next.md)
 
-> **5. Use the Terraform extension — coming soon.** A walkthrough of the real, shipping Terraform
-> extension is in progress and will be added here.
+> **5. Use the Terraform agent — coming soon.** A walkthrough of the real, shipping Terraform
+> agent is in progress and will be added here.

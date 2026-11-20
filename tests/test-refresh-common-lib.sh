@@ -14,7 +14,7 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 LIB=duplocloud-internal-ng-common-lib
 OLD="$LIB-0.4.0.tgz"; NEW="$LIB-0.5.1.tgz"
 
-# new_repo: a sample on packages/ and an extension scaffolded from the template, with its own vendor/, both on 0.4.0.
+# new_repo: a sample on packages/ and an agent scaffolded from the template, with its own vendor/, both on 0.4.0.
 new_repo() {
   REPO="$TMP/repo.$RANDOM"; mkdir -p "$REPO/scripts" "$REPO/packages" "$REPO/samples/s/frontend" "$REPO/extensions/foo/frontend/vendor"
   cp "$ROOT/scripts/refresh-common-lib.sh" "$REPO/scripts/"

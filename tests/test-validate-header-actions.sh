@@ -108,7 +108,7 @@ done
 expect_pass "accepts %2f in the query only" "[$(act '{"visibilityUrl":"/v1/aiservicedesk/x?next=a%2fb"}')]"
 expect_pass "accepts an encoded space in the path" "[$(act '{"visibilityUrl":"/v1/aiservicedesk/a%20b"}')]"
 
-# ── blank strings, order, extension id ───────────────────────────────────────────────────────────
+# ── blank strings, order, agent id ───────────────────────────────────────────────────────────
 expect_fail "rejects a BOM-only label"      "[$(jq -c '. + {label: "\ufeff"}' <<<"$ACT")]" "label"
 expect_fail "rejects a BOM/space expose"    "[$(jq -c '. + {expose: " \ufeff"}' <<<"$ACT")]" "expose"
 expect_fail "rejects a non-breaking-space id" "[$(jq -c '. + {id: "\u00a0"}' <<<"$ACT")]" "id"
@@ -117,12 +117,12 @@ expect_fail "rejects order -1e400"          "[$(act '{"order":-1e400}')]" "order
 expect_pass "accepts a NEL-only label (JS trim keeps U+0085)" "[$(jq -c '. + {label: "\u0085"}' <<<"$ACT")]"
 expect_pass "accepts a NEL in the visibilityUrl query (not JS whitespace)" "[$(jq -c '. + {visibilityUrl: "/v1/aiservicedesk/x\u0085"}' <<<"$ACT")]"
 expect_pass "accepts a negative finite order" "[$(act '{"order":-5.5}')]"
-manifest_fail "rejects a missing extension id"   "{\"frontend\":{\"remote\":{\"remoteEntry\":\"/r\"},\"headerActions\":[$ACT]}}" "extension needs a non-blank"
-manifest_fail "rejects a blank extension id"     "{\"id\":\" \",\"frontend\":{\"remote\":{\"remoteEntry\":\"/r\"},\"headerActions\":[$ACT]}}" "extension needs a non-blank"
-manifest_fail "rejects a BOM extension id"       "{\"id\":\"\ufeff\",\"frontend\":{\"remote\":{\"remoteEntry\":\"/r\"},\"headerActions\":[$ACT]}}" "extension needs a non-blank"
-manifest_fail "rejects a numeric extension id"   "{\"id\":5,\"frontend\":{\"remote\":{\"remoteEntry\":\"/r\"},\"headerActions\":[$ACT]}}" "extension needs a non-blank"
-manifest_pass "passes empty headerActions without an extension id" '{"frontend":{"headerActions":[]}}'
-manifest_pass "passes a dotted extension id (the portal accepts it)" "{\"id\":\"my.ext\",\"frontend\":{\"remote\":{\"remoteEntry\":\"/r\"},\"headerActions\":[$ACT]}}"
+manifest_fail "rejects a missing agent id"   "{\"frontend\":{\"remote\":{\"remoteEntry\":\"/r\"},\"headerActions\":[$ACT]}}" "agent needs a non-blank"
+manifest_fail "rejects a blank agent id"     "{\"id\":\" \",\"frontend\":{\"remote\":{\"remoteEntry\":\"/r\"},\"headerActions\":[$ACT]}}" "agent needs a non-blank"
+manifest_fail "rejects a BOM agent id"       "{\"id\":\"\ufeff\",\"frontend\":{\"remote\":{\"remoteEntry\":\"/r\"},\"headerActions\":[$ACT]}}" "agent needs a non-blank"
+manifest_fail "rejects a numeric agent id"   "{\"id\":5,\"frontend\":{\"remote\":{\"remoteEntry\":\"/r\"},\"headerActions\":[$ACT]}}" "agent needs a non-blank"
+manifest_pass "passes empty headerActions without an agent id" '{"frontend":{"headerActions":[]}}'
+manifest_pass "passes a dotted agent id (the portal accepts it)" "{\"id\":\"my.ext\",\"frontend\":{\"remote\":{\"remoteEntry\":\"/r\"},\"headerActions\":[$ACT]}}"
 
 # ── expose check against remoteEntry.json ────────────────────────────────────────────────────────
 RE="$TMP/remoteEntry.json"
@@ -168,7 +168,7 @@ else ok; fi
 # Leftover template provider type: `type: 'helloworld'` must fail the naming gate.
 mk "$(wrap "[$ACT]")"; mkdir -p "$TMP/ext/frontend/src"
 printf "const T = { type: 'helloworld', label: 'X' };\n" > "$TMP/ext/frontend/src/a.ts"
-t "--validate-only fails a renamed extension that keeps type: 'helloworld'"
+t "--validate-only fails a renamed agent that keeps type: 'helloworld'"
 OUT="$(run_build "$TMP/ext")"; RC=$?
 if [ "$RC" = 0 ] || [ "$RC" = 99 ]; then bad "rc=$RC: $OUT"
 elif [[ "$OUT" != *"template 'Hello'/'hw-' identifiers"* ]]; then bad "no leftover line: $OUT"
@@ -182,7 +182,7 @@ rm -rf "$TMP/ext/frontend"
 # Leftover template display text: "Hello World" must fail the naming gate.
 mk "$(wrap "[$ACT]")"; mkdir -p "$TMP/ext/frontend/src"
 printf "const T = 'Hello World setup';\n" > "$TMP/ext/frontend/src/a.ts"
-t "--validate-only fails a renamed extension that keeps 'Hello World' text"
+t "--validate-only fails a renamed agent that keeps 'Hello World' text"
 OUT="$(run_build "$TMP/ext")"; RC=$?
 if [ "$RC" = 0 ] || [ "$RC" = 99 ]; then bad "rc=$RC: $OUT"
 elif [[ "$OUT" != *"template 'Hello'/'hw-' identifiers"* ]]; then bad "no leftover line: $OUT"
@@ -193,7 +193,7 @@ rm -rf "$TMP/ext/frontend"
 for s in "selector: 'hw-setup'" "interface HelloSettings {}" "const K = 'helloworld.settings';" 'const T = { type: "helloworld" };'; do
   mk "$(wrap "[$ACT]")"; mkdir -p "$TMP/ext/frontend/src"
   printf '%s\n' "$s" > "$TMP/ext/frontend/src/a.ts"
-  t "--validate-only fails a renamed extension that keeps: $s"
+  t "--validate-only fails a renamed agent that keeps: $s"
   OUT="$(run_build "$TMP/ext")"; RC=$?
   if [ "$RC" = 0 ] || [ "$RC" = 99 ]; then bad "rc=$RC: $OUT"
   elif [[ "$OUT" != *"template 'Hello'/'hw-' identifiers"* ]]; then bad "no leftover line: $OUT"

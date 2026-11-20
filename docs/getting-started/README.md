@@ -1,14 +1,14 @@
 # Getting started
 
-Everything you need to go from an empty directory to a working DuploCloud extension. No prior
+Everything you need to go from an empty directory to a working DuploCloud agent. No prior
 DuploCloud knowledge assumed, and nothing to read outside this repo.
 
 **What you'll have at the end:** the DuploCloud AI Helpdesk platform running locally, connected to
-your AWS account and to an EKS cluster, with your own extension loaded into it as a first-class
+your AWS account and to an EKS cluster, with your own agent loaded into it as a first-class
 resource type — its own backend, its own UI, and its own provisioning.
 
 > **In a hurry?** [../quickstart.md](../quickstart.md) is the short version: a running platform with
-> AWS connected. No Kubernetes, no extension.
+> AWS connected. No Kubernetes, no agent.
 
 ## The path
 
@@ -22,8 +22,8 @@ pointing at the next.
 | 1 | [Install and sign in](install.md) | The platform running locally, and you signed in to it |
 | 2 | [Connect AWS](connect-aws.md) | The agent answering questions about your AWS account |
 | 3 | [Connect Kubernetes](connect-kubernetes.md) | The agent answering questions about your EKS cluster |
-| 4 | [Build your first extension](build-your-first-extension.md) | An S3 security posture dashboard, loaded and live with no host restart |
-| 5 | Use the Terraform extension — **coming soon** | A real shipping extension importing your own Terraform repo — then modified by you and redeployed |
+| 4 | [Build your first agent](build-your-first-extension.md) | An S3 security posture dashboard, loaded and live with no host restart |
+| 5 | Use the Terraform agent — **coming soon** | A real shipping agent importing your own Terraform repo — then modified by you and redeployed |
 | 6 | [Where to next](where-to-next.md) | The authoring manual, the samples, and going to production |
 
 ## How these pages are written

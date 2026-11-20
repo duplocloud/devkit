@@ -213,7 +213,7 @@ Now follow the `duplo-extension-dev` skill — read `.claude/skills/duplo-extens
 - build + deploy (the scripts resolve the target from `.env`/env via `scripts/_target.sh`):
   ```bash
   ./scripts/build-extension.sh  extensions/<name>
-  ./scripts/deploy-extension.sh extensions/<name>/dist/extension.zip
+  ./scripts/deploy-extension.sh extensions/<name>/dist/agent.zip
   ```
 
 ## Step 6 — Verify provisioning (ask the user which way)

@@ -1,4 +1,4 @@
-# Releasing extensions
+# Releasing agents
 
 `.github/workflows/release.yml` runs on every push to `main`, in DuploCloud's organizations on every push to `dev`
 and `rc` as well, and on a manual dispatch. It calls
@@ -16,17 +16,17 @@ bucket or tag.
 
 ## What a release produces
 
-A build is tagged `<slug>-v<version>-sdk-<sdkVersion>`, where `<slug>` is the extension directory's name
+A build is tagged `<slug>-v<version>-sdk-<sdkVersion>`, where `<slug>` is the agent directory's name
 and `<sdkVersion>` comes from the built bundle's own `manifest.json` (stamped by `build-extension.sh` from
 the SDK it built against: the host's, or each version in `DUPLO_SDK_VERSIONS`, which makes one bundle and one
-release per version). The release is cut at the built commit with `extension.zip` attached. A
+release per version). The release is cut at the built commit with `agent.zip` attached. A
 version already released, under this tag shape or the older `<slug>-v<version>` one, is skipped if the
-extension is unchanged since, and fails the run if it changed, since bumping `manifest.version` is the only
+agent is unchanged since, and fails the run if it changed, since bumping `manifest.version` is the only
 way to tell two different bundles apart.
 
 Two checks run before any of that, for every build in every organization. A manifest with no `resources`
 entry is refused, since the host would refuse the bundle anyway, and so is a zip over 268435456 bytes (256
-MiB). A pull request that touches an extension sees the same checks ahead of time, as a warning rather than
+MiB). A pull request that touches an agent sees the same checks ahead of time, as a warning rather than
 a failure, from `scripts/check-extension-pr.sh`. That script also warns when `manifest.version` has not
 moved, when a `skills/` folder has no matching `skills[].folder` entry in the manifest, when a webpack
 frontend bundle ships without the file that Native Federation hosts need, and when the frontend uses an
@@ -35,7 +35,7 @@ ng-common-lib older than 0.5.1 (see the `duplo-extension-theme-migration` skill)
 In every organization the build is uploaded and registered with the console as a new, unpublished version
 of the record whose manifest id equals the bundle's. A version stays unpublished, for a platform owner to
 publish once the build has been verified, unless the run was dispatched with `publish` (see "Publishing on
-register"). In `duplocloud` and `duplocloud-internal` the release also carries `extension.zip.sig`, the
+register"). In `duplocloud` and `duplocloud-internal` the release also carries `agent.zip.sig`, the
 bundle is obfuscated, and a `main` release's upload goes to the channels bucket through the publisher role
 (a `dev` or `rc` release goes through the dev console instead, see the next section). Elsewhere the
 bundle is plain, signed only when the repository supplies its own key and certificate, and the upload goes
@@ -80,17 +80,17 @@ needs a DuploCloud credential.
 
 1. **A key for your team.** In your console team, create a custom role holding **View own agents** and
    **Manage own agent versions**, create a service account with that role, and store its API key as the
-   repository secret `CONSOLE_API_KEY`. The first is what lets the action find the extension, since every
+   repository secret `CONSOLE_API_KEY`. The first is what lets the action find the agent, since every
    read on your team's routes needs it. The second creates versions and artifacts and asks for upload URLs.
    The console's Service Accounts guide has the workflow. Then set the repository variable `CONSOLE_TEAM`
    to your team's slug, the segment after `/a/` in the console's address bar. `release.yml` passes it to
    the action, which then uses your team's own routes. Without it the run stops before the build and names
    the variable, since the routes the action would use otherwise need a staff capability no customer key
    holds.
-2. **One agent record per extension.** Under **Agents > Agents**, create an agent whose manifest id equals
-   the `id` in the extension's `manifest.json`. The id has to fall inside one of your team's namespaces,
+2. **One agent record per agent.** Under **Agents > Agents**, create an agent whose manifest id equals
+   the `id` in the agent's `manifest.json`. The id has to fall inside one of your team's namespaces,
    which the same page lists. By default that is the reverse of your domain, so a team on `acme.io` names
-   its extensions `io.acme.billing` and so on. Creating the record takes **Manage own agents**. The action
+   its agents `io.acme.billing` and so on. Creating the record takes **Manage own agents**. The action
    finds the record by that id and fails the job when none exists.
 3. **A signing key, if you sign.** Under **Agents > Signing keys > New signing key**, the console shows the
    key's private PEM once. That is the repository secret `CONSOLE_SIGNING_KEY`. The key's certificate,
@@ -99,12 +99,12 @@ needs a DuploCloud credential.
    build ships plain and unsigned, and the run still completes.
 
 The build itself still takes its SDK from a running platform, so the repository also holds `DUPLO_HOST`
-and `DUPLO_TOKEN`, the same secrets Extension CI uses.
+and `DUPLO_TOKEN`, the same secrets Agent CI uses.
 
 ### What each run produces
 
-A push to `main` builds every extension, cuts one GitHub Release per build, tagged
-`<slug>-v<version>-sdk-<sdkVersion>` with `extension.zip` attached (and `extension.zip.sig` when the
+A push to `main` builds every agent, cuts one GitHub Release per build, tagged
+`<slug>-v<version>-sdk-<sdkVersion>` with `agent.zip` attached (and `agent.zip.sig` when the
 repository signs), and registers the build with the console as a new, unpublished version of your agent
 record. The upload goes through a URL the console issues for your key, valid for 900 seconds and good for
 one create-only write, so the run never holds AWS credentials and never names a bucket. A build already
@@ -114,7 +114,7 @@ there is reported as registered rather than replaced.
 
 Your team's agents are private. Only your team sees them in the console, and only portals licensed to your
 team see them in their **Agent Library**. A version appears there once it is published. Publish it from
-the console, by editing the version, or start the Extension Release workflow by hand with its `publish`
+the console, by editing the version, or start the Agent Release workflow by hand with its `publish`
 input checked, which publishes each version that run registers a first build for. A version an earlier run
 registered is published in the console.
 
@@ -132,7 +132,7 @@ registered is published in the console.
 Any repository, not only DuploCloud's own, can sign a build with `.github/actions/extension-sign`, a
 composite action that wraps `scripts/extension-sign.py sign`. It takes three inputs:
 
-- `bundle`, the path to the built `extension.zip`
+- `bundle`, the path to the built `agent.zip`
 - `signing-key`, the publisher's private key PEM, from a secret
 - `signing-cert`, the publisher's certificate, a compact JWS from the console
 
@@ -157,8 +157,8 @@ that run is never mistaken for a check against the console's real roots.
 
 ## Obfuscating a build
 
-DuploCloud's own extensions ship with their backend assembly obfuscated by ArmDot, the same protection the
-platform's assemblies carry. Only the extension's own assembly is processed. The SDK assemblies the host
+DuploCloud's own agents ship with their backend assembly obfuscated by ArmDot, the same protection the
+platform's assemblies carry. Only the agent's own assembly is processed. The SDK assemblies the host
 provides never ship in the bundle, so they are never touched. Which protections are on is described in
 `armdot/README.md` in the private `duplocloud-internal/.github`, beside the files that set them.
 
@@ -168,8 +168,8 @@ They live under `armdot/` in the private `duplocloud-internal/.github`, and a li
 `DUPLO_ARMDOT_DIR`: the release action fetches them there before the build, and a laptop build points the variable
 at a checkout of that directory. A licensed build with no such directory fails before anything compiles, naming
 the variable. `build-extension.sh` passes the license and the directory into the builder container and drops a
-temporary `Directory.Build.targets` beside the extension's csproj, so the extension's own project file never changes. An
-extension that already has its own `Directory.Build.targets` in its `backend/` directory is refused, since the
+temporary `Directory.Build.targets` beside the agent's csproj, so the agent's own project file never changes. An
+agent that already has its own `Directory.Build.targets` in its `backend/` directory is refused, since the
 build would overwrite it. A relative license path is taken relative to the directory you run the script from.
 
 A license problem fails the build rather than ship an unprotected or expiring assembly. A path that does not name
@@ -210,7 +210,7 @@ A platform owner sets up each of these once in the console. Each one then serves
 
 1. **The API key behind `CONSOLE_API_KEY`.** In the platform-owner team, create a custom role holding
    **View agent versions**, **Manage agent versions** and `view_agents`, create a service account
-   with that role, and store its API key as the organization secret. The action looks the extension up by
+   with that role, and store its API key as the organization secret. The action looks the agent up by
    manifest id on the console's staff routes, which is what `view_agents` covers, then reads and creates
    versions and artifacts, and publishes a version when the run asks for it. Manage agent versions covers
    publishing. The console's own guide covers the service-account workflow in
@@ -219,11 +219,11 @@ A platform owner sets up each of these once in the console. Each one then serves
    namespace covering its manifest ids, and a signing key created under that team. The console returns the
    key's private PEM once, at creation, and that goes into the secret. The key's certificate goes into the
    organization variable.
-3. **One extension record per extension.** Create it under the same publishing team, with a manifest id
-   that equals the `id` in the extension's `manifest.json`. The action finds the record by that id and fails
+3. **One agent record per agent.** Create it under the same publishing team, with a manifest id
+   that equals the `id` in the agent's `manifest.json`. The action finds the record by that id and fails
    the job when none exists, and the console accepts a signed artifact only when the signature's manifest id
    matches the record and the signing key belongs to the record's team. The console's API only reads
-   extension records, so this step happens in the console.
+   agent records, so this step happens in the console.
 
 ### The role trust
 
@@ -305,7 +305,7 @@ found. That pin moves in its own change once the image is published, and `releas
 In DuploCloud's organizations a signed build uploads to
 `s3://duplo-helpdesk-channels/bundles/[id]/[version]/sdk-[sdkVersion]/` in `us-west-2`, as two objects on a push to
 `main`,
-`extension.zip` and `extension.zip.sig`, with the assumed role. Both the bucket name and the console URL can be
+`agent.zip` and `agent.zip.sig`, with the assumed role. Both the bucket name and the console URL can be
 overridden with the `BUNDLE_BUCKET` and `CONSOLE_URL` repository variables. Left unset, they default to the
 production bucket and the production console. Elsewhere the action asks the console for an upload URL with the
 console key and uploads through that, so the bucket is never named.
@@ -318,7 +318,7 @@ Every version it creates starts unpublished.
 
 ### Publishing on register
 
-Publishing a version is what ships its build to every entitled install, so it is opt-in. Start the Extension
+Publishing a version is what ships its build to every entitled install, so it is opt-in. Start the Agent
 Release workflow by hand with its `publish` input checked. That run publishes every version it registers a
 first build for, after the build is uploaded and its artifact is registered and matches the release. A version
 that is already published is left alone, and so is one an earlier run registered or a platform owner
@@ -346,7 +346,7 @@ be re-run. Everything it already finished is a create-only no-op, and it picks u
 A release that was cut before its repository started signing has no `.sig` asset, and it cannot gain one
 afterward. Once immutable releases are turned on for a repository, which this workflow recommends, nothing
 can be added to a release after it is cut. The action does not skip that release. It reads back the
-`extension.zip` alone and registers the build with an empty signature, as it does for any unsigned build.
+`agent.zip` alone and registers the build with an empty signature, as it does for any unsigned build.
 Outside DuploCloud's organizations it then uploads through the console-issued URL and the run ends clean. In
 DuploCloud's organizations a `main` release writes two objects through the publisher role, so the run fails at the
 `.sig` upload, after the unsigned build is registered. The way to a signed build is a new `manifest.version`,

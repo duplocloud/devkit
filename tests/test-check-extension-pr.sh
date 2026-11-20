@@ -33,11 +33,11 @@ set_manifest() {
 
 change() { echo "$1" > "$D/code.txt"; git -C "$REPO" commit -qam "$1"; }
 
-# bundle <fe entry file> [sdk]: the dist/extension.zip a host-mode build leaves, or dist/sdk-<sdk>/extension.zip for a
+# bundle <fe entry file> [sdk]: the dist/agent.zip a host-mode build leaves, or dist/sdk-<sdk>/agent.zip for a
 # per-version build, with its frontend entry under fe/.
 bundle() {
   local p out; p="$(mktemp -d)"; mkdir -p "$p/fe"; cp "$D/manifest.json" "$p/"; echo x > "$p/fe/$1"
-  out="$D/dist/${2:+sdk-$2/}extension.zip"
+  out="$D/dist/${2:+sdk-$2/}agent.zip"
   mkdir -p "$(dirname "$out")"; rm -f "$out"; ( cd "$p" && zip -qr "$out" . ); rm -rf "$p"
 }
 
@@ -87,10 +87,10 @@ new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'; chang
 OUT="$(run)"; RC=$?
 if [ "$RC" = 0 ] && grep -q "::warning.*remoteEntry.js" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
 
-t "warns about a webpack frontend in a per-SDK-version bundle (dist/sdk-<v>/extension.zip)"
+t "warns about a webpack frontend in a per-SDK-version bundle (dist/sdk-<v>/agent.zip)"
 new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'; change two; bundle remoteEntry.js 1.0.6
 OUT="$(run)"; RC=$?
-if [ "$RC" = 0 ] && grep -q "::warning.*sdk-1.0.6/extension.zip" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
+if [ "$RC" = 0 ] && grep -q "::warning.*sdk-1.0.6/agent.zip" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
 
 t "is quiet about a Native Federation frontend (fe/remoteEntry.json)"
 new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'; change two; bundle remoteEntry.json
@@ -105,7 +105,7 @@ if [ "$RC" = 0 ] && grep -q "::warning.*resource" <<<"$OUT"; then ok; else bad "
 
 t "warns about a bundle over 268435456 bytes"
 new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'; change two; bundle remoteEntry.json
-truncate -s 268435457 "$D/dist/extension.zip"
+truncate -s 268435457 "$D/dist/agent.zip"
 OUT="$(run)"; RC=$?
 if [ "$RC" = 0 ] && grep -q "::warning.*268435456" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
 

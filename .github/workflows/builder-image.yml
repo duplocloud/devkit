@@ -1,4 +1,4 @@
-# Publishes the extension build toolchain image (.NET SDK 8 + Node 22) that scripts/build-extension.sh
+# Publishes the agent build toolchain image (.NET SDK 8 + Node 22) that scripts/build-extension.sh
 # runs builds in. Multi-arch so it works on CI (amd64) and Apple Silicon laptops (arm64).
 #
 # Auth comes from the org-level secrets QUAY_USERNAME / QUAY_PASSWORD, which every repo in the

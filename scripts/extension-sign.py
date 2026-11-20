@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sign and verify an extension bundle's signature, extension.zip.sig.
+"""Sign and verify an extension bundle's signature, agent.zip.sig.
 
 sign writes one compact ES256 JWS whose claims come from the BUILT zip's manifest.json, since sdkVersion exists only
 there, and whose sha256 is over the zip's final bytes. It reproduces the console's reference signer (sign_artifact in

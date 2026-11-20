@@ -9,14 +9,14 @@ Nothing here builds from source. Every service pulls a published image pinned by
 
 | Service | Image | Port | Role |
 | --- | --- | --- | --- |
-| `duplo-ai-studio` | `quay.io/duplocloud/backend` | 60031 | The platform API, serving `/v1/aiservicedesk`. Owns extensions, workspaces, resources, and tickets, and enforces the license in `Licensing__Token`. |
+| `duplo-ai-studio` | `quay.io/duplocloud/backend` | 60031 | The platform API, serving `/v1/aiservicedesk`. Owns agents, workspaces, resources, and tickets, and enforces the license in `Licensing__Token`. |
 | `duplo-ui` | `quay.io/duplocloud/duplo-ai-helpdesk-ui` | 4210 | The Angular portal. The image serves the SPA only; the mounted `nginx/default.conf` proxies API prefixes to the studio, so the browser sees one origin and there is no CORS. |
 | `claude-code-agent` | `quay.io/duplocloud/duplo-agent` | — | The LLM agent that executes provisioning tickets. Reachable only in-network at `http://claude-code-agent:8000`, and every API route requires the bearer token `run.sh` mints as `Agent__ApiAuthToken`, which the studio sends. Calls back to the studio at `http://duplo-ai-studio:60021`. |
 | `dind` | `docker:27-dind` | — | Docker-in-Docker daemon for the agent, mirroring the helpdesk-helm chart's sidecar. Shares `claude-code-agent`'s network namespace and listens on its loopback only (`DOCKER_HOST=tcp://127.0.0.1:2375`), so the agent can run containers and nothing else can reach the daemon. Mounts the same `/data` so bind-mount paths match. Runs privileged. |
 | `mongo` | `mongo:7.0.14` | 27018 (loopback) | All platform state, including the `loaded_extensions` records. Matches the version pinned in the helpdesk-helm chart. |
 | `qdrant` | `qdrant/qdrant:v1.18.2` | 6333 | The vector database behind the Knowledge Base. The studio reaches it in-network at `http://qdrant:6333`; the host port is published so its dashboard is available for debugging. Runs with RBAC on, so the studio can mint read-only per-collection tokens instead of sharing the master key. |
 | `xterm` | `quay.io/duplocloud/duplo-xterm` | 6061 (loopback) | In-browser terminal. The browser reaches it on the published host port, so `AIStudio__XtermHost` must be host-reachable. Published on `127.0.0.1` only and limited to the portal's origins through `ALLOWED_ORIGINS`, since the container runs privileged and the terminal server has no authentication of its own. |
-| `installer` | `quay.io/duplocloud/helpdesk-installer` | none | Installs and upgrades extensions through the studio's API, from your builds in the read-only `extensions/` mount and, when configured, the license server's catalog. The studio calls it at `Extensions__InstallerUrl`, so it publishes no host port. See [Installing an extension](../README.md#installing-an-extension). |
+| `installer` | `quay.io/duplocloud/helpdesk-installer` | none | Installs and upgrades agents through the studio's API, from your builds in the read-only `extensions/` mount and, when configured, the license server's catalog. The studio calls it at `Extensions__InstallerUrl`, so it publishes no host port. See [Installing an agent](../README.md#installing-an-agent). |
 | `init-perms` | `busybox:1.36` | none | One-shot. Chowns the shared named volumes to uid 1001 so the non-root studio and agent can write them, and the installer's state volume to 65532, its distroless nonroot user. Named volumes are created root-owned, so this runs on every startup. |
 
 Ports shown are the dev kit's `.env.example` defaults, mostly offset from the platform's standard ports so
@@ -26,7 +26,7 @@ Qdrant is the one service the platform reaches only through its own records: the
 to it until a provider and a collection exist. `run.sh` therefore runs
 [`scripts/register-qdrant.sh`](cli-reference.md#platform-registration), which registers Qdrant as a
 `vectorDatabase` provider, wraps it in a `qdrant` scope so the provider is selectable in the ticket scope
-picker, and creates an empty `devkit-docs` collection owned by the `extension-dev` workspace. That
+picker, and creates an empty `devkit-docs` collection owned by the `agent-dev` workspace. That
 collection's read access is *not* that scope — about a minute after it is created, the reconcile worker
 mints a read-only token scoped to the one collection, wraps it in a `kb-devkit-docs-readonly` scope, and
 attaches it to the owning workspace by itself.
@@ -42,19 +42,19 @@ the UI, but each upload fails. See [configuration.md](configuration.md#knowledge
 | Volume | Mounted by | Holds |
 | --- | --- | --- |
 | `mongo_data` | mongo | The database, including `loaded_extensions`. |
-| `platform_data` | studio, agent | The shared `/data` file store — skills and loaded-extension skill files. Shared so the agent can read the skills the studio seeded. |
-| `extension_studio_data` | studio | Unpacked hot-loaded extension bundles. |
+| `platform_data` | studio, agent | The shared `/data` file store — skills and loaded-agent skill files. Shared so the agent can read the skills the studio seeded. |
+| `extension_studio_data` | studio | Unpacked hot-loaded agent bundles. |
 | `claude_sessions` | agent | Agent sessions, under its real home (`/home/appuser/.claude`). |
 | `qdrant_data` | qdrant | Knowledge Base vectors and their payloads. |
 | `installer_state` | installer | The installer's status record, `installer-status.json`. |
 
-Because extensions live in a named volume **and** are recorded in Mongo, they survive a container
+Because agents live in a named volume **and** are recorded in Mongo, they survive a container
 recreate: `ExtensionReplayHostedService` re-registers the active records on boot. That is why
-`./stop.sh && ./run.sh` keeps your extensions, and `./stop.sh --wipe` does not.
+`./stop.sh && ./run.sh` keeps your agents, and `./stop.sh --wipe` does not.
 
-## What an extension is
+## What an agent is
 
-One extension is a single deployable unit that becomes a **first-class resource type** in the platform:
+One agent is a single deployable unit that becomes a **first-class resource type** in the platform:
 
 | Part | What it is |
 | --- | --- |
@@ -63,7 +63,7 @@ One extension is a single deployable unit that becomes a **first-class resource 
 | Provisioning skill | The instructions the agent follows when a resource of this type is created. |
 | `manifest.json` | Id, version, REST segments, routes, and menus. |
 
-It is packaged as a single `extension.zip`.
+It is packaged as a single `agent.zip`.
 
 ## The build and hot-load loop
 
@@ -74,7 +74,7 @@ It is packaged as a single `extension.zip`.
             │         sdk-version                            │        extensions/load-bundle
             │  GET  …/sdk-bundle                             │
             ▼                                                ▼
-      compile against the        ──►  extension.zip  ──►  studio unpacks, registers,
+      compile against the        ──►  agent.zip      ──►  studio unpacks, registers,
       RUNNING platform's SDK                               and serves the new type
                                                                   │
                                                                   ▼
@@ -107,5 +107,5 @@ Real environment variables override the file, so CI can supply both as secrets w
 
 The UI's accessible-workspace list is permission-set based, with no superuser bypass. An admin token can
 hit every API while the portal still shows no workspaces. `run.sh` therefore creates three things beyond
-the `extension-dev` workspace: a permission set granting it, a permission-set group assigning your user,
+the `agent-dev` workspace: a permission set granting it, a permission-set group assigning your user,
 and the workspace itself. Without them, login lands on `/app/auth/no-tenant-access`.

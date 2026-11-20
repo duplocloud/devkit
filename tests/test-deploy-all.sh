@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Checks which bundle deploy-all.sh hands to deploy-extension.sh: the host-mode dist/extension.zip, or for a
-# per-SDK-version build the dist/sdk-<v>/extension.zip whose sdkVersion equals the host's.
+# Checks which bundle deploy-all.sh hands to deploy-extension.sh: the host-mode dist/agent.zip, or for a
+# per-SDK-version build the dist/sdk-<v>/agent.zip whose sdkVersion equals the host's.
 #
 # Runs from a temp copy of the kit with a stub deploy-extension.sh that records its argument and a stub curl that
 # answers the sdk-version endpoint, or fails under HOST_DOWN=1, so it never reaches a studio. Usage: ./tests/test-deploy-all.sh
@@ -30,10 +30,10 @@ SH
 chmod +x "$KIT/scripts/deploy-extension.sh" "$TMP/bin/curl"
 export PATH="$TMP/bin:$PATH" DEPLOY_LOG="$TMP/deployed"
 
-# bundle <dir> <sdkVersion> [subdir]: a zip whose manifest carries sdkVersion, at dist/[subdir/]extension.zip.
+# bundle <dir> <sdkVersion> [subdir]: a zip whose manifest carries sdkVersion, at dist/[subdir/]agent.zip.
 bundle() {
   mkdir -p "$KIT/$1/dist/${3:-}"
-  python3 - "$KIT/$1/dist/${3:+$3/}extension.zip" "$2" <<'PY'
+  python3 - "$KIT/$1/dist/${3:+$3/}agent.zip" "$2" <<'PY'
 import json, sys, zipfile
 with zipfile.ZipFile(sys.argv[1], "w") as z:
     z.writestr("manifest.json", json.dumps({"id": "x.demo", "version": "1.0.0", "sdkVersion": sys.argv[2]}))
@@ -47,15 +47,15 @@ run() { ( cd "$KIT" && ./scripts/deploy-all.sh ) 2>&1; }
 
 echo "deploy-all:"
 
-t "host mode: deploys dist/extension.zip without asking the host its SDK version"
+t "host mode: deploys dist/agent.zip without asking the host its SDK version"
 reset; bundle extensions/demo 1.0.6
 OUT="$(HOST_SDK='' run)"; RC=$?
-if [ "$RC" = 0 ] && [ "$(cat "$DEPLOY_LOG")" = "extensions/demo/dist/extension.zip" ]; then ok; else bad "rc=$RC out=$OUT"; fi
+if [ "$RC" = 0 ] && [ "$(cat "$DEPLOY_LOG")" = "extensions/demo/dist/agent.zip" ]; then ok; else bad "rc=$RC out=$OUT"; fi
 
 t "per-version build: deploys the bundle whose sdkVersion equals the host's"
 reset; bundle extensions/demo 1.0.6 sdk-1.0.6; bundle extensions/demo 1.0.7 sdk-1.0.7
 OUT="$(HOST_SDK=1.0.7 run)"; RC=$?
-if [ "$RC" = 0 ] && [ "$(cat "$DEPLOY_LOG")" = "extensions/demo/dist/sdk-1.0.7/extension.zip" ]; then ok
+if [ "$RC" = 0 ] && [ "$(cat "$DEPLOY_LOG")" = "extensions/demo/dist/sdk-1.0.7/agent.zip" ]; then ok
 else bad "rc=$RC out=$OUT"; fi
 
 t "per-version build: fails naming the host SDK when no bundle matches it"

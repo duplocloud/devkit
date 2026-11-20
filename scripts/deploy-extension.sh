@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Hot-load a built extension.zip into the running platform (no restart). A local build under extensions/ goes through
+# Hot-load a built agent.zip into the running platform (no restart). A local build under extensions/ goes through
 # the installer service instead while it runs (installer_handoff below).
-# Usage: ./scripts/deploy-extension.sh <extension-dir>/dist/extension.zip   # e.g. extension/dist/extension.zip
+# Usage: ./scripts/deploy-extension.sh <extension-dir>/dist/agent.zip   # e.g. extension/dist/agent.zip
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-ZIP="${1:?usage: deploy-extension.sh <extension.zip>}"
+ZIP="${1:?usage: deploy-extension.sh <agent.zip>}"
 [ -f "$ZIP" ] || { echo "No such file: $ZIP" >&2; exit 1; }
 
 source "$(dirname "$0")/_target.sh"   # → BASE_URL + TOKEN from .env / env per DUPLO_TARGET
@@ -74,7 +74,7 @@ installer_handoff() {
   [ "$_TARGET" = local ] && command -v python3 >/dev/null || return 2
   root="$(pwd -P)"
   abs="$(cd "$(dirname "$ZIP")" && pwd -P)/$(basename "$ZIP")"
-  name="${abs#"$root/extensions/"}"; name="${name%/dist/extension.zip}"
+  name="${abs#"$root/extensions/"}"; name="${name%/dist/agent.zip}"
   case "$name" in ''|*/*) return 2 ;; esac
   # shellcheck source=scripts/_runtime.sh
   . scripts/_runtime.sh

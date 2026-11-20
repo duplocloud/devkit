@@ -1,7 +1,7 @@
-# DuploCloud Extension Developer Kit — local platform from PUBLISHED images.
+# DuploCloud Agent Developer Kit — local platform from PUBLISHED images.
 #
 # Nothing here builds from source. Every service pulls a published image, pinned by a tag in .env.
-# Start with ./run.sh (pulls + brings the stack up). Build/deploy extensions with scripts/.
+# Start with ./run.sh (pulls + brings the stack up). Build/deploy agents with scripts/.
 #
 # Image tags (see .env): the UI is tagged by its git SHA; the studio + agent by the pipeline's
 # deploy_tag. Set the matching feature-branch tags in .env before ./run.sh.
@@ -23,7 +23,7 @@ services:
       - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
       - MONGO_INITDB_DATABASE=auth-service
     volumes:
-      # loaded_extensions records live here → previously-loaded extensions are replayed on restart.
+      # loaded_extensions records live here → previously-loaded agents are replayed on restart.
       - mongo_data:/data/db
 
   # Vector database backing the Knowledge Base. Always on, like mongo — one code path, and the
@@ -50,7 +50,7 @@ services:
   # One-shot: chown the shared named volumes to uid 1001 so the non-root studio + agent
   # (both appuser 1001) can write them. Named volumes are created root-owned, on first start and again after
   # `run.sh --reset` or `stop.sh --wipe` removes them, so this runs every startup (see the services' depends_on).
-  # Both processes writing as 1001 keeps ticket/skill/extension dirs interoperable.
+  # Both processes writing as 1001 keeps ticket/skill/agent dirs interoperable.
   # The installer's state volume goes to 65532 instead, the distroless nonroot user its image runs as.
   init-perms:
     image: busybox:1.36
@@ -87,10 +87,10 @@ services:
       - LocalFileStorage__RootPath=/data
       - Extensions__InstallerUrl=http://installer:8080
     volumes:
-      # Shared /data file store (skills + loaded-extension skill files). Shared with the agent so it can
+      # Shared /data file store (skills + loaded-agent skill files). Shared with the agent so it can
       # read the seeded skills. Survives restart.
       - platform_data:/data
-      # Hot-loaded extension bundles unpack to AIStudio:ExtensionStudioPath. Named volume → extensions survive a
+      # Hot-loaded agent bundles unpack to AIStudio:ExtensionStudioPath. Named volume → agents survive a
       # container recreate; ExtensionReplayHostedService re-registers the Active records on boot.
       - extension_studio_data:/app/extension-studio
     depends_on:
@@ -99,8 +99,8 @@ services:
       init-perms:
         condition: service_completed_successfully
 
-  # Installs and upgrades extensions in the studio: each build that changes in extensions/[name]/dist/ while it runs,
-  # and a catalog extension when the Available tab asks. Only the studio calls it, signing each call with the shared JWT
+  # Installs and upgrades agents in the studio: each build that changes in extensions/[name]/dist/ while it runs,
+  # and a catalog agent when the Available tab asks. Only the studio calls it, signing each call with the shared JWT
   # secret, so no host port is published.
   installer:
     # Defaults to .env.example's pin, so `docker compose up` before run.sh copies INSTALLER_TAG into .env still starts.
@@ -298,7 +298,7 @@ services:
       # localhost on UI_PORT, and some people type 127.0.0.1 instead, so both are listed.
       - ALLOWED_ORIGINS=http://localhost:${UI_PORT:-4200},http://127.0.0.1:${UI_PORT:-4200}
 
-  # Build toolchain for extensions (.NET SDK 10 + Node 22). Behind a profile so the `compose pull`
+  # Build toolchain for agents (.NET SDK 10 + Node 22). Behind a profile so the `compose pull`
   # and `up` in run.sh skip it entirely — a user who only runs the platform never downloads it. The
   # build wrapper starts it on demand with `$RUNTIME compose run --rm --no-deps builder`.
   #

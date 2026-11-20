@@ -1,18 +1,18 @@
 ---
 name: duplo-extension-dev
-description: Build and load a DuploCloud platform extension (a typed extension — C# ResourcesController or AdminResourcesController + service + entity, plus an Angular remote and a provisioning skill) and hot-load it into the platform. Works both inside an Extension resource's provisioning ticket and locally (you supply the platform URL + an admin token). Scaffolds from the hello-world example, compiles the backend with dotnet against the host SDK feed, packages, and registers — no host restart.
+description: Build and load a DuploCloud platform agent (a typed agent — C# ResourcesController or AdminResourcesController + service + entity, plus an Angular remote and a provisioning skill) and hot-load it into the platform. Works both inside an Agent resource's provisioning ticket and locally (you supply the platform URL + an admin token). Scaffolds from the hello-world example, compiles the backend with dotnet against the host SDK feed, packages, and registers — no host restart.
 ---
 
-# duplo-extension-dev — write a DuploCloud platform extension
+# duplo-extension-dev — write a DuploCloud platform agent
 
-You build a **platform extension**: a brand-new, first-class DuploCloud **Resource type** with its own
+You build a **platform agent**: a brand-new, first-class DuploCloud **Resource type** with its own
 C# `ResourcesController` + service + entity (own Mongo collection + REST route), an Angular
 Native-Federation remote (list/add/view), and a provisioning skill. The studio **hot-loads** the
-compiled DLL — per-extension DI container + live routes, no restart — so the result is indistinguishable
+compiled DLL — per-agent DI container + live routes, no restart — so the result is indistinguishable
 from a built-in resource (Network, Namespace, …).
 
 > ⚠️ **Writing any frontend code? Load the [`use-ng22`](../use-ng22/SKILL.md) skill first.** It is the
-> ruling on the Angular 22 shape every extension UI is written in — standalone components, signals, the
+> ruling on the Angular 22 shape every agent UI is written in — standalone components, signals, the
 > **OnPush-by-default trap** that silently stops async data from rendering, `inject()`, `@if`/`@for`, and a
 > `Routes` export instead of an NgModule. The `helloworld` template is already written to it.
 
@@ -25,7 +25,7 @@ from a built-in resource (Network, Namespace, …).
 > [05-custom-actions](reference/05-custom-actions.md) — endpoints beyond CRUD and how the remote consumes them ·
 > [06-registration](reference/06-registration.md) — in-platform vs local load, SDK pinning, reloading changed code ·
 > [07-scope-credentials](reference/07-scope-credentials.md) — reading the selected scopes' credentials in a skill, and the shared provider types the setup page connects ·
-> [08-parent-child-and-menus](reference/08-parent-child-and-menus.md) — multi-resource extensions and `frontend.menus[]` ·
+> [08-parent-child-and-menus](reference/08-parent-child-and-menus.md) — multi-resource agents and `frontend.menus[]` ·
 > Navbar buttons: `frontend.headerActions[]` — [02-authoring-guide](reference/02-authoring-guide.md#frontendheaderactions) ·
 > [09-result-templates](reference/09-result-templates.md) — the declarative renderer is not supported ·
 > [10-sdk-api](reference/10-sdk-api.md) — cloud access from C# (`IScopeCredentials`, `IScopeClientFactory`) ·
@@ -43,7 +43,7 @@ from a built-in resource (Network, Namespace, …).
 > [22-admin-resources](reference/21-admin-resources.md) — **admin-scoped** resources: `AdminResourcesController`, the admin route, the Admin Workspace, AI Admin menus/routes, and the skill write-back URL. ·
 > [23-secrets](reference/23-secrets.md) — a Spec/Result field that holds a password/token/key: `[SecretValue]`/`[AgentSecretValue]`, encryption-at-rest, the reveal endpoint, write-only forms.
 
-> **Every dev-kit extension is TYPED — there is no archetype choice.** A typed extension ships a compiled
+> **Every dev-kit agent is TYPED — there is no archetype choice.** A typed agent ships a compiled
 > .NET DLL (`manifest.archetype = "typed"`) with the resource's own controller/route/collection, an Angular
 > Native-Federation remote, and a provisioning skill. Start from [`./templates/helloworld/`](templates/helloworld/)
 > — keep its `backend/`. **Never ask the user to choose an archetype and never offer skill-based** —
@@ -52,12 +52,12 @@ from a built-in resource (Network, Namespace, …).
 
 ## Phase 0 — detect the mode
 
-- **In-platform** (run inside an Extension resource's provisioning ticket): `$DUPLO_TOKEN` **and**
+- **In-platform** (run inside an Agent resource's provisioning ticket): `$DUPLO_TOKEN` **and**
   `$DUPLO_HOST` are already set (the platform never sets `DUPLO_BASE` — that is the local-mode variable;
   scripts read `${DUPLO_BASE:-$DUPLO_HOST}`, and a skill must NEVER overwrite `DUPLO_TOKEN`/`DUPLO_HOST`).
   The spec is at `shared/extension.json`; the scoped token authorizes ONLY this resource's
   `…/{id}/status|results|load-bundle` (it cannot GET arbitrary routes, and `{id}/load` stays admin-only).
-  Load via the **resource-scoped** endpoint and report status back on the Extension resource.
+  Load via the **resource-scoped** endpoint and report status back on the Agent resource.
 - **Local** (a developer runs this skill in Claude): those env vars are absent. **Ask the developer for
   the platform base URL and an admin bearer token** (a user with the `Administrator` role); export them
   as `DUPLO_BASE` and `DUPLO_TOKEN`. Load via the **admin** endpoint. Gather the resource shape
@@ -74,7 +74,7 @@ Full mechanics: [06-registration](reference/06-registration.md).
 >   is **EMPTY**, overlay the dev-kit's content EXCEPT `.git` so the user repo keeps its own `.git`/ownership:
 >   `gh repo clone duplocloud/devkit /tmp/devkit && rsync -a --exclude=.git /tmp/devkit/ repo/`.
 >   If it **already has** dev-kit content, just work in it — but **enumerate first**: `ls extensions/*/manifest.json`.
->   Other developers' extensions may live beside yours; the requirement decides whether you MODIFY an existing
+>   Other developers' agents may live beside yours; the requirement decides whether you MODIFY an existing
 >   `extensions/<name>/` or scaffold a NEW `extensions/<name2>/` (ask when ambiguous), and before scaffolding new,
 >   read a sibling to match its conventions. **Hot-load is on-demand**, **push is user-initiated only**
 >   (chat or the result-page badge); prompt to **commit**/**resync** and report `result.gitStatus` after each git op.
@@ -99,9 +99,9 @@ Settle before building (derive, else ask — **after** listening):
   → e.g. `HelloWorld`), **subType** (kebab, e.g. `hello-world`), and **restSegment** — which **MUST** be namespaced
   under `extensions/` → `extensions/<feature>-<resource>`. The frontend `routes[].path` and menu `relativeUrl` use
   the **same** value. Never a bare or `clouds/…` segment — [00-naming](reference/00-naming.md) is canonical and the
-  build gate enforces it. In a repo that already holds extensions, the name must collide with **no sibling** —
+  build gate enforces it. In a repo that already holds agents, the name must collide with **no sibling** —
   including the frontend's federation remote `name` and the Mongo `extension_<entity>` collection name.
-- **Extension scope — workspace or admin** (per resource; not the same thing as the *Provider scopes* that carry
+- **Agent scope — workspace or admin** (per resource; not the same thing as the *Provider scopes* that carry
   credentials). **Workspace** (the default) = a tenant's resource, used by workspace members, rendered in AI
   DevOps. **Admin** = platform-wide configuration administrators manage (a VPN server, an SSO integration, a
   notification setting): its controller derives from `AdminResourcesController` and carries the usual
@@ -138,7 +138,7 @@ Settle before building (derive, else ask — **after** listening):
   > A resource that just transforms/computes its own inputs (e.g. "take two numbers, return sum and product") is a
   > **Worker**, NOT an agent skill — an agent skill is wasteful + non-deterministic for work the backend can do in
   > C#. Enrichment (live read-state) is **orthogonal** and composes with any mode ([12](reference/12-enrichment-and-live-state.md)).
-- **Left-nav icon** — pick a `matIcon` for each `frontend.menus[]` node from what the extension actually *is*
+- **Left-nav icon** — pick a `matIcon` for each `frontend.menus[]` node from what the agent actually *is*
   (a security scanner → `shield-check`, a build runner → `source-branch`, a cost report → `duplo-cost`), so it
   shows up with a sensible icon out of the box. **Never keep the `helloworld` template's placeholder `star-outline`** — and never
   invent a name: anything absent from the portal's sprite (e.g. Material Symbols names like `waving_hand`) renders
@@ -180,7 +180,7 @@ Settle before building (derive, else ask — **after** listening):
   provisioning* — a create-only resource orphans infra on delete and is a bug, not a v2. Also decide
   retain-vs-hard-delete the row (`AutoDeleteOnDeProvision`) and any cascade guard (`ValidateCanDeprovisionAsync`).
 - **Access control** — where the resource sits in the permission tree: top-level under the Workspace (the default the
-  scaffold ships), under a parent entity (child resources), or grouped under the extension's own category node. Does
+  scaffold ships), under a parent entity (child resources), or grouped under the agent's own category node. Does
   any **custom endpoint** need an explicitly granted **named action** instead of plain CRUD (restart / console /
   credential-minting / apply-infrastructure)? — [18-access-control](reference/18-access-control.md).
 - **Menu placement** — ask where it appears in the AI Suite left-nav (by **title**, never silently default to
@@ -188,19 +188,19 @@ Settle before building (derive, else ask — **after** listening):
   **no menu**. An **admin** resource's tree goes in the **AI Admin** nav: its top-level node carries
   `"scope": "admin"`, and so does each `routes[]` entry it links to ([21](reference/21-admin-resources.md#frontend)). The user gives titles; **you** generate ids, `relativeUrl`s and the matching `frontend.routes[]` —
   [08-parent-child-and-menus](reference/08-parent-child-and-menus.md). Also settle **title** + **`matIcon`** per
-  item — derive the icon from the extension's purpose, per the Left-nav icon bullet above.
+  item — derive the icon from the agent's purpose, per the Left-nav icon bullet above.
 - **One or many resources?** — **flat** (independent — e.g. `GCP` → network/cluster/database) or **parent → child**
   (`samples/parent-child`); several top-level menu groups are fine — [08](reference/08-parent-child-and-menus.md).
 
 **Present the settled shape for approval** (local: the plan you `ExitPlanMode` with; in-platform: the `Processing`
 summary you post) **as a structured shape, not a prose blurb:** a **Spec** field table (name · type ·
-required/optional · sensitive?), a **Result** field table (name · type · sensitive?), the **extension scope** (workspace / admin) and the **provisioning mode**, each with a one-line reason, the
+required/optional · sensitive?), a **Result** field table (name · type · sensitive?), the **agent scope** (workspace / admin) and the **provisioning mode**, each with a one-line reason, the
 **detail view's shape** — the **lifecycle phases** this resource goes through (label + the status/result field that
 drives each; [19-detail-page](reference/19-detail-page.md) → "Deriving phases") and the **Result tabs** (Overview at
 minimum; name each further tab; [17-custom-result-views](reference/17-custom-result-views.md)) — the **setup
 page's steps** (one connection per provider, then the settings) — and a short
 **user-experience** walkthrough: left-nav placement (AI DevOps or AI Admin), the add form (with the AI-use disclosure in Agent mode), the list, the detail page, and what provisioning
-does end-to-end. Do this per resource for multi-resource extensions.
+does end-to-end. Do this per resource for multi-resource agents.
 
 **Where the answers come from / how to ask:**
 - **In-platform:** read `spec.description`/`spec.icon` from `shared/extension.json`. If anything required is missing
@@ -359,9 +359,9 @@ status", the "Needs your input" phase) exists **only in Agent mode** ([19](refer
 ## Phases 3–5 shortcut (clone-and-own repo)
 
 If you're in a cloned dev-kit repo, **`./scripts/build-extension.sh extensions/<name>`** (or `./scripts/build-all.sh`
-for every extension) does Phases 3–5 in one step (naming gate, fetch + pin the SDK, `dotnet publish`,
-`npm ci && npm run build`, trim the bundle to your extension's own assemblies, assemble
-`extensions/<name>/dist/extension.zip`). The manual steps below are the equivalent — use them in-platform or when
+for every agent) does Phases 3–5 in one step (naming gate, fetch + pin the SDK, `dotnet publish`,
+`npm ci && npm run build`, trim the bundle to your agent's own assemblies, assemble
+`extensions/<name>/dist/agent.zip`). The manual steps below are the equivalent — use them in-platform or when
 there's no script. After it succeeds, skip to Phase 6.
 
 ## Phase 3 — fetch the host SDK feed (pin the exact version)
@@ -403,35 +403,35 @@ Zip ROOT = `manifest.json` + `backend/` (your DLL only) + `fe/` (FE dist) + `ski
 ```bash
 PKG=extensions/<name>/dist/pkg; rm -rf "$PKG"; mkdir -p "$PKG/backend" "$PKG/fe" "$PKG/skills"
 cp    extensions/<name>/manifest.json   "$PKG/manifest.json"
-# Ship ONLY your extension's own assemblies — NOT dist/backend/* (the full SDK closure the host already
+# Ship ONLY your agent's own assemblies — NOT dist/backend/* (the full SDK closure the host already
 # provides) and NOT runtimes/ (host-provided natives). Copying everything trips HTTP 413 on upload.
 cp    extensions/<name>/dist/backend/Duplo.Extension.*.dll "$PKG/backend/"   # + any extra third-party DLL your csproj adds beyond the SDK
 cp -r extensions/<name>/frontend/dist/* "$PKG/fe/"
 cp -r extensions/<name>/skills/*        "$PKG/skills/"
-rm -f extensions/<name>/dist/extension.zip   # zip updates in place — drop the stale archive so the bundle actually shrinks
-( cd "$PKG" && zip -r ../extension.zip . )
+rm -f extensions/<name>/dist/agent.zip   # zip updates in place — drop the stale archive so the bundle actually shrinks
+( cd "$PKG" && zip -r ../agent.zip . )
 ```
 
 ## Phase 6 — load (mode-specific) + write back
 
-**In-platform** (resource-scoped token; the Extension resource itself lives under `environment/extension-studio/…`,
-NOT `environment/extensions/…` — that namespace is for the resources extensions contribute:
+**In-platform** (resource-scoped token; the Agent resource itself lives under `environment/extension-studio/…`,
+NOT `environment/extensions/…` — that namespace is for the resources agents contribute:
 `RES=${DUPLO_HOST}/v1/aiservicedesk/user/data/workspaces/<ownerWorkspaceId>/environment/extension-studio/<id>`):
 ```bash
 curl -fsS -X POST "$RES/load-bundle" -H "Authorization: Bearer $DUPLO_TOKEN" \
-  -H "Content-Type: application/zip" --data-binary @extensions/<name>/dist/extension.zip
+  -H "Content-Type: application/zip" --data-binary @extensions/<name>/dist/agent.zip
 curl -fsS -X POST "$RES/status" -H "Authorization: Bearer $DUPLO_TOKEN" -H "Content-Type: application/json" \
-  -d '{ "status": "Complete", "subStatus": "Extension loaded" }'
+  -d '{ "status": "Complete", "subStatus": "Agent loaded" }'
 ```
 **Local** (admin token) — in a clone-and-own repo just use the script (reads the target from `.env`/env):
 ```bash
-./scripts/deploy-extension.sh extensions/<name>/dist/extension.zip
+./scripts/deploy-extension.sh extensions/<name>/dist/agent.zip
 ```
 Equivalent raw call:
 ```bash
 curl -fsS -X POST "${DUPLO_BASE}/v1/aiservicedesk/admin/extensions/load-bundle" \
   -H "Authorization: Bearer $DUPLO_TOKEN" -H "Content-Type: application/zip" \
-  --data-binary @extensions/<name>/dist/extension.zip
+  --data-binary @extensions/<name>/dist/agent.zip
 ```
 On failure, capture the endpoint's error body (e.g. SDK-version mismatch, missing entry assembly); in
 in-platform mode POST status `Failed` with a `faults` array. **Bump `manifest.version` before re-loading changed
@@ -443,9 +443,9 @@ backend code** ([06](reference/06-registration.md#reloading-changed-code--bump-m
   with `result.addedResource` (originType, restSegment, remoteEntry) + `skillNames`. Treat a 200 there
   as the verification, then POST status `Complete`. **Do NOT** try to `GET …/environment/<restSegment>`
   with the resource-scoped `$DUPLO_TOKEN` — that token is not authorized for arbitrary routes and will
-  return 403/404 even though the extension loaded fine.
+  return 403/404 even though the agent loaded fine.
 - **Local (admin token):** you may confirm the live route directly: `GET …/environment/<restSegment>` → 200
-  (admin extension scope: `GET …/admin/data/environment/<restSegment>` → 200 for an admin, 403 for a user without an Admin Workspace grant, created
+  (admin agent scope: `GET …/admin/data/environment/<restSegment>` → 200 for an admin, 403 for a user without an Admin Workspace grant, created
   rows are owned by the Admin Workspace, not your workspace, and the menu shows only in AI Admin),
   and `GET …/admin/extensions` lists it. Create one → it persists to its `extension_<entity>` collection, fires a
   provisioning ticket (Agent mode), your skill runs and fills the Result. **AI Admin → Agent Setup** lists the

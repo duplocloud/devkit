@@ -22,7 +22,7 @@ body:
       label: What happened
       description: What you did, what you expected, and what happened instead.
       placeholder: |
-        Ran ./scripts/build-extension.sh extensions/foo and expected dist/extension.zip.
+        Ran ./scripts/build-extension.sh extensions/foo and expected dist/agent.zip.
         The frontend step failed with ...
     validations:
       required: true
@@ -76,7 +76,7 @@ body:
   - type: input
     id: sample
     attributes:
-      label: Sample or extension involved
+      label: Sample or agent involved
       description: If one sample reproduces it, name it — helloworld, network-stack, parent-child, worker-compute, and so on.
       placeholder: samples/helloworld
 
@@ -103,4 +103,4 @@ body:
       options:
         - label: I removed tokens, keys, passwords, and customer identifiers from everything above.
           required: true
-        - label: This is a bug in the dev kit's framework code, not in an extension I wrote.
+        - label: This is a bug in the dev kit's framework code, not in an agent I wrote.

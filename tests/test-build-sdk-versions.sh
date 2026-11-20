@@ -34,8 +34,8 @@ esac
 EOF
 
 # dotnet: records each call, and on a publish writes the output the script reads next. The baseline leaves one
-# host-provided DLL and the extension publish leaves that plus its own, so the bundle ships exactly the extension's.
-# An extension publish fails as the real compiler does (CS0579, duplicate AssemblyInfo) when a baseline project is
+# host-provided DLL and the agent publish leaves that plus its own, so the bundle ships exactly the agent's.
+# An agent publish fails as the real compiler does (CS0579, duplicate AssemblyInfo) when a baseline project is
 # still under backend/, which a per-version build leaves behind unless it removes it before the next version.
 cat > "$TMP/bin/dotnet" <<EOF
 #!/usr/bin/env bash
@@ -83,7 +83,7 @@ echo "build sdk versions:"
 t "feed mode: two versions produce two bundles, each stamped with its own sdkVersion"
 run_build DUPLO_SDK_VERSIONS=1.0.6,1.0.7
 [ "$RC" = 0 ] \
-  && [ -f "$EXT/dist/sdk-1.0.6/extension.zip" ] && [ -f "$EXT/dist/sdk-1.0.7/extension.zip" ] \
+  && [ -f "$EXT/dist/sdk-1.0.6/agent.zip" ] && [ -f "$EXT/dist/sdk-1.0.7/agent.zip" ] \
   && [ "$(sdkver sdk-1.0.6)" = 1.0.6 ] && [ "$(sdkver sdk-1.0.7)" = 1.0.7 ] \
   && ok || bad "rc=$RC $(tail -5 "$TMP/build.log")"
 
@@ -102,22 +102,22 @@ t "feed mode: no sdkDigest is stamped (nothing fingerprints a feed build)"
 [ "$(jq -r '.sdkDigest // "absent"' "$EXT/dist/sdk-1.0.6/pkg/manifest.json")" = absent ] \
   && ok || bad "sdkDigest present: $(jq -r '.sdkDigest' "$EXT/dist/sdk-1.0.6/pkg/manifest.json")"
 
-t "feed mode: no single-bundle dist/extension.zip is produced"
-[ ! -f "$EXT/dist/extension.zip" ] && ok || bad "unexpected dist/extension.zip in feed mode"
+t "feed mode: no single-bundle dist/agent.zip is produced"
+[ ! -f "$EXT/dist/agent.zip" ] && ok || bad "unexpected dist/agent.zip in feed mode"
 
 t "versions one per line, as the release action passes them, build the same bundles"
 run_build DUPLO_SDK_VERSIONS=$'1.0.6\n1.0.7\n'
-[ "$RC" = 0 ] && [ -f "$EXT/dist/sdk-1.0.6/extension.zip" ] && [ -f "$EXT/dist/sdk-1.0.7/extension.zip" ] \
+[ "$RC" = 0 ] && [ -f "$EXT/dist/sdk-1.0.6/agent.zip" ] && [ -f "$EXT/dist/sdk-1.0.7/agent.zip" ] \
   && ok || bad "rc=$RC $(ls "$EXT/dist" 2>/dev/null | tr '\n' ' ')"
 
 t "a trailing comma or spaces in the version list are ignored"
 run_build DUPLO_SDK_VERSIONS=" 1.0.6 , "
-[ "$RC" = 0 ] && [ -f "$EXT/dist/sdk-1.0.6/extension.zip" ] && [ ! -d "$EXT/dist/sdk-" ] \
+[ "$RC" = 0 ] && [ -f "$EXT/dist/sdk-1.0.6/agent.zip" ] && [ ! -d "$EXT/dist/sdk-" ] \
   && ok || bad "rc=$RC $(tail -5 "$TMP/build.log")"
 
-t "host mode (empty list): one bundle at dist/extension.zip from the host SDK, with a digest"
+t "host mode (empty list): one bundle at dist/agent.zip from the host SDK, with a digest"
 run_build
-[ "$RC" = 0 ] && [ -f "$EXT/dist/extension.zip" ] \
+[ "$RC" = 0 ] && [ -f "$EXT/dist/agent.zip" ] \
   && [ "$(jq -r '.sdkVersion' "$EXT/dist/pkg/manifest.json")" = 1.0.6 ] \
   && [ "$(jq -r '.sdkDigest // "absent"' "$EXT/dist/pkg/manifest.json")" != absent ] \
   && ok || bad "rc=$RC $(tail -5 "$TMP/build.log")"
@@ -127,14 +127,14 @@ grep -q 'sdk-version' "$TMP/calls/curl" && ok || bad "no sdk-version call: $(cat
 
 t "feed mode over a host build: the host bundle is removed, so only the per-version bundles are left"
 rebuild DUPLO_SDK_VERSIONS=1.0.6
-[ "$RC" = 0 ] && [ -f "$EXT/dist/sdk-1.0.6/extension.zip" ] && [ ! -f "$EXT/dist/extension.zip" ] \
-  && ok || bad "rc=$RC stale=$(ls "$EXT/dist/extension.zip" 2>/dev/null) $(tail -5 "$TMP/build.log")"
+[ "$RC" = 0 ] && [ -f "$EXT/dist/sdk-1.0.6/agent.zip" ] && [ ! -f "$EXT/dist/agent.zip" ] \
+  && ok || bad "rc=$RC stale=$(ls "$EXT/dist/agent.zip" 2>/dev/null) $(tail -5 "$TMP/build.log")"
 
 t "feed mode with a shorter list: a bundle for a version no longer listed is removed"
 rebuild DUPLO_SDK_VERSIONS=1.0.6,1.0.7
-[ "$RC" = 0 ] && [ -f "$EXT/dist/sdk-1.0.6/extension.zip" ] && [ -f "$EXT/dist/sdk-1.0.7/extension.zip" ] || bad "setup rc=$RC"
+[ "$RC" = 0 ] && [ -f "$EXT/dist/sdk-1.0.6/agent.zip" ] && [ -f "$EXT/dist/sdk-1.0.7/agent.zip" ] || bad "setup rc=$RC"
 rebuild DUPLO_SDK_VERSIONS=1.0.7
-[ "$RC" = 0 ] && [ -f "$EXT/dist/sdk-1.0.7/extension.zip" ] && [ ! -d "$EXT/dist/sdk-1.0.6" ] \
+[ "$RC" = 0 ] && [ -f "$EXT/dist/sdk-1.0.7/agent.zip" ] && [ ! -d "$EXT/dist/sdk-1.0.6" ] \
   && ok || bad "rc=$RC stale=$(ls -d "$EXT/dist/sdk-1.0.6" 2>/dev/null) $(tail -5 "$TMP/build.log")"
 
 echo ""

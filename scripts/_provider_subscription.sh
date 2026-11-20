@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # Sourced by run.sh — the `subscription` LLM provider arm: run the agent on a Claude Code
-# subscription token instead of a per-token API key, so ticket work and local extension
+# subscription token instead of a per-token API key, so ticket work and local agent
 # development bill to the same place.
 #
 # WHY a separate file: like the gateway arm, this one has a prompt, validation and a

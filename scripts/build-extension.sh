@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build an extension into <dir>/dist/extension.zip, against the locally-running platform's SDK feed.
+# Build an extension into <dir>/dist/agent.zip, against the locally-running platform's SDK feed.
 # Mirrors the duplo-extension-dev skill (fetch SDK → dotnet publish → npm build → zip).
 #
 # The build runs inside the builder container (.NET SDK 10 + Node 22) so Docker Compose is the only
@@ -307,9 +307,9 @@ echo "    agent-spec decrypt check OK"
 
 # --- Which SDKs to build against. ----------------------------------------------------------------------------
 # Empty (the default) keeps today's single build from the running host's SDK, stamped with its digest, at
-# dist/extension.zip. A non-empty DUPLO_SDK_VERSIONS (one per line, or comma-separated) builds one bundle per
+# dist/agent.zip. A non-empty DUPLO_SDK_VERSIONS (one per line, or comma-separated) builds one bundle per
 # version, each restored from the package feed (nuget.config's nuget.org source) rather than a host, so no
-# DUPLO_HOST is needed to build. Each goes to dist/sdk-<version>/extension.zip, which is what the release action
+# DUPLO_HOST is needed to build. Each goes to dist/sdk-<version>/agent.zip, which is what the release action
 # walks. The release action hands the list over one per line, so a repository variable holds that form too.
 SDK_VERSIONS=()
 for v in $(printf '%s' "${DUPLO_SDK_VERSIONS:-}" | tr ',' ' '); do
@@ -469,7 +469,7 @@ if [ -n "${ARMDOT_LICENSE_FILE_PATH:-}" ]; then
 fi
 
 # build_one <sdk-version> <sdk-digest> <out-dir>: publish the backend against one SDK version (obfuscated when a
-# license is set), compute the host-provided assembly set for that version, and assemble <out-dir>/extension.zip
+# license is set), compute the host-provided assembly set for that version, and assemble <out-dir>/agent.zip
 # with the shared frontend. The SDK is resolved through nuget.config: the host bundle under backend/sdk-packages
 # in host mode, else nuget.org. An empty digest is omitted from the manifest; nothing consumes sdkDigest, and a
 # feed build has no host bundle to fingerprint.
@@ -568,14 +568,14 @@ CSPROJ_EOF
   [ -d "$DIR/skills" ] && cp -r "$DIR/skills/." "$pkg/skills/"
   [ -d "$DIR/resources-frontend-templates" ] && cp -r "$DIR/resources-frontend-templates" "$pkg/resources-frontend-templates"
   # Replace, don't append: zip updates in place, so a stale archive would keep entries no longer in $pkg.
-  rm -f "$out/extension.zip"
-  ( cd "$pkg" && zip -rq "$out/extension.zip" . )
-  echo "==> [$sdk_ver] Done: $out/extension.zip"
-  du -sh "$pkg/backend" "$pkg/fe" "$out/extension.zip" 2>/dev/null | sed 's/^/    /'
+  rm -f "$out/agent.zip"
+  ( cd "$pkg" && zip -rq "$out/agent.zip" . )
+  echo "==> [$sdk_ver] Done: $out/agent.zip"
+  du -sh "$pkg/backend" "$pkg/fe" "$out/agent.zip" 2>/dev/null | sed 's/^/    /'
 }
 
 if [ "${#SDK_VERSIONS[@]}" -eq 0 ]; then
-  # Host mode (unchanged behaviour): fetch the running host's SDK, stamp its digest, write dist/extension.zip.
+  # Host mode (unchanged behaviour): fetch the running host's SDK, stamp its digest, write dist/agent.zip.
   echo "==> Fetching SDK feed from $BASE_URL"
   auth=()
   [ -n "${TOKEN:-}" ] && auth=(-H "Authorization: Bearer $TOKEN")

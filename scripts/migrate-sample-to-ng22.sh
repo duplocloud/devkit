@@ -8,11 +8,11 @@
 # description. The only files it touches under src/app/** are the two dev-shell files app.module.ts
 # and app.component.ts, which it DELETES — a Native Federation remote has no standalone dev shell.
 # Everything else under src/app/** is the sample's own code and is left alone. Point this at a real
-# extension whose app.module.ts holds production code and you WILL lose it; move that code out first.
+# agent whose app.module.ts holds production code and you WILL lose it; move that code out first.
 #
 # REMOTE_NAME is read from the sample's OWN manifest (frontend.remote.remoteName) rather than from
 # its webpack.config.js, so this still works if the Webpack config was already removed. A duplicate
-# container name across two installed extensions makes the second alias to the first at runtime.
+# container name across two installed agents makes the second alias to the first at runtime.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

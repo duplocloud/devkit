@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Interactive, idempotent setup + start for the DuploCloud Extension Dev Kit.
+# Interactive, idempotent setup + start for the DuploCloud Agent Dev Kit.
 #
 #   ./run.sh                       first run prompts for email and requests a trial license. You are emailed
 #                                  a verification link: click it and the license is issued and picked up
@@ -46,7 +46,7 @@
 #
 # On completion it has: obtained a trial license for your admin email (Licensing__Token in .env),
 # pulled+started the stack, minted a permanent admin API token into .env
-# (DUPLO_ADMIN_TOKEN), and created a 'extension-dev' workspace (EXTENSION_DEV_WORKSPACE_ID). All values persist in .env.
+# (DUPLO_ADMIN_TOKEN), and created an 'agent-dev' workspace (EXTENSION_DEV_WORKSPACE_ID). All values persist in .env.
 set -euo pipefail
 cd "$(dirname "$0")"
 ENV=.env
@@ -118,7 +118,7 @@ done
 #   python3  every .env write and every JSON response in this script and in scripts/ is parsed with it.
 #            No version floor: only the stdlib (json, sys, os, datetime, base64) is used, so anything
 #            still called python3 is new enough.
-#   RUNTIME  the whole stack, and every extension build, runs in containers. Which CLI drives them is
+#   RUNTIME  the whole stack, and every agent build, runs in containers. Which CLI drives them is
 #            resolved by scripts/_runtime.sh (RUNTIME in the environment or .env, else auto-detected);
 #            it must provide a v2-style `compose` subcommand. The standalone `docker-compose` v1 binary
 #            is not used.
@@ -191,7 +191,7 @@ fi
 
 # Sized-VM check. Separate from the MISSING one-pass above because it needs RUNTIME already resolved,
 # and it is a hard failure by design: an undersized podman machine does not stop the stack from coming
-# up, it silently poisons every extension build later with an OOM kill that reports itself as a Go
+# up, it silently poisons every agent build later with an OOM kill that reports itself as a Go
 # deadlock and 'exit status 137'. A no-op on docker and on a machine-less podman.
 runtime_machine_check || exit 1
 
@@ -722,7 +722,7 @@ fi
 # address. Clearing it here would only mean re-fetching the identical string a moment later — and dead-ending
 # whenever that fetch failed. --reset-license (below) is how you ask for it to actually go away.
 if [ "$RESET" = 1 ]; then
-  echo "==> --reset: tearing down stack + volumes (DB, extensions, file store)…"
+  echo "==> --reset: tearing down stack + volumes (DB, agents, file store)…"
   "$RUNTIME" compose down -v 2>/dev/null || true
   for k in Authentication__LocalAdminEmail Authentication__LocalAdminPassword Authentication__SuperUsers \
            DEVKIT_MODEL ANTHROPIC_API_KEY AWS_REGION AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
@@ -1266,25 +1266,28 @@ else
   echo "==> Existing DUPLO_ADMIN_TOKEN is valid — keeping it."
 fi
 
-# ── extension-dev workspace (idempotent, never deleted) ──────────────────────────
+# ── agent-dev workspace (idempotent, never deleted) ──────────────────────────
 WS="$(getenv EXTENSION_DEV_WORKSPACE_ID)"
 ws_exists() { [ -n "$1" ] && curl -fsS -o /dev/null --max-time 6 "$API/v1/aiservicedesk/admin/data/workspaces/$1" -H "Authorization: Bearer $TOK" 2>/dev/null; }
 if ! ws_exists "$WS"; then
-  # find existing by name, else create
+  # Find existing by name, else create. Checks the pre-rename 'extension-dev' name too, so a stack set up
+  # before the agent-dev rename reuses its workspace instead of getting a second one alongside it.
   WS="$(curl -fsS --max-time 8 "$API/v1/aiservicedesk/admin/data/workspaces" -H "Authorization: Bearer $TOK" 2>/dev/null \
       | python3 -c 'import sys,json
 d=json.load(sys.stdin); items=d.get("data",{}); items=items.get("items",items) if isinstance(items,dict) else items
-print(next((w["id"] for w in (items or []) if w.get("name")=="extension-dev"), ""))' 2>/dev/null || true)"
+items=items or []
+print(next((w["id"] for w in items if w.get("name")=="agent-dev"),
+      next((w["id"] for w in items if w.get("name")=="extension-dev"), "")))' 2>/dev/null || true)"
   if [ -z "$WS" ]; then
-    echo "==> Creating 'extension-dev' workspace…"
+    echo "==> Creating 'agent-dev' workspace…"
     # Everything after this needs the workspace, so a refused create (most often an expired license —
     # the studio answers 400 license_limit_exceeded) stops here with the server's reason, not a traceback.
-    WS="$(studio_create_id "$API/v1/aiservicedesk/admin/data/workspaces" '{"name":"extension-dev"}')" \
-      || { echo "Could not create the extension-dev workspace — fix the cause above and re-run ./run.sh." >&2; exit 1; }
+    WS="$(studio_create_id "$API/v1/aiservicedesk/admin/data/workspaces" '{"name":"agent-dev"}')" \
+      || { echo "Could not create the agent-dev workspace — fix the cause above and re-run ./run.sh." >&2; exit 1; }
   fi
   setenv EXTENSION_DEV_WORKSPACE_ID "$WS"
 fi
-echo "    extension-dev workspace: $WS"
+echo "    agent-dev workspace: $WS"
 
 # ── UI workspace access (idempotent) ─────────────────────────────────────────
 # The UI's accessible-tenants list is permission-set based (no SuperUser bypass), so the admin user
@@ -1301,31 +1304,35 @@ print(next((x["id"] for x in (items or []) if x.get("name")==os.environ["N"]), "
 }
 PS="$(getenv EXTENSION_DEV_PERMSET_ID)"
 if ! data_exists "$PS" permissionset; then
-  PS="$(data_id_by_name permissionset extension-dev-access)"
+  PS="$(data_id_by_name permissionset agent-dev-access)"
+  # Pre-rename fallback: reuse a stack's existing 'extension-dev-access' instead of creating a second one.
+  [ -z "$PS" ] && PS="$(data_id_by_name permissionset extension-dev-access)"
   if [ -z "$PS" ]; then
-    echo "==> Creating 'extension-dev-access' permission set…"
+    echo "==> Creating 'agent-dev-access' permission set…"
     PS="$(studio_create_id "$API/v1/aiservicedesk/admin/data/permissionset" \
-        "$(W="$WS" python3 -c 'import json,os;print(json.dumps({"name":"extension-dev-access","allowedWorkspaces":[{"workspaceId":os.environ["W"]}]}))')")" \
+        "$(W="$WS" python3 -c 'import json,os;print(json.dumps({"name":"agent-dev-access","allowedWorkspaces":[{"workspaceId":os.environ["W"]}]}))')")" \
       || echo "    (permission set not created — UI access to the workspace must be granted by hand)" >&2
   fi
   [ -n "$PS" ] && setenv EXTENSION_DEV_PERMSET_ID "$PS"
 fi
 PSG="$(getenv EXTENSION_DEV_PERMSETGROUP_ID)"
 if ! data_exists "$PSG" permissionsetgroup; then
-  PSG="$(data_id_by_name permissionsetgroup extension-dev-group)"
+  PSG="$(data_id_by_name permissionsetgroup agent-dev-group)"
+  # Pre-rename fallback: reuse a stack's existing 'extension-dev-group' instead of creating a second one.
+  [ -z "$PSG" ] && PSG="$(data_id_by_name permissionsetgroup extension-dev-group)"
   if [ -z "$PSG" ]; then
     echo "==> Assigning $EMAIL to the permission set…"
     PSG="$(studio_create_id "$API/v1/aiservicedesk/admin/data/permissionsetgroup" \
-        "$(P="$PS" E="$EMAIL" python3 -c 'import json,os;print(json.dumps({"name":"extension-dev-group","permissionSets":[os.environ["P"]],"userStringHandle":[os.environ["E"]]}))')")" \
+        "$(P="$PS" E="$EMAIL" python3 -c 'import json,os;print(json.dumps({"name":"agent-dev-group","permissionSets":[os.environ["P"]],"userStringHandle":[os.environ["E"]]}))')")" \
       || echo "    (permission set group not created — assign $EMAIL to the permission set by hand)" >&2
   fi
   [ -n "$PSG" ] && setenv EXTENSION_DEV_PERMSETGROUP_ID "$PSG"
 fi
 echo "    UI access granted to $EMAIL (permission set $PS) — re-login if the workspace isn't listed yet (the assignment is cached)."
 
-# ── register + attach the agent to the extension-dev workspace (idempotent) ──────
+# ── register + attach the agent to the agent-dev workspace (idempotent) ──────
 # Provisioning tickets are assigned from the workspace's agent list, so the workspace needs an agent.
-echo "==> Registering + attaching agent to extension-dev workspace…"
+echo "==> Registering + attaching agent to agent-dev workspace…"
 ./scripts/register-agent.sh "$WS" || echo "    (agent registration failed — run ./scripts/register-agent.sh $WS manually)"
 
 # ── starter devops skill + persona, attached to the workspace (idempotent) ───────
@@ -1333,7 +1340,7 @@ echo "==> Registering + attaching agent to extension-dev workspace…"
 # Skill → Persona → Workspace chain. Both are adopted by name on later runs, never rewritten, so
 # whatever you edit in the UI survives. Non-fatal, like the agent/LLM/KB registrations around it.
 PERSONA_LINE=""
-echo "==> Registering + attaching 'devops' persona to extension-dev workspace…"
+echo "==> Registering + attaching 'devops' persona to agent-dev workspace…"
 if ./scripts/register-persona.sh "$WS"; then
   PERSONA_LINE="
   Persona   devops (skill: devops) → attached — edit both under AI Admin → Skills / Personas"
@@ -1341,8 +1348,8 @@ else
   echo "    (persona registration failed — run ./scripts/register-persona.sh $WS manually)"
 fi
 
-# ── vendor the Terraform extension's source (idempotent, never fatal) ────────────
-# Puts the real, shipping Terraform extension's SOURCE in extensions/terraform — no .git, no upstream,
+# ── vendor the Terraform agent's source (idempotent, never fatal) ────────────
+# Puts the real, shipping Terraform agent's SOURCE in extensions/terraform — no .git, no upstream,
 # theirs to edit. Deliberately non-fatal: a private/unreachable source repo, or no network, must not
 # stop the platform from coming up. The getting started walkthrough for it is coming soon.
 TF_EXT_LINE=""
@@ -1450,18 +1457,18 @@ cat <<EOF
 ✔ Platform ready (provider: $PROVIDER_DESC)
   UI        $PORTAL_URL     (login: $EMAIL)
   API       $API
-  Workspace extension-dev  ($WS)  ·  agent registered + attached
+  Workspace agent-dev  ($WS)  ·  agent registered + attached
   Token     DUPLO_ADMIN_TOKEN set in .env (permanent)
   License   ${LICENSE_STATUS:-set in .env} (Licensing__Token)$PERSONA_LINE$LLM_LINE$KB_LINE$TF_EXT_LINE
 
-Build & deploy your extension (scripts read the target from .env — no DUPLO_BASE= prefix needed):
-  ./scripts/build-extension.sh  extensions/<name>               # your extensions live in extensions/<name>/
+Build & deploy your agent (scripts read the target from .env — no DUPLO_BASE= prefix needed):
+  ./scripts/build-extension.sh  extensions/<name>               # your agents live in extensions/<name>/
   # the installer service loads each build in extensions/<name>/dist/ by itself, within about 20 seconds
-  # without the installer, or on a remote target: ./scripts/deploy-extension.sh extensions/<name>/dist/extension.zip
-  # or build every extension:    ./scripts/build-all.sh
+  # without the installer, or on a remote target: ./scripts/deploy-extension.sh extensions/<name>/dist/agent.zip
+  # or build every agent:        ./scripts/build-all.sh
   # or build a bundled sample:   ./scripts/build-extension.sh samples/helloworld
   #   then load it, since the installer reads only extensions/:
-  #   ./scripts/deploy-extension.sh samples/helloworld/dist/extension.zip
+  #   ./scripts/deploy-extension.sh samples/helloworld/dist/agent.zip
   # re-attach the agent to another workspace: ./scripts/register-agent.sh <workspace-id>
   # attach the devops persona elsewhere:       ./scripts/register-persona.sh <workspace-id>
 EOF

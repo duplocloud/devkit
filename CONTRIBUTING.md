@@ -3,18 +3,18 @@
 There are two quite different things you might be doing with this repo. Only one of them involves sending a
 pull request here.
 
-## 1. Building your own extensions — you don't need a PR
+## 1. Building your own agents — you don't need a PR
 
 The dev kit is free to build on, subject to the terms described in the [README](README.md). You
-clone it, make it your own repo, and your extensions live in `extensions/<name>/`:
+clone it, make it your own repo, and your agents live in `extensions/<name>/`:
 
 ```bash
-git clone https://github.com/duplocloud/devkit my-extension && cd my-extension
-./scripts/init-project.sh git@github.com:me/my-extension.git
+git clone https://github.com/duplocloud/devkit my-agent && cd my-agent
+./scripts/init-project.sh git@github.com:me/my-agent.git
 ```
 
 Your `extensions/` directory is yours and is never touched by `./scripts/upgrade_dev_kit.sh`. Nothing in it
-belongs upstream — please don't open PRs adding extensions to this repository. See the
+belongs upstream — please don't open PRs adding agents to this repository. See the
 [README](README.md) for the full workflow.
 
 ## 2. Improving the dev kit itself — PRs welcome
@@ -23,7 +23,7 @@ Changes to the *framework* are what we take upstream:
 
 - `run.sh`, `stop.sh`, `logs.sh`, and `scripts/`
 - `docker-compose.yml`, `nginx/`, and the build toolchain image in `build/`
-- The reference extensions in `samples/`
+- The reference agents in `samples/`
 - The authoring command and skill under `.claude/`
 - `.github/workflows/`
 - Documentation
@@ -57,7 +57,7 @@ To exercise a framework change against a sample, copy it into `extensions/` and 
 ```bash
 cp -R samples/helloworld extensions/helloworld
 ./scripts/build-extension.sh  extensions/helloworld
-./scripts/deploy-extension.sh extensions/helloworld/dist/extension.zip
+./scripts/deploy-extension.sh extensions/helloworld/dist/agent.zip
 ./logs.sh                     # tail everything, or one service
 ```
 
@@ -82,7 +82,7 @@ usually the script or component touched. Keep commits focused — one logical ch
 
 - **`.env`** or any real credential — admin tokens, LLM keys, `DUPLO_TOKEN`, passwords
 - **Customer identifiers** — real customer names, domains, account IDs, support ticket IDs, or verbatim
-  customer quotes, including inside extension briefs and prompts
+  customer quotes, including inside agent briefs and prompts
 - **Build output** — `dist/`, `node_modules/`, `**/bin/`, `**/obj/`, `backend/sdk-packages/`
 
 `.gitignore` covers the build output and `.env`. One deliberate exception: the vendored library tarball is
@@ -92,8 +92,8 @@ for every sample, plus a self-contained copy under the skill template's `fronten
 **That tarball is proprietary.** `@duplocloud-internal/ng-common-lib` is the compiled DuploCloud platform
 UI library — DuploCloud IP, **not open source**, and **not covered by the Apache License** that governs the
 rest of this repository. It is licensed separately as the "Licensed Library" under
-[TERMS.md](TERMS.md), which permits building extensions against it and shipping the parts your build
-bundles into a compiled extension, and nothing else. Do not republish it to any package registry,
+[TERMS.md](TERMS.md), which permits building agents against it and shipping the parts your build
+bundles into a compiled agent, and nothing else. Do not republish it to any package registry,
 unpack or repackage it, copy it into another repository, or remove the `NOTICE` file that sits beside
 each committed copy. If you add or bump a vendored copy, copy that `NOTICE` alongside it — nothing
 does this for you, and an unmarked tarball ships as if it were Apache-licensed.

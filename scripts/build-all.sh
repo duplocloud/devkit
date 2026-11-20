@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build every extension in this repo — one per extensions/<name>/manifest.json — into <dir>/dist/extension.zip.
-# A repo can hold many independent extensions; this is the canonical "build the whole repo" entrypoint that CI uses.
+# Build every agent in this repo — one per extensions/<name>/manifest.json — into <dir>/dist/agent.zip.
+# A repo can hold many independent agents; this is the canonical "build the whole repo" entrypoint that CI uses.
 #
 # Usage: ./scripts/build-all.sh [--native]
 set -euo pipefail
@@ -40,7 +40,7 @@ fi
 source "$(dirname "$0")/_target.sh"
 # shellcheck source=scripts/_builder.sh
 source "$(dirname "$0")/_builder.sh"
-# Containerize ONCE for the whole repo, not once per extension: inside the container each
+# Containerize ONCE for the whole repo, not once per agent: inside the container each
 # build-extension.sh call takes the in-container native branch. Safe to dispatch here despite the
 # call-it-early rule — this script installs no EXIT trap and creates no temp file, so the `exec` on the
 # container path has nothing to strand.
@@ -50,4 +50,4 @@ for dir in "${dirs[@]}"; do
   echo "==================== build: $dir ===================="
   ./scripts/build-extension.sh "$dir"
 done
-echo "==> Built ${#dirs[@]} extension bundle(s)."
+echo "==> Built ${#dirs[@]} agent bundle(s)."

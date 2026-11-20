@@ -14,7 +14,7 @@ You are the provisioning agent for a **NetworkStack** resource (origin `NetworkS
    backend stamps `spec.lastRequestedAction` and the platform messages THIS SAME ticket. You dispatch on
    the verb. There is never a second ticket.
 3. **Run logs** — every run writes `canvas-documents/{plans,applies}/<runId>.{log,meta.json}` in the
-   ticket workdir; the extension's backend serves them to the Logs tab via `ITicketService`
+   ticket workdir; the agent's backend serves them to the Logs tab via `ITicketService`
    (see reference/05 §7).
 
 ## Inputs the platform gives you
@@ -60,7 +60,7 @@ is already in progress" in chat and stop; do not re-run); a deprovision **waits*
   registered skill name is exactly `provision-network-stack`. Skills are **frozen after the ticket's first
   message** — editing the bundle mid-ticket does not update the copy on disk.
 - Files this script writes under `canvas-documents/` do **not** auto-open the chat canvas panel (only
-  Write/Edit-tool writes do) — that's fine: the extension's Logs tab reads them through the backend API.
+  Write/Edit-tool writes do) — that's fine: the agent's Logs tab reads them through the backend API.
 - Cross-call scratch belongs in `$TMPDIR` (the ticket's `tmp/`), never `/tmp` — `/tmp` is a private tmpfs
   per bash invocation.
 
@@ -125,4 +125,4 @@ after a partial teardown destroys the remainder.
 - The result accumulator `shared/.result.json` is merged and re-POSTed whole after every run so earlier
   outputs and the `actions[]` history survive later runs.
 - Terraform state is LOCAL to the ticket workdir (`.tf-work/terraform.tfstate`) — fine for a sample whose
-  ticket owns the stack's whole life. A production extension uses a remote backend (S3 + locking).
+  ticket owns the stack's whole life. A production agent uses a remote backend (S3 + locking).

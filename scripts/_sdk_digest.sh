@@ -2,7 +2,7 @@
 # Sourced by scripts/build-extension.sh — fingerprints the SDK feed a bundle was compiled against.
 #
 # sdkVersion alone does not identify an SDK: the host's SDK surface and dependency floors can move under an
-# unchanged version, so a bundle that fails at run time could be a broken extension or one built against a drifted
+# unchanged version, so a bundle that fails at run time could be a broken agent or one built against a drifted
 # SDK. build-extension.sh stamps this digest beside sdkVersion so the two can be told apart by recomputing it over
 # the host's own sdk-bundle.
 #

@@ -8,8 +8,8 @@
 #   - manifest.version is unchanged, so the release job will refuse to publish the new content at the old version.
 #   - a directory under skills/ has no matching skills[].folder in the manifest, so the host never registers it.
 #   - the built bundle's frontend is webpack (fe/remoteEntry.js, no fe/remoteEntry.json), whose pages do not open on
-#     hosts that load Native Federation remotes. Checked only after a build, on dist/extension.zip and on each
-#     dist/sdk-*/extension.zip of a multi-version build.
+#     hosts that load Native Federation remotes. Checked only after a build, on dist/agent.zip and on each
+#     dist/sdk-*/agent.zip of a multi-version build.
 #   - the manifest id or version cannot form a bucket key, which the release action refuses.
 #   - the manifest declares no resources, which the host refuses to install.
 #   - the frontend depends on ng-common-lib older than 0.5.1: light-only below 0.5.0, and without the token defaults
@@ -72,8 +72,8 @@ for m in extensions/*/manifest.json extension/*/manifest.json extension/manifest
     warn "$dir/frontend/package.json" "$dir uses ng-common-lib $lib_version, which $why. Migrate with the duplo-extension-theme-migration skill."
   fi
 
-  # A build leaves dist/extension.zip (host mode) or one dist/sdk-<v>/extension.zip per SDK version, so check each.
-  for zip in "$dir/dist/extension.zip" "$dir"/dist/sdk-*/extension.zip; do
+  # A build leaves dist/agent.zip (host mode) or one dist/sdk-<v>/agent.zip per SDK version, so check each.
+  for zip in "$dir/dist/agent.zip" "$dir"/dist/sdk-*/agent.zip; do
     [ -f "$zip" ] || continue
     [ "$(wc -c < "$zip")" -le "$max_bytes" ] \
       || warn "$m" "$dir builds a bundle over $max_bytes bytes ($zip), which the release job refuses."

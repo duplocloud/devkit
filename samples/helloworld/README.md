@@ -1,10 +1,10 @@
-# Hello World — canonical typed extension
+# Hello World — canonical typed agent
 
 This is the **worked reference** the `duplo-extension-dev` skill copies and adapts. It is the smallest
-complete, buildable, loadable DuploCloud extension that behaves as a **first-class resource**: a real C#
+complete, buildable, loadable DuploCloud agent that behaves as a **first-class resource**: a real C#
 `ResourcesController` + service + entity (its own Mongo collection + REST route), an Angular 22
 Native-Federation remote (list/add/view), and a provisioning skill. The upload endpoint compiles
-nothing — it loads the **pre-built DLL** into a collectible AssemblyLoadContext + per-extension DI child
+nothing — it loads the **pre-built DLL** into a collectible AssemblyLoadContext + per-agent DI child
 container and registers the new controller's routes **live** (no host restart), exactly like a
 built-in resource (Namespace, NetworkBaseline).
 
@@ -24,13 +24,13 @@ The example resource takes `firstName` + `lastName` and produces `fullName`, per
 
 ## What it demonstrates
 
-- A resource type contributed by a hot-loaded extension DLL with **no host changes**: its own controller
+- A resource type contributed by a hot-loaded agent DLL with **no host changes**: its own controller
   becomes routable at `…/environment/extensions/helloworlds`, its service runs the standard provisioning
   lifecycle, and FaultDetection reconciles it — identical to a first-party resource.
 - The skill → **status** → **result** loop (the two write-back APIs are separate), posted to the
   resource's OWN route. Spec fields are typed properties under `spec`; the result is the typed result
   object.
-- A per-extension Native-Federation remote that shares the host's Angular 22 / RxJS singletons, reaches
+- A per-agent Native-Federation remote that shares the host's Angular 22 / RxJS singletons, reaches
   host services via the `REMOTE_DuploHttpClient` + `REMOTE_UserSession` string DI tokens, and builds its
   UI from the platform library `@duplocloud-internal/ng-common-lib` (searchable-datatable, forms, ngbNav) plus
   the detail shell in `frontend/src/app/shared/`, so it looks native.
@@ -38,14 +38,14 @@ The example resource takes `firstName` + `lastName` and produces `fullName`, per
 ## Build + package + load
 
 ```bash
-# 1. SDK feed — pin the extension to the host's exact SDK version
+# 1. SDK feed — pin the agent to the host's exact SDK version
 SDK_VER=$(curl -fsS -H "Authorization: Bearer $TOKEN" "$DUPLO_BASE/v1/aiservicedesk/extensions/sdk-version" | jq -r .version)
 curl -fsS -H "Authorization: Bearer $TOKEN" "$DUPLO_BASE/v1/aiservicedesk/extensions/sdk-bundle" -o /tmp/sdk.zip
 unzip -o /tmp/sdk.zip -d backend/sdk-packages
 
 # 2. Backend DLL. The SDK is compile-only, but publish still copies its whole transitive closure
 #    (Mongo/AWS/AspNetCore + native runtimes/) into dist/backend — the host already has all of it, so only
-#    this extension's own dll belongs in the bundle (step 4). Or just run ../../scripts/build-extension.sh,
+#    this agent's own dll belongs in the bundle (step 4). Or just run ../../scripts/build-extension.sh,
 #    which trims automatically.
 ( cd backend && dotnet publish Duplo.Extension.HelloWorld.csproj -c Release -o ../dist/backend -p:DuploSdkVersion="$SDK_VER" )
 
@@ -59,12 +59,12 @@ unzip -o /tmp/sdk.zip -d backend/sdk-packages
 # 4. Assemble the bundle: manifest.json + backend/ (your DLL only) + fe/ + skills/, then zip
 rm -rf pkg; mkdir -p pkg/backend pkg/fe pkg/skills
 cp manifest.json pkg/ ; cp dist/backend/Duplo.Extension.*.dll pkg/backend/ ; cp -r frontend/dist/* pkg/fe/ ; cp -r skills/* pkg/skills/
-rm -f extension.zip   # zip updates in place — drop the stale archive first so the bundle shrinks
-( cd pkg && zip -r ../extension.zip . )
+rm -f agent.zip   # zip updates in place — drop the stale archive first so the bundle shrinks
+( cd pkg && zip -r ../agent.zip . )
 
 # 5. Upload the bundle — the studio unpacks + hot-loads the DLL
 curl -fsS -X POST "$DUPLO_BASE/v1/aiservicedesk/user/data/workspaces/$WS/environment/extension-studio/$ID/load-bundle" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data-binary @extension.zip
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data-binary @agent.zip
 ```
 
 See the skill entry point `../../.claude/skills/duplo-extension-dev/SKILL.md` for the full build+load
@@ -74,7 +74,7 @@ flow (in-platform and local), and the framework docs in `../../.claude/skills/du
 ## Load the frontend into a local portal without uploading a bundle
 
 Serve the built remote yourself and have the portal read it from there — useful for iterating on the UI
-against a backend that already has the extension installed.
+against a backend that already has the agent installed.
 
 ```bash
 ( cd frontend && npm run build )                       # writes frontend/dist/remoteEntry.json

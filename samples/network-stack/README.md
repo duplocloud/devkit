@@ -1,8 +1,8 @@
 # network-stack — the big worked sample
 
 An AWS **network stack** (one VPC + subnets + a security group) provisioned by terraform. This is the
-dev-kit's consolidated "real extension" reference: where `helloworld` teaches the minimal loop, this
-sample teaches the patterns production extensions actually combine —
+dev-kit's consolidated "real agent" reference: where `helloworld` teaches the minimal loop, this
+sample teaches the patterns production agents actually combine —
 
 | What it demonstrates | Where | Reference doc |
 |---|---|---|
@@ -33,12 +33,12 @@ route `…/environment/extensions/network-stacks`.
 3. **Plan** records a preview run (`plans/<runId>`); a plan failure never fails the resource.
 4. **Apply** is enabled only after a successful plan (`Result.ApplyAllowed`, derived — nothing to clear).
 
-## Deliberate simplifications (the upgrade path for a bigger extension)
+## Deliberate simplifications (the upgrade path for a bigger agent)
 
 - **A single flat tab strip**, not a pipeline-stepper-of-tab-strips — at 3 modules a pipeline row adds
   nothing; add one when your groups have their own sub-tabs.
 - **Verbs are plan|apply only** — destroy is reachable only through the real deprovision lifecycle.
-- **Terraform state is local to the ticket workdir** — a production extension uses a remote backend
+- **Terraform state is local to the ticket workdir** — a production agent uses a remote backend
   (S3 + locking).
 - No deprovision approval workflow, edit-freeze policy, or manual-task queue.
 

@@ -49,7 +49,7 @@ cd my-agent
 ```
 
 **2. Adopt the clone into your own repo.** This points `origin` at your repository and seeds your first
-extension directory — do it now so your Hack Day work has somewhere to live.
+agent directory — do it now so your Hack Day work has somewhere to live.
 
 ```bash
 ./scripts/init-project.sh git@github.com:<your-github-user>/<your-repo>.git
@@ -89,7 +89,7 @@ Before you close the laptop, confirm all three:
 
 - [ ] `docker compose ps` shows every service **Up**
 - [ ] <http://localhost:4210> loads and you can sign in
-- [ ] You land with the **`extension-dev`** workspace selected
+- [ ] You land with the **`agent-dev`** workspace selected
 
 If all three pass, you're ready for Hack Day.
 

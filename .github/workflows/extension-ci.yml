@@ -1,4 +1,4 @@
-# Builds (and deploys) EVERY extension in this repo — one per extensions/<name>/ — using the dev-kit scripts.
+# Builds (and deploys) EVERY agent in this repo — one per extensions/<name>/ — using the dev-kit scripts.
 #
 # This file ships with the dev-kit. After `scripts/init-project.sh` makes the repo yours, set these repo secrets:
 #   DUPLO_HOST   — your platform base URL (e.g. https://portal.example.duplocloud.net)
@@ -15,7 +15,7 @@
 # building it, the org secrets QUAY_USERNAME / QUAY_PASSWORD are used — every repo in the duplocloud org
 # inherits them. A fork inherits neither, so there the pull fails and scripts/_builder.sh falls back to
 # building build/Dockerfile.builder locally: CI still works, it just spends ~2 min on the image.
-name: Extension CI
+name: Agent CI
 
 on:
   push:
@@ -46,10 +46,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # The PR's base history, so the release checks below can diff each extension against the merge base.
+          # The PR's base history, so the release checks below can diff each agent against the merge base.
           fetch-depth: 0
 
-      - name: Discover extensions
+      - name: Discover agents
         id: guard
         run: |
           shopt -s nullglob
@@ -84,11 +84,11 @@ jobs:
           echo "::error::Deploying needs ${missing[*]} set as repository secrets: the platform base URL and an Administrator token."
           exit 1
 
-      - name: Build all extensions
+      - name: Build all agents
         if: steps.guard.outputs.build == 'true'
         run: ./scripts/build-all.sh
 
-      # Warnings only: what each changed extension's release will need (version bump, declared skills, Native
+      # Warnings only: what each changed agent's release will need (version bump, declared skills, Native
       # Federation frontend). !cancelled() so a failed build still reports the checks that need no bundle.
       - name: Release checks
         if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.guard.outputs.build == 'true' }}
@@ -98,17 +98,17 @@ jobs:
         if: steps.guard.outputs.build == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: extension-bundles
+          name: agent-bundles
           path: |
-            extensions/*/dist/extension.zip
-            extension/*/dist/extension.zip
-            extension/dist/extension.zip
-            extensions/*/dist/sdk-*/extension.zip
-            extension/*/dist/sdk-*/extension.zip
-            extension/dist/sdk-*/extension.zip
+            extensions/*/dist/agent.zip
+            extension/*/dist/agent.zip
+            extension/dist/agent.zip
+            extensions/*/dist/sdk-*/agent.zip
+            extension/*/dist/sdk-*/agent.zip
+            extension/dist/sdk-*/agent.zip
 
       # Deploy on push to main (auto) or a manual run with deploy=true. PRs build only.
-      - name: Deploy all extensions (hot-load to DuploCloud)
+      - name: Deploy all agents (hot-load to DuploCloud)
         if: >
           steps.guard.outputs.build == 'true' &&
           (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy))

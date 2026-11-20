@@ -34,7 +34,7 @@ conversation with **sales@duplocloud.net**, not an issue here.
 | A security vulnerability in the dev kit | **Email `ai-reporting@duplocloud.net`.** Don't open an issue — see [SECURITY.md](SECURITY.md). |
 | Production use, or licensing beyond local development | **sales@duplocloud.net** — the `quay.io/duplocloud/*` images are licensed for local development only ([TERMS.md](TERMS.md)). |
 | A bug in the DuploCloud platform itself, or in the published images | Your normal DuploCloud support channel. Those images are built from the product, not from this repo. |
-| A bug in an extension *you* wrote | Yours to debug. `./logs.sh` tails every service, and the samples show the working shape. |
+| A bug in an agent *you* wrote | Yours to debug. `./logs.sh` tails every service, and the samples show the working shape. |
 | Third-party advisories in the sample frontends | Known. The samples pin Angular-era dependency trees on purpose and are tracked separately. |
 
 ## Filing an issue that gets answered

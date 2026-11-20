@@ -1,6 +1,6 @@
 # Upgrading
 
-Taking newer dev-kit framework versions without losing your extensions or your configuration.
+Taking newer dev-kit framework versions without losing your agents or your configuration.
 
 ## The short version
 
@@ -68,17 +68,17 @@ Pass `--studio-tag`, `--ui-tag`, or `--agent-tag`, or hand-edit `.env`. Either w
 Delete its line from `.env` — or from `.env.defaults` — and re-run `./run.sh`. It resumes tracking the
 framework default.
 
-## Opting in to access control on existing extensions
+## Opting in to access control on existing agents
 
 Newer platforms authorize resources through hierarchical permission sets. Joining that model is
 **opt-in per resource**: a controller with no declaration keeps its current behavior (any workspace
 member can CRUD the resource, and it never appears in the permission-set editor). The samples and
-the scaffold now declare their nodes, so newly-created extensions opt in by default —
+the scaffold now declare their nodes, so newly-created agents opt in by default —
 `[AccessControl(Parent = typeof(Workspace), ParentIdProperty = "OwnerWorkspaceId")]` on top-level
 resources, `[AccessControl(Parent = typeof(<ParentEntity>), ParentIdProperty = "Spec.ParentId")]`
 on children (see `.claude/skills/duplo-extension-dev/reference/18-access-control.md`).
 
-An upgrade never edits your code under `extensions/`, so an existing extension does **not** gain the
+An upgrade never edits your code under `extensions/`, so an existing agent does **not** gain the
 declaration automatically, and nothing forces it. To opt in: add the attribute (plus
 `using Duplo.Ai.DataManagement.AccessControl;` / `using Duplo.Ai.Model;`), bump `manifest.version`,
 rebuild, and reload.
@@ -104,9 +104,9 @@ The tarball is proprietary and is **not** covered by the Apache license on the r
 
 ## .NET 10 and the target framework
 
-Extension SDK 1.2.0 moved the host to .NET 10 and ships only `net10.0` reference assemblies. A `net10.0` build
+Agent SDK 1.2.0 moved the host to .NET 10 and ships only `net10.0` reference assemblies. A `net10.0` build
 does not load on a .NET 8 host, and a `net8.0` build loads on both, so the build picks the framework from the
-host SDK version it reads: `net10.0` from 1.2.0, `net8.0` below it. Nothing in an existing extension has to
+host SDK version it reads: `net10.0` from 1.2.0, `net8.0` below it. Nothing in an existing agent has to
 change for that. The framework goes into the build as a property, so the `net8.0` in your csproj is only what an
 IDE opens the project with. If you want the IDE and a plain `dotnet publish` to agree with the script, give the
 csproj the rule the samples carry, two `TargetFramework` lines conditioned on `DuploSdkVersion`, and put them
@@ -119,7 +119,7 @@ image ships the .NET 10 SDK, which builds both; a `--native` build needs .NET SD
 ## After an upgrade
 
 1. `./run.sh` — picks up new image tags and re-runs the idempotent setup steps.
-2. Rebuild and redeploy your extensions. The build compiles against the SDK published by the running
+2. Rebuild and redeploy your agents. The build compiles against the SDK published by the running
    platform, so a studio image change can mean a new SDK:
 
    ```bash
@@ -127,7 +127,7 @@ image ships the .NET 10 SDK, which builds both; a `--native` build needs .NET SD
    ```
 
 3. If a build fails right after an upgrade, start with
-   [the host-SDK entry in troubleshooting](troubleshooting.md#the-extension-build-cannot-reach-the-host-sdk).
+   [the host-SDK entry in troubleshooting](troubleshooting.md#the-agent-build-cannot-reach-the-host-sdk).
 4. If the upgrade replaced a `release.yml` that used `.github/extension-publishers.json`, the release flow has
    changed underneath you. Follow
    [Moving an existing repository onto this flow](releasing-extensions.md#moving-an-existing-repository-onto-this-flow)

@@ -31,11 +31,11 @@ esac
 EOF
 
 # dotnet: records each call's argv on one line, and on a publish writes the output the script reads next. The
-# baseline publish leaves one host-provided DLL and the extension publish leaves that one plus its own, so the
-# bundle ships exactly the extension's DLL. Each line also says whether Directory.Build.targets sat beside the
+# baseline publish leaves one host-provided DLL and the agent publish leaves that one plus its own, so the
+# bundle ships exactly the agent's DLL. Each line also says whether Directory.Build.targets sat beside the
 # project at publish time, since an obfuscation flag without that import would stamp a bundle ArmDot never touched,
 # and a copy of that file is kept, since the script removes it before the build ends.
-# DOTNET_FAIL_EXT=1 makes the extension publish fail, to exercise cleanup on the failure path. --version answers
+# DOTNET_FAIL_EXT=1 makes the agent publish fail, to exercise cleanup on the failure path. --version answers
 # DOTNET_STUB_VERSION, 10.0.404 unless set, and every logged call carries the TargetFramework of the csproj in its cwd.
 cat > "$TMP/bin/dotnet" <<EOF
 #!/usr/bin/env bash
@@ -132,7 +132,7 @@ run_build
   && [ "$(jq -r '.obfuscation // "absent"' "$TMP/manifest.json" 2>/dev/null)" = absent ] \
   && [ ! -f "$EXT/backend/Directory.Build.targets" ] && ok || bad "rc=$RC $(tail -5 "$TMP/build.log")"
 
-t "licensed build: the extension publish passes DuploObfuscate, ArmDotLicenseFile and DuploDevkitBuildDir"
+t "licensed build: the agent publish passes DuploObfuscate, ArmDotLicenseFile and DuploDevkitBuildDir"
 run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
 want="-p:DuploObfuscate=true -p:ArmDotLicenseFile=$TMP/lic.key -p:DuploDevkitBuildDir=$ARMDOT_CFG/"
 [ "$RC" = 0 ] && grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -qF -- "$want" \
@@ -141,12 +141,12 @@ want="-p:DuploObfuscate=true -p:ArmDotLicenseFile=$TMP/lic.key -p:DuploDevkitBui
 t "licensed build: the restore carries the obfuscation properties, so the publish that skips its own restore has the ArmDot packages"
 grep 'restore Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -qF -- "$want" && ok || bad "$(cat "$TMP/calls/dotnet")"
 
-t "licensed build: Directory.Build.targets sits beside the csproj while the extension publishes"
+t "licensed build: Directory.Build.targets sits beside the csproj while the agent publishes"
 grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -q 'targets=yes' && ok || bad "$(cat "$TMP/calls/dotnet")"
 
 # MSBuild imports only the nearest Directory.Build.targets, so the dropped file has to chain to the one above
-# backend/ itself, or an extension's own build logic goes missing for the licensed build only. The stubbed dotnet
-# never evaluates it, so this reads the file as dropped: the parent import first, found from the extension root up,
+# backend/ itself, or an agent's own build logic goes missing for the licensed build only. The stubbed dotnet
+# never evaluates it, so this reads the file as dropped: the parent import first, found from the agent root up,
 # with no DuploObfuscate condition on it.
 t "licensed build: the dropped Directory.Build.targets imports the next one above backend/, unconditionally"
 parent="$(grep -n "GetPathOfFileAbove('Directory.Build.targets', '\$(MSBuildThisFileDirectory)../')" "$TMP/calls/Directory.Build.targets" \
@@ -157,7 +157,7 @@ if [ -n "$parent" ] && [ -n "$armdot" ] && [ "$parent" -lt "$armdot" ] \
    && ! grep '<Import Project="$(DuploParentBuildTargets)"' "$TMP/calls/Directory.Build.targets" | grep -q DuploObfuscate; then ok
 else bad "$(cat "$TMP/calls/Directory.Build.targets" 2>&1)"; fi
 
-t "plain build: no Directory.Build.targets beside the csproj while the extension publishes"
+t "plain build: no Directory.Build.targets beside the csproj while the agent publishes"
 run_build
 grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -q 'targets=no' && ok || bad "$(cat "$TMP/calls/dotnet")"
 run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
@@ -186,7 +186,7 @@ run_build ARMDOT_LICENSE_FILE_PATH="$TMP/nope.key"
 [ "$RC" != 0 ] && [ ! -s "$TMP/calls/dotnet" ] && grep -q 'ARMDOT_LICENSE_FILE_PATH names a missing or empty file' "$TMP/build.log" \
   && ok || bad "rc=$RC $(tail -3 "$TMP/build.log")"
 
-t "a Directory.Build.targets the extension already owns is never overwritten"
+t "a Directory.Build.targets the agent already owns is never overwritten"
 PRESET_TARGETS='<Project/>' run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
 [ "$RC" != 0 ] && [ "$(cat "$EXT/backend/Directory.Build.targets")" = '<Project/>' ] && [ ! -s "$TMP/calls/dotnet" ] \
   && ok || bad "rc=$RC"
@@ -315,7 +315,7 @@ run_build
   && grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -q -- '--no-restore.*-p:TargetFramework=net8.0' \
   && ok || bad "rc=$RC $(cat "$TMP/calls/dotnet")"
 
-t "host SDK 1.2.0: the extension builds for net10.0"
+t "host SDK 1.2.0: the agent builds for net10.0"
 SDK_STUB_VERSION=1.2.0 run_build
 [ "$RC" = 0 ] && grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -q -- '-p:TargetFramework=net10.0' \
   && ok || bad "rc=$RC $(cat "$TMP/calls/dotnet")"
@@ -330,7 +330,7 @@ SDK_STUB_VERSION=1.2.0-rc.1 run_build
 [ "$RC" = 0 ] && grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -q -- '-p:TargetFramework=net10.0' \
   && ok || bad "rc=$RC $(cat "$TMP/calls/dotnet")"
 
-t "the host-provided baseline project targets the same framework as the extension"
+t "the host-provided baseline project targets the same framework as the agent"
 SDK_STUB_VERSION=1.2.0 run_build
 [ "$RC" = 0 ] && grep 'publish _sdkbaseline.csproj' "$TMP/calls/dotnet" | grep -q 'csproj-tfm=net10.0' \
   && ok || bad "rc=$RC $(cat "$TMP/calls/dotnet")"

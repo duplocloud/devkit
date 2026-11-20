@@ -1,9 +1,9 @@
-# Admin Settings — an admin-scoped extension and a workspace resource that consumes it
+# Admin Settings — an admin-scoped agent and a workspace resource that consumes it
 
-The worked reference for **admin extension scope**, in its most common shape: two resources.
+The worked reference for **admin agent scope**, in its most common shape: two resources.
 
 - **`AdminSetting` (admin-scoped)** — platform-wide configuration administrators manage in AI Admin. It is the
-  `helloworld` resource with one change of extension scope.
+  `helloworld` resource with one change of agent scope.
 - **`AdminSettingConsumer` (workspace-scoped)** — what each workspace creates to *use* an admin setting: it picks
   one, and its agent is provisioned with that setting's details.
 
@@ -68,14 +68,14 @@ read-only view hides the value from them on purpose.
 
 - **A host SDK that ships `AdminResourcesController`** (duplo-ai-helpdesk#685). `build-extension.sh` probes the
   host's SDK bundle for it and stops with a clear error when it is missing.
-- **A portal with admin extension routes, menus and the AI Admin ticket page** (`scope: "admin"` support). On
+- **A portal with admin agent routes, menus and the AI Admin ticket page** (`scope: "admin"` support). On
   an older portal the backend still works but the pages and menu do not appear.
 
 ## Build + load
 
 ```bash
 ./scripts/build-extension.sh  samples/admin-settings
-./scripts/deploy-extension.sh samples/admin-settings/dist/extension.zip
+./scripts/deploy-extension.sh samples/admin-settings/dist/agent.zip
 ```
 
 ## Verify

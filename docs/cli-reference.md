@@ -80,16 +80,16 @@ On an EC2 host the provider prompt first probes whether the instance role can ac
    happens before the admin token exists.
 10. Mints a permanent admin API token into `DUPLO_ADMIN_TOKEN`, revoking its own prior `dev-kit-admin`
     tokens first (the server caps active tokens per user at 10).
-11. Creates the `extension-dev` workspace if absent.
-12. Creates the `extension-dev-access` permission set and `extension-dev-group`, granting your admin user
+11. Creates the `agent-dev` workspace if absent.
+12. Creates the `agent-dev-access` permission set and `agent-dev-group`, granting your admin user
     UI access to that workspace.
 13. Registers and attaches the agent (`scripts/register-agent.sh`).
-14. Vendors the Terraform extension's source into `extensions/terraform/` if it is not already there
+14. Vendors the Terraform agent's source into `extensions/terraform/` if it is not already there
     (`scripts/fetch-terraform-extension.sh`). Never fatal — an unreachable source repo does not stop
     the platform coming up.
 15. On an Anthropic setup, registers the local model as the System default (`scripts/register-llm.sh`).
 16. Configures the Knowledge Base (`scripts/register-qdrant.sh`): registers the local Qdrant as a provider,
-    makes it selectable from the `extension-dev` workspace, and creates the empty `devkit-docs` collection.
+    makes it selectable from the `agent-dev` workspace, and creates the empty `devkit-docs` collection.
     Never fatal — a Knowledge Base that did not configure does not stop the platform coming up.
 
 Steps 10–16 are each idempotent and skipped when already satisfied. So is step 5: a license already in
@@ -102,8 +102,8 @@ Steps 10–16 are each idempotent and skipped when already satisfied. So is step
 ./stop.sh --wipe     # docker compose down -v  — volumes removed
 ```
 
-Without `--wipe`, loaded extensions and all data survive and replay on the next `./run.sh`. With `--wipe`,
-extensions, Mongo, the file store, and the Knowledge Base vectors are lost.
+Without `--wipe`, loaded agents and all data survive and replay on the next `./run.sh`. With `--wipe`,
+agents, Mongo, the file store, and the Knowledge Base vectors are lost.
 
 ## `logs.sh`
 
@@ -118,7 +118,7 @@ A thin wrapper around `docker compose logs -f`; every argument is passed straigh
 
 ## What each command destroys
 
-| | Containers | Volumes (extensions, Mongo, file store, vectors) | Configured `.env` values | License |
+| | Containers | Volumes (agents, Mongo, file store, vectors) | Configured `.env` values | License |
 | --- | --- | --- | --- | --- |
 | `./stop.sh` | stopped | **kept** | kept | kept |
 | `./stop.sh --wipe` | stopped | **destroyed** | kept | kept |
@@ -158,22 +158,22 @@ Your `extensions/` directory is **never** touched by any of these — it is only
 
 | Script | What it does |
 | --- | --- |
-| `init-project.sh <remote-url> [--keep-history] [--no-sample] [--name <slug>]` | Adopt this clone as your own repo **and** seed a first extension under `extensions/<name>/` (default `helloworld`). Starts a fresh git history unless `--keep-history`. |
+| `init-project.sh <remote-url> [--keep-history] [--no-sample] [--name <slug>]` | Adopt this clone as your own repo **and** seed a first agent under `extensions/<name>/` (default `helloworld`). Starts a fresh git history unless `--keep-history`. |
 | `change_git_owner.sh <remote-url> [--keep-history]` | Re-point `origin` at your remote without seeding anything. |
 | `upgrade_dev_kit.sh [--version <ref>] [--yes]` | Refresh the framework to a branch, tag, or commit (default `main`). See [upgrading.md](upgrading.md). |
-| `fetch-terraform-extension.sh [--force]` | Vendor the real Terraform extension's source into `extensions/terraform/`. Fetches **only** that subdirectory — a blobless partial fetch with a sparse path — and what lands is plain source with no `.git`, no remote and no upstream. Skips if the directory exists, so your edits survive; `--force` moves the old copy to `.bak` first. Override with `TF_EXT_REPO` / `TF_EXT_REF`. |
+| `fetch-terraform-extension.sh [--force]` | Vendor the real Terraform agent's source into `extensions/terraform/`. Fetches **only** that subdirectory — a blobless partial fetch with a sparse path — and what lands is plain source with no `.git`, no remote and no upstream. Skips if the directory exists, so your edits survive; `--force` moves the old copy to `.bak` first. Override with `TF_EXT_REPO` / `TF_EXT_REF`. |
 
 ### Building and deploying
 
 | Script | What it does |
 | --- | --- |
-| `build-extension.sh <extension-dir>` | Validate naming, fetch the host SDK, `dotnet publish`, `npm build`, and zip to `<dir>/dist/extension.zip`. With `DUPLO_SDK_VERSIONS` set to a list of versions, one per line, it restores each of those SDK versions from the package feed instead, with no host, and writes one `<dir>/dist/sdk-<v>/extension.zip` per version. |
+| `build-extension.sh <extension-dir>` | Validate naming, fetch the host SDK, `dotnet publish`, `npm build`, and zip to `<dir>/dist/agent.zip`. With `DUPLO_SDK_VERSIONS` set to a list of versions, one per line, it restores each of those SDK versions from the package feed instead, with no host, and writes one `<dir>/dist/sdk-<v>/agent.zip` per version. |
 | `build-all.sh` | Build every `extensions/<name>/manifest.json` in the repo. What CI runs. |
-| `deploy-extension.sh <path-to-extension.zip>` | Hot-load one bundle onto the platform — no restart. |
-| `deploy-all.sh` | Hot-load every built bundle. Run after `build-all.sh`. For an extension built with `DUPLO_SDK_VERSIONS`, it reads the host's SDK version and loads the one `dist/sdk-<v>/extension.zip` stamped with it, since the host loads only a bundle whose `sdkVersion` equals its own, and fails the run when no built version matches. |
-| `remove-extension.sh <extension-id>` | Unload and delete a loaded extension by its manifest id, e.g. `com.duplocloud.helloworld`. |
+| `deploy-extension.sh <path-to-agent.zip>` | Hot-load one bundle onto the platform — no restart. |
+| `deploy-all.sh` | Hot-load every built bundle. Run after `build-all.sh`. For an agent built with `DUPLO_SDK_VERSIONS`, it reads the host's SDK version and loads the one `dist/sdk-<v>/agent.zip` stamped with it, since the host loads only a bundle whose `sdkVersion` equals its own, and fails the run when no built version matches. |
+| `remove-extension.sh <extension-id>` | Unload and delete a loaded agent by its manifest id, e.g. `com.duplocloud.helloworld`. |
 
-`build-extension.sh` refuses to build an extension whose naming is wrong — REST segments must start with
+`build-extension.sh` refuses to build an agent whose naming is wrong — REST segments must start with
 `extensions/`, Mongo collections must be prefixed `extension_`, and template `Hello`/`hw-` identifiers must
 be renamed. Each violation prints a `✗` line, then:
 
@@ -183,7 +183,7 @@ ERROR: extension naming validation failed — fix the ✗ items above (reference
 
 With `ARMDOT_LICENSE_FILE_PATH` set to an ArmDot license file and `DUPLO_ARMDOT_DIR` naming a checkout of the
 ArmDot build files from the private `duplocloud-internal/.github`, `build-extension.sh` also obfuscates the
-extension's own assembly and stamps the bundle's manifest with `obfuscation`. See "Obfuscating a build" in
+agent's own assembly and stamps the bundle's manifest with `obfuscation`. See "Obfuscating a build" in
 [releasing-extensions.md](releasing-extensions.md).
 
 ### Platform registration
@@ -208,14 +208,14 @@ dev-kit URL used by upgrades. Both are sourced, not run.
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
 | `.github/workflows/extension-ci.yml` | push | Builds `extensions/`. Can hot-load on a manual run. |
-| `.github/workflows/release.yml` | push to `main`, `dev` or `rc`, or manual | Releases every extension through `duplocloud/actions/release-extension`: builds each one, cuts a GitHub Release per build tagged `<name>-v<version>-sdk-<sdkVersion>`, uploads it and registers it with the console as an unpublished version. `main` releases to the prod console; `dev` and `rc` release to the dev console under a channel tag (`<name>-dev-v…`). Bumping `manifest.version` is how you release a new version. It does not hot-load. |
+| `.github/workflows/release.yml` | push to `main`, `dev` or `rc`, or manual | Releases every agent through `duplocloud/actions/release-extension`: builds each one, cuts a GitHub Release per build tagged `<name>-v<version>-sdk-<sdkVersion>`, uploads it and registers it with the console as an unpublished version. `main` releases to the prod console; `dev` and `rc` release to the dev console under a channel tag (`<name>-dev-v…`). Bumping `manifest.version` is how you release a new version. It does not hot-load. |
 
 Both need repo secrets `DUPLO_HOST` and `DUPLO_TOKEN`. By default the build fetches the host SDK feed from
 `DUPLO_HOST`, so it must be reachable from CI — a real platform, not `localhost`. With the repository variable
 `DUPLO_SDK_VERSIONS` set, `extension-ci.yml` builds one bundle per listed SDK version from the package feed
 and needs the host only to deploy. `release.yml` still needs the host, plus `CONSOLE_API_KEY`, the `CONSOLE_TEAM`
 variable outside DuploCloud's organizations, and the signing, license and role values inside them.
-[Releasing extensions](releasing-extensions.md) has the full list.
+[Releasing agents](releasing-extensions.md) has the full list.
 
 It is your repo: commit `extensions/` and push. `dist/`, `node_modules/`, and `backend/sdk-packages/` are
 gitignored, and `.env` is never committed.

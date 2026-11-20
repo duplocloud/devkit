@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks that docker-compose.yml, .env.example, run.sh and the README wire the extension installer in.
+# Checks that docker-compose.yml, .env.example, run.sh and the README wire the agent installer in.
 #
 # The static checks need nothing installed. The rendered checks run `$RUNTIME compose config` against a copy of the
 # compose file and a fixture .env in a temp directory, so they never read your .env, pull or start anything. They need
@@ -60,7 +60,7 @@ t "build hints load through the installer, and deploy-extension.sh only without 
 STALE=""
 for f in run.sh docs/troubleshooting.md; do
   if ! grep -q 'installer service loads each build' "$f" \
-      || grep 'deploy-extension.sh extensions/<name>/dist/extension.zip' "$f" | grep -qv 'without the installer'; then
+      || grep 'deploy-extension.sh extensions/<name>/dist/agent.zip' "$f" | grep -qv 'without the installer'; then
     STALE="$STALE $f"
   fi
 done
@@ -70,12 +70,12 @@ if [ -z "$STALE" ]; then ok; else bad "deploy-extension.sh is still the load ste
 t "a bundled sample still names deploy-extension.sh"
 SAMPLE_STALE=""
 for f in run.sh docs/getting-started/install.md; do
-  grep -q 'deploy-extension.sh samples/helloworld/dist/extension.zip' "$f" || SAMPLE_STALE="$SAMPLE_STALE $f"
+  grep -q 'deploy-extension.sh samples/helloworld/dist/agent.zip' "$f" || SAMPLE_STALE="$SAMPLE_STALE $f"
 done
 if [ -z "$SAMPLE_STALE" ]; then ok; else bad "sample load step missing in:$SAMPLE_STALE"; fi
 
 t "README says deploy-extension.sh hands a local build to the installer"
-if in_readme "\`./scripts/deploy-extension.sh extensions/[name]/dist/extension.zip\` hands that build to the installer"
+if in_readme "\`./scripts/deploy-extension.sh extensions/[name]/dist/agent.zip\` hands that build to the installer"
 then ok; else bad "README lacks the deploy-extension.sh hand-off"; fi
 
 t "README says how a rebuild installs after a load the installer did not make"

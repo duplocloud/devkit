@@ -20,7 +20,7 @@ mkdir -p "$KIT/scripts" "$KIT/extensions/demo/dist" "$TMP/bin" "$STUB"
 cp scripts/deploy-extension.sh scripts/_target.sh scripts/_runtime.sh "$KIT/scripts/"
 printf 'DUPLO_ADMIN_TOKEN=fixture\nRUNTIME=docker\n' > "$KIT/.env"
 
-ZIP=extensions/demo/dist/extension.zip
+ZIP=extensions/demo/dist/agent.zip
 python3 - "$KIT/$ZIP" <<'PY'
 import json, sys, zipfile
 with zipfile.ZipFile(sys.argv[1], "w") as z:

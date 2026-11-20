@@ -6,7 +6,7 @@
 #
 #   provider  local-qdrant   type=qdrant, category=vectorDatabase, accountId=<url>, credential 'qdrant'
 #   scope     qdrant         over that provider, so the provider shows up in the ticket scope picker
-#   workspace extension-dev  ← the scope attached, which is what makes it selectable
+#   workspace agent-dev      ← the scope attached, which is what makes it selectable
 #   collection devkit-docs   EMPTY — you upload your own documents from the UI
 #
 # The provider shape is not negotiable: QdrantConnectionResolver.FromProvider reads the URL from

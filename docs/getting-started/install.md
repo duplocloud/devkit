@@ -10,20 +10,20 @@ email address you can read right now.
 
 ## 1.1 Clone the dev kit
 
-You clone the dev kit once, then make it yours. Your extensions live in `extensions/<name>/`; everything
+You clone the dev kit once, then make it yours. Your agents live in `extensions/<name>/`; everything
 else is framework that stays refreshable.
 
 1. Clone it, into a directory named for your project.
 
    ```bash
-   git clone https://github.com/duplocloud/devkit my-extension
-   cd my-extension
+   git clone https://github.com/duplocloud/devkit my-agent
+   cd my-agent
    ```
 
    You should see:
 
    ```
-   Cloning into 'my-extension'...
+   Cloning into 'my-agent'...
    remote: Enumerating objects: 1284, done.
    remote: Total 1284 (delta 421), reused 1284 (delta 421), pack-reused 0
    Receiving objects: 100% (1284/1284), 4.21 MiB | 8.35 MiB/s, done.
@@ -35,7 +35,7 @@ pulls from the official dev-kit URL, whatever you re-point your remote to in the
 
 ## 1.2 Make the checkout yours
 
-`init-project.sh` re-points the repo at your remote **and** seeds your first extension under
+`init-project.sh` re-points the repo at your remote **and** seeds your first agent under
 `extensions/<name>/`. Everything outside `extensions/` is framework that stays refreshable.
 
 1. Adopt the clone.
@@ -54,8 +54,8 @@ pulls from the official dev-kit URL, whatever you re-point your remote to in the
        seeded extensions/helloworld from samples/helloworld (run /duplo-extension to reshape it, or edit by hand)
    ==> Changing git owner → git@github.com:<your-github-user>/<your-repo>.git
    ==> Done. This repo is now yours.
-       • author your extension in extensions/helloworld  (or run /duplo-extension in Claude Code)
-       • add more extensions later under extensions/<another-name>/
+       • author your agent in extensions/helloworld  (or run /duplo-extension in Claude Code)
+       • add more agents later under extensions/<another-name>/
        • build one:  ./scripts/build-extension.sh extensions/helloworld
        • build all:  ./scripts/build-all.sh
        • deploy all: ./scripts/deploy-all.sh
@@ -66,7 +66,7 @@ pulls from the official dev-kit URL, whatever you re-point your remote to in the
 2. Useful variations — pick one instead of the plain form above if it fits:
 
    ```bash
-   ./scripts/init-project.sh git@github.com:<your-github-user>/<your-repo>.git --name <slug>   # name the first extension dir
+   ./scripts/init-project.sh git@github.com:<your-github-user>/<your-repo>.git --name <slug>   # name the first agent dir
    ./scripts/init-project.sh git@github.com:<your-github-user>/<your-repo>.git --no-sample     # no starter, just a placeholder
    ./scripts/change_git_owner.sh git@github.com:<your-github-user>/<your-repo>.git             # take ownership only, seed nothing
    ```
@@ -154,7 +154,7 @@ Every `./run.sh` flag is in the [CLI reference](../cli-reference.md#runsh).
 ## 1.6 The ready banner
 
 `./run.sh` pulls the images, starts the stack, waits for the studio, mints a permanent admin token,
-creates the `extension-dev` workspace, grants your user access to it, and registers the agent. On a cold
+creates the `agent-dev` workspace, grants your user access to it, and registers the agent. On a cold
 machine the pull is the slow part.
 
 You are done when you see:
@@ -163,18 +163,18 @@ You are done when you see:
 ✔ Platform ready (provider: anthropic)
   UI        http://localhost:4210     (login: <you@yourcompany.com>)
   API       http://localhost:60031
-  Workspace extension-dev  (68d1f0c2a4b95e0c3d7e1a42)  ·  agent registered + attached
+  Workspace agent-dev  (68d1f0c2a4b95e0c3d7e1a42)  ·  agent registered + attached
   Token     DUPLO_ADMIN_TOKEN set in .env (permanent)
   LLM       System default → claude-sonnet-5-5 (direct Anthropic); also available: claude-opus-5-5
 
-Build & deploy your extension (scripts read the target from .env — no DUPLO_BASE= prefix needed):
-  ./scripts/build-extension.sh  extensions/<name>               # your extensions live in extensions/<name>/
+Build & deploy your agent (scripts read the target from .env — no DUPLO_BASE= prefix needed):
+  ./scripts/build-extension.sh  extensions/<name>               # your agents live in extensions/<name>/
   # the installer service loads each build in extensions/<name>/dist/ by itself, within about 20 seconds
-  # without the installer, or on a remote target: ./scripts/deploy-extension.sh extensions/<name>/dist/extension.zip
-  # or build every extension:    ./scripts/build-all.sh
+  # without the installer, or on a remote target: ./scripts/deploy-extension.sh extensions/<name>/dist/agent.zip
+  # or build every agent:        ./scripts/build-all.sh
   # or build a bundled sample:   ./scripts/build-extension.sh samples/helloworld
   #   then load it, since the installer reads only extensions/:
-  #   ./scripts/deploy-extension.sh samples/helloworld/dist/extension.zip
+  #   ./scripts/deploy-extension.sh samples/helloworld/dist/agent.zip
   # re-attach the agent to another workspace: ./scripts/register-agent.sh <workspace-id>
 
 ==> Open the portal in your browser:  http://localhost:4210
@@ -202,15 +202,16 @@ satisfied. What the values in that banner mean is in
    | **Email** | `<you@yourcompany.com>` |
    | **Password** | the password from [1.5](#15-the-rest-of-the-prompts) |
 
-   You land in the portal with the `extension-dev` workspace selected.
+   You land in the portal with the `agent-dev` workspace selected.
 
 ## 1.8 Confirm your workspace
 
 You are signed in, which means the platform is up and your account works. One thing left to confirm:
 `./run.sh` also created a **workspace** for you to build in, and put you in it.
 
-Look at the top of the page. Next to **Workspace :** the selector reads **EXTENSION-DEV**. Open it and
-`extension-dev` is listed — that is the workspace `./run.sh` created and attached the agent to.
+Look at the top of the page. Next to **Workspace :** the selector reads **EXTENSION-DEV** below (the
+screenshot predates the `agent-dev` rename; a current `./run.sh` names it `AGENT-DEV`). Open it and the
+workspace `./run.sh` created and attached the agent to is listed.
 
 ![The workspace selector at the top of the portal, open, showing the extension-dev workspace](../images/devkit-workspace-selector.png)
 
