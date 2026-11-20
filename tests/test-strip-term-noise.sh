@@ -143,11 +143,12 @@ t "secret: EOF yields rc=1, not masked by the trailing 'echo >&2'"
 rc="$( (eval "$(awk '/^strip_term_noise\(\) \{/,/^}/' run.sh; awk '/^prompt\(\) \{/,/^}/' run.sh)"; prompt V "x" secret < /dev/null >/dev/null 2>&1; echo $?) )"
 if [ "$rc" = 1 ]; then ok; else bad "rc=$rc (expected 1) — the echo-after-read sequencing bug is back"; fi
 
-# prompt_new_password() — the admin password is asked twice and must match (DUPLOAI-5380).
-# Runs the helper in a subshell on piped input; prints "<rc>|<value>" on stdout, stderr to $ERRF.
+# prompt_new_password() — the admin password is asked twice and must match (DUPLOAI-5380), and must be
+# at least ADMIN_PW_MIN_LEN characters (DUPLOAI-5693). Runs the helper in a subshell on piped input;
+# prints "<rc>|<value>" on stdout, stderr to $ERRF.
 ERRF="$(mktemp)"; trap 'rm -f "$ERRF"' EXIT
 pnp() { # input
-  printf "$1" | (eval "$(awk '/^strip_term_noise\(\) \{/,/^}/' run.sh; awk '/^prompt\(\) \{/,/^}/' run.sh; awk '/^prompt_new_password\(\) \{/,/^}/' run.sh)"
+  printf "$1" | (eval "$(awk '/^strip_term_noise\(\) \{/,/^}/' run.sh; awk '/^prompt\(\) \{/,/^}/' run.sh; grep '^ADMIN_PW_MIN_LEN=' run.sh; awk '/^prompt_new_password\(\) \{/,/^}/' run.sh)"
     PW=""; prompt_new_password PW "Admin password" >/dev/null 2>"$ERRF"; printf '%s|%s' "$?" "$PW")
 }
 echo "prompt_new_password() — confirmation:"
@@ -155,28 +156,47 @@ t "run.sh defines prompt_new_password and uses it for the admin password"
 if grep -q '^prompt_new_password() {' run.sh && grep -q "prompt_new_password PASSWORD 'Admin password'" run.sh; then ok; else bad "helper missing or not wired in"; fi
 
 t "matching entries are accepted"
-r="$(pnp 'Vijay123#\nVijay123#\n')"
-if [ "$r" = "0|Vijay123#" ]; then ok; else bad "got $(printf '%q' "$r")"; fi
+r="$(pnp 'Vijay123#Long\nVijay123#Long\n')"
+if [ "$r" = "0|Vijay123#Long" ]; then ok; else bad "got $(printf '%q' "$r")"; fi
 
 t "a mismatch re-asks, then accepts the matching pair"
-r="$(pnp 'abc\nabd\npw2\npw2\n')"
-if [ "$r" = "0|pw2" ] && grep -q 'do not match' "$ERRF"; then ok; else bad "got $(printf '%q' "$r"), stderr: $(cat "$ERRF")"; fi
+r="$(pnp 'abcdefghijk1\nabcdefghijk2\nPassword2Long\nPassword2Long\n')"
+if [ "$r" = "0|Password2Long" ] && grep -q 'do not match' "$ERRF"; then ok; else bad "got $(printf '%q' "$r"), stderr: $(cat "$ERRF")"; fi
 
 t "an empty entry is refused, then the next pair is accepted"
-r="$(pnp '\npw3\npw3\n')"
-if [ "$r" = "0|pw3" ] && grep -q 'cannot be empty' "$ERRF"; then ok; else bad "got $(printf '%q' "$r"), stderr: $(cat "$ERRF")"; fi
+r="$(pnp '\nPassword3Long\nPassword3Long\n')"
+if [ "$r" = "0|Password3Long" ] && grep -q 'cannot be empty' "$ERRF"; then ok; else bad "got $(printf '%q' "$r"), stderr: $(cat "$ERRF")"; fi
 
 t "escape noise in one entry doesn't cause a false mismatch"
-r="$(pnp '\033[Apw4\npw4\n')"
-if [ "$r" = "0|pw4" ]; then ok; else bad "got $(printf '%q' "$r")"; fi
+r="$(pnp '\033[APassword4Long\nPassword4Long\n')"
+if [ "$r" = "0|Password4Long" ]; then ok; else bad "got $(printf '%q' "$r")"; fi
 
 t "EOF before confirmation returns non-zero (no infinite loop)"
-r="$(pnp 'pw5\n')"
+r="$(pnp 'Password5Long\n')"
 if [ "${r%%|*}" != 0 ] && [ "${r#*|}" = "" ]; then ok; else bad "got $(printf '%q' "$r")"; fi
 
 t "EOF after repeated mismatches returns non-zero"
-r="$(pnp 'a\nb\nc\nd\n')"
-if [ "${r%%|*}" != 0 ]; then ok; else bad "got $(printf '%q' "$r")"; fi
+r="$(pnp 'aaaaaaaaaaaa\nbbbbbbbbbbbb\ncccccccccccc\ndddddddddddd\n')"
+if [ "${r%%|*}" != 0 ] && grep -q 'do not match' "$ERRF"; then ok; else bad "got $(printf '%q' "$r")"; fi
+
+echo "prompt_new_password() — minimum length (DUPLOAI-5693):"
+t "run.sh sets ADMIN_PW_MIN_LEN=12"
+if grep -q '^ADMIN_PW_MIN_LEN=12$' run.sh; then ok; else bad "constant missing or changed"; fi
+
+t "a short entry is refused before confirmation, then the next pair is accepted"
+r="$(pnp 'short\nLongEnough123\nLongEnough123\n')"
+if [ "$r" = "0|LongEnough123" ] && grep -q 'at least 12 characters' "$ERRF"; then ok; else bad "got $(printf '%q' "$r"), stderr: $(cat "$ERRF")"; fi
+
+t "11 characters is refused"
+r="$(pnp '12345678901\n12345678901\n')"
+if [ "${r%%|*}" != 0 ] && grep -q 'at least 12 characters' "$ERRF"; then ok; else bad "got $(printf '%q' "$r"), stderr: $(cat "$ERRF")"; fi
+
+t "exactly 12 characters is accepted"
+r="$(pnp '123456789012\n123456789012\n')"
+if [ "$r" = "0|123456789012" ] && ! grep -q 'at least' "$ERRF"; then ok; else bad "got $(printf '%q' "$r"), stderr: $(cat "$ERRF")"; fi
+
+t "--password is length-checked only on a fresh install (no saved password)"
+if grep -qF '[ -n "$F_PASSWORD" ] && [ -z "$SAVED_PW" ] && [ "${#F_PASSWORD}" -lt "$ADMIN_PW_MIN_LEN" ]' run.sh; then ok; else bad "fresh-install --password check missing"; fi
 
 echo; echo "$PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

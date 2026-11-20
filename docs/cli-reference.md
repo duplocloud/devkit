@@ -35,7 +35,7 @@ On an EC2 host the provider prompt first probes whether the instance role can ac
 | `--license <jwt>` | Use a license JWT you already have. No licensing call is made. |
 | `--non-interactive`, `-y` | Never prompt. A missing required value is an error instead: `Missing <KEY> — pass its flag (non-interactive).` |
 | `--email <addr>` | Admin email (your UI login, and the address the license is issued to). Work or personal addresses both work; privacy-relay and disposable domains are rejected by the license server. |
-| `--password <pw>` | Admin password. |
+| `--password <pw>` | Admin password. On a fresh install (no password saved in `.env` yet) it must be at least 12 characters, the portal's password policy; an already-saved password is taken as-is. |
 | `--model <1\|2\|3\|4\|5\|anthropic\|bedrock\|gateway\|bedrock-instance-role\|subscription>` | LLM provider. `1` is anthropic, `2` is bedrock, `3` is gateway, `4` is bedrock-instance-role, `5` is subscription. Option `4` is only offered at the prompt when the probe proves the role can invoke Bedrock, but `--model bedrock-instance-role` can be passed directly — it then probes and **fails** rather than falling back, since you asked for it explicitly. |
 | `--anthropic-key <key>` | Anthropic API key. |
 | `--subscription-token <token>` | `subscription` only. A long-lived Claude Code token, minted with `claude setup-token` on your own machine — it opens a browser, so it cannot be done from inside the dev kit. Expect `sk-ant-oat01-…`; an `sk-ant-api…` key pasted here is caught with a note, since it would otherwise be sent as a bearer token and fail with a puzzling 401. |

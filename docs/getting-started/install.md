@@ -131,7 +131,7 @@ already set, so a second run is silent.
 
 | Prompt | What to enter |
 | --- | --- |
-| `Admin password:` → `Confirm Admin password:` | Your portal password, entered twice (it asks again until both match). Not echoed. Remember it — the database keeps it, and a later `.env` edit cannot change it. |
+| `Admin password:` → `Confirm Admin password:` | Your portal password — **at least 12 characters** (the portal's password policy; a shorter one is refused at the prompt) — entered twice (it asks again until both match). Not echoed. Remember it — the database keeps it, and a later `.env` edit cannot change it. |
 | `Select LLM provider:` → `Enter 1 or 2:` | `1` for `anthropic (API key)`, `2` for `bedrock (AWS keys)`. On an EC2 instance with a working Bedrock role, option `3` uses that role with no keys. |
 | `Anthropic API key:` *(provider 1)* | Your `sk-ant-…` key. Not echoed. |
 | `AWS access key id:` / `AWS secret access key:` *(provider 2)* | Your Bedrock credentials. |
