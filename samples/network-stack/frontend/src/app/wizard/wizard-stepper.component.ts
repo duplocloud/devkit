@@ -29,25 +29,25 @@ export interface WizardStep {
     :host { display: block; }
     /* One centered card: title, stepper, body and footer share a single width so nothing drifts apart.
        Consumers must NOT wrap this in another card — pass [title]/[subtitle]/[maxWidth] instead. */
-    .wz-card { background: #fff; border-radius: 6px; margin: 0 auto; box-shadow: 0 4px 24px rgba(34, 41, 47, .08); }
-    .wz-title { padding: 1.25rem 1.5rem; border-bottom: 1px solid #ebe9f1; }
+    .wz-card { background: var(--surface); border-radius: 6px; margin: 0 auto; box-shadow: var(--shadow-raised); }
+    .wz-title { padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border-color); }
     .wz-title h4 { margin-bottom: .25rem; }
-    .wz-head { display: flex; align-items: flex-start; padding: 1.25rem 1.5rem; border-bottom: 1px solid #ebe9f1; }
+    .wz-head { display: flex; align-items: flex-start; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border-color); }
     .wz-step { display: flex; align-items: center; flex-direction: column; min-width: 90px; }
     .wz-circle {
       width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-      font-weight: 600; font-size: 0.9rem; border: 2px solid #d8d6de; color: #b9b9c3; background: #fff;
+      font-weight: 600; font-size: 0.9rem; border: 2px solid var(--control-border); color: var(--text-muted); background: var(--surface);
     }
-    .wz-step.active .wz-circle { background: #7367f0; border-color: #7367f0; color: #fff; }
-    .wz-step.done   .wz-circle { background: #28c76f; border-color: #28c76f; color: #fff; }
-    .wz-label { margin-top: .4rem; font-size: .82rem; color: #b9b9c3; white-space: nowrap; }
-    .wz-step.active .wz-label { color: #7367f0; font-weight: 600; }
-    .wz-step.done   .wz-label { color: #6e6b7b; }
-    .wz-line { flex: 1 1 auto; height: 2px; background: #ebe9f1; margin: 17px .5rem 0; }
-    .wz-line.done { background: #28c76f; }
+    .wz-step.active .wz-circle { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+    .wz-step.done   .wz-circle { background: var(--success); border-color: var(--success); color: var(--on-primary); }
+    .wz-label { margin-top: .4rem; font-size: .82rem; color: var(--text-muted); white-space: nowrap; }
+    .wz-step.active .wz-label { color: var(--primary-text); font-weight: 600; }
+    .wz-step.done   .wz-label { color: var(--body-color); }
+    .wz-line { flex: 1 1 auto; height: 2px; background: var(--border-color); margin: 17px .5rem 0; }
+    .wz-line.done { background: var(--success); }
     .wz-body { padding: 1.5rem; }
-    .wz-foot { display: flex; align-items: center; padding: 1rem 1.5rem; border-top: 1px solid #ebe9f1; }
-    .wz-count { color: #b9b9c3; font-size: .85rem; }
+    .wz-foot { display: flex; align-items: center; padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); }
+    .wz-count { color: var(--text-muted); font-size: .85rem; }
   `],
   template: `
     <div class="wz-card" [style.max-width]="maxWidth()">

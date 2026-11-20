@@ -1,0 +1,7 @@
+# Build artifacts — never committed; produced by the build skill in the ticket workdir.
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+frontend/out-tsc/
+pkg/
+*.zip

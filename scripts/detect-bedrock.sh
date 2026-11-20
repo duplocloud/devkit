@@ -6,7 +6,7 @@
 # to IMDS. run.sh calls this to offer that as a provider option before asking for keys.
 #
 # Usage: ./scripts/detect-bedrock.sh [model-id] [region]
-#   model-id  the Bedrock model/inference-profile actually invoked (default us.anthropic.claude-sonnet-5)
+#   model-id  the Bedrock model/inference-profile actually invoked (default us.anthropic.claude-sonnet-5-5)
 #   region    force a region instead of probing the instance region (then us-east-1, us-west-2)
 #
 # Prints eval-able KEY=VALUE lines on stdout, human-readable progress on stderr.
@@ -20,7 +20,7 @@ cd "$(dirname "$0")/.."
 # shellcheck source=scripts/_runtime.sh
 . ./scripts/_runtime.sh          # → $RUNTIME (docker | podman)
 
-MODEL_ID="${1:-us.anthropic.claude-sonnet-5}"
+MODEL_ID="${1:-us.anthropic.claude-sonnet-5-5}"
 FORCE_REGION="${2:-}"
 
 # The whole probe is python3; without it we can still answer the question ("no") in the documented

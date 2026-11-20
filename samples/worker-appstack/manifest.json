@@ -16,7 +16,6 @@
       "restSegment": "extensions/appstacks",
       "subType": "app-stack",
       "archetype": "typed",
-      "registrar": "DevOpsResource",
       "entityType": "Duplo.Extension.AppStack.AppStack",
       "specType": "Duplo.Extension.AppStack.AppStackSpec",
       "resultType": "Duplo.Extension.AppStack.AppStackResult",

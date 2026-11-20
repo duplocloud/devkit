@@ -1,12 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Worker sample backend. Built by build-extension.sh (fetch SDK -> dotnet publish). -->
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseAppHost>false</UseAppHost>
     <IsPackable>false</IsPackable>
     <DuploSdkVersion Condition="'$(DuploSdkVersion)' == ''">1.0.0</DuploSdkVersion>
+    <!-- The framework follows the SDK version: 1.0.x and 1.1.x ship net8.0 assemblies, 1.2.0 and later only net10.0.
+         build-extension.sh passes TargetFramework by the same rule; this is what an IDE or a plain publish gets. -->
+    <TargetFramework Condition="$([MSBuild]::VersionLessThan('$(DuploSdkVersion)', '1.2.0'))">net8.0</TargetFramework>
+    <TargetFramework Condition="'$(TargetFramework)' == ''">net10.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />

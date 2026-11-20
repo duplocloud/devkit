@@ -33,30 +33,47 @@ cat > "$ENV" <<'ENVF'
 DEVKIT_MODEL=gateway
 ANTHROPIC_BASE_URL=https://openrouter.ai/api
 ANTHROPIC_AUTH_TOKEN=gw-token
-CLAUDE_MODEL=anthropic/claude-sonnet-5
+CLAUDE_MODEL=anthropic/claude-sonnet-5-5
 ENVF
 if switch subscription --subscription-token sk-ant-oat01-x \
-   && [ "$(getenv CLAUDE_MODEL)" = "claude-sonnet-5" ] \
+   && [ "$(getenv CLAUDE_MODEL)" = "claude-sonnet-5-5" ] \
    && [ -z "$(getenv ANTHROPIC_BASE_URL)" ]; then ok; else bad "CLAUDE_MODEL=$(getenv CLAUDE_MODEL); $(cat "$ROOT/out")"; fi
 
 t "the gateway's model is stashed under its own provider"
-if [ "$(getenv _STASH_GATEWAY_CLAUDE_MODEL)" = "anthropic/claude-sonnet-5" ] \
+if [ "$(getenv _STASH_GATEWAY_CLAUDE_MODEL)" = "anthropic/claude-sonnet-5-5" ] \
    && [ -z "$(getenv _STASH_CLAUDE_MODEL)" ]; then ok; else bad "$(grep _STASH "$ENV")"; fi
 
 t "subscription → gateway restores the gateway's own model, not the subscription's"
-if switch gateway && [ "$(getenv CLAUDE_MODEL)" = "anthropic/claude-sonnet-5" ] \
-   && [ "$(getenv _STASH_SUBSCRIPTION_CLAUDE_MODEL)" = "claude-sonnet-5" ]; then ok; else bad "CLAUDE_MODEL=$(getenv CLAUDE_MODEL); $(cat "$ROOT/out")"; fi
+if switch gateway && [ "$(getenv CLAUDE_MODEL)" = "anthropic/claude-sonnet-5-5" ] \
+   && [ "$(getenv _STASH_SUBSCRIPTION_CLAUDE_MODEL)" = "claude-sonnet-5-5" ]; then ok; else bad "CLAUDE_MODEL=$(getenv CLAUDE_MODEL); $(cat "$ROOT/out")"; fi
 
 t "gateway → subscription again restores the stashed token without re-entry"
 if switch subscription && [ "$(getenv CLAUDE_CODE_OAUTH_TOKEN)" = "sk-ant-oat01-x" ] \
-   && [ "$(getenv CLAUDE_MODEL)" = "claude-sonnet-5" ]; then ok; else bad "$(cat "$ROOT/out")"; fi
+   && [ "$(getenv CLAUDE_MODEL)" = "claude-sonnet-5-5" ]; then ok; else bad "$(cat "$ROOT/out")"; fi
 
 t "a pre-namespacing flat stash is still honoured for an unshared key"
-printf 'DEVKIT_MODEL=anthropic\nANTHROPIC_API_KEY=sk-ant-api03-x\n_STASH_CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-legacy\n_STASH_CLAUDE_MODEL=us.anthropic.claude-sonnet-5\n' > "$ENV"
+printf 'DEVKIT_MODEL=anthropic\nANTHROPIC_API_KEY=sk-ant-api03-x\n_STASH_CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-legacy\n_STASH_CLAUDE_MODEL=us.anthropic.claude-sonnet-5-5\n' > "$ENV"
 if switch subscription && [ "$(getenv CLAUDE_CODE_OAUTH_TOKEN)" = "sk-ant-oat01-legacy" ]; then ok; else bad "$(cat "$ROOT/out")"; fi
 
 t "…but a flat stash of a shared key (CLAUDE_MODEL) is ignored"
-if [ "$(getenv CLAUDE_MODEL)" = "claude-sonnet-5" ]; then ok; else bad "CLAUDE_MODEL=$(getenv CLAUDE_MODEL)"; fi
+if [ "$(getenv CLAUDE_MODEL)" = "claude-sonnet-5-5" ]; then ok; else bad "CLAUDE_MODEL=$(getenv CLAUDE_MODEL)"; fi
+
+# switch-llm.sh restores the stashed gateway model into .env, then runs the same gateway configure — so a
+# gateway stashed on the previous default is upgraded on the way back too (PR #86 review).
+t "subscription → gateway upgrades a stashed previous-default gateway model"
+cat > "$ENV" <<'ENVF'
+DEVKIT_MODEL=subscription
+CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-x
+CLAUDE_MODEL=claude-sonnet-5-5
+_STASH_GATEWAY_ANTHROPIC_BASE_URL=https://gw.example
+_STASH_GATEWAY_ANTHROPIC_AUTH_TOKEN=gw-token
+_STASH_GATEWAY_CLAUDE_MODEL=claude-sonnet-5
+ENVF
+# The note proves the stashed claude-sonnet-5 was restored and then upgraded — the subscription's own
+# claude-sonnet-5-5 merely surviving the switch would pass the value check alone.
+if switch gateway && [ "$(getenv CLAUDE_MODEL)" = "claude-sonnet-5-5" ] \
+   && [ "$(getenv ANTHROPIC_BASE_URL)" = "https://gw.example" ] \
+   && grep -q "previous default 'claude-sonnet-5'" "$ROOT/out"; then ok; else bad "CLAUDE_MODEL=$(getenv CLAUDE_MODEL); $(cat "$ROOT/out")"; fi
 
 echo; echo "$PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

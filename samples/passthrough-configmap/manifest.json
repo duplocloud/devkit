@@ -16,7 +16,6 @@
       "restSegment": "extensions/configmapdemos",
       "subType": "configmap-demo",
       "archetype": "typed",
-      "registrar": "DevOpsResource",
       "entityType": "Duplo.Extension.ConfigMapDemo.ConfigMapDemo",
       "specType": "Duplo.Extension.ConfigMapDemo.ConfigMapSpec",
       "resultType": "Duplo.Extension.ConfigMapDemo.ConfigMapResult",

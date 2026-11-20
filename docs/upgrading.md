@@ -102,6 +102,20 @@ registry. Refreshing it is a separate procedure with its own constraints — see
 The tarball is proprietary and is **not** covered by the Apache license on the rest of the kit. See
 [TERMS.md](../TERMS.md).
 
+## .NET 10 and the target framework
+
+Extension SDK 1.2.0 moved the host to .NET 10 and ships only `net10.0` reference assemblies. A `net10.0` build
+does not load on a .NET 8 host, and a `net8.0` build loads on both, so the build picks the framework from the
+host SDK version it reads: `net10.0` from 1.2.0, `net8.0` below it. Nothing in an existing extension has to
+change for that. The framework goes into the build as a property, so the `net8.0` in your csproj is only what an
+IDE opens the project with. If you want the IDE and a plain `dotnet publish` to agree with the script, give the
+csproj the rule the samples carry, two `TargetFramework` lines conditioned on `DuploSdkVersion`, and put them
+after the `DuploSdkVersion` default. A test project that references the backend needs the same rule.
+
+Build against each host you ship to. The installer hands a host only a build whose SDK version matches, so an
+environment still on 1.0.x and one on 1.2.0 each take the bundle built against their own SDK. The toolchain
+image ships the .NET 10 SDK, which builds both; a `--native` build needs .NET SDK 10 installed for a 1.2.0 host.
+
 ## After an upgrade
 
 1. `./run.sh` — picks up new image tags and re-runs the idempotent setup steps.

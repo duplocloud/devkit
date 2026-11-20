@@ -12,7 +12,11 @@ Import `SharedFormsModule` and use:
   `#fge showDetailsWhen="submitted"` on the container.
 - **`<ng-select>`** — re-exported by `SharedFormsModule` (single, `[multiple]`, `[items]`). No separate import.
 - `<password-field>`, `<key-val-field>` (name/value pairs), and `FormElementsCollapsableGroupComponent` (collapsible
-  section) for richer inputs.
+  section) for richer inputs. `<password-field>` masks the *display* only — if the Spec field is
+  `[SecretValue(ExcludeFromResponse = true)]` ([23-secrets](23-secrets.md)), the GET response never carries
+  a value to begin with, so an **edit** form must not try to pre-populate it: placeholder
+  `"•••• — leave blank to keep"`, start the model value `undefined`, and only send the key in the PATCH
+  body when the user actually typed something.
 - Toggle/switch: there is no dedicated lib toggle — use a Bootstrap 4 `custom-control custom-switch` + `ngModel`
   (the host ships the Vuexy theme CSS).
 
@@ -32,6 +36,38 @@ library's `<app-ai-disclosure />` (import `AiDisclosureComponent` from `@duplocl
 It renders "This platform uses AI. See documentation for more details."; a deployment can change the text and link in
 its config (`text.aiDisclosure`, `links.aiDisclosure`). Don't hardcode the wording or set `defaultText`. Worker,
 Passthrough and No-provision forms do **not** carry it.
+
+## Connections in a form
+
+The connections kit ([20-ui-library](20-ui-library.md#connections-the-setup-kit)) drops into a template-driven
+form like any other control:
+
+- **One control per component**, each with its own `name` and `ngModel`. Level 1 is one control (scope id); level 2
+  is three (provider id, credential name, scope id).
+- **No component renders a `required` message.** Put `required` on the element and add your own message:
+  ```html
+  <duplo-connection-field category="other" [typeDefinition]="slackType" name="slackScopeId"
+    [(ngModel)]="slackScopeId" #slack="ngModel" required />
+  @if (f.submitted && slack.errors?.['required']) { <div class="invalid-feedback d-block">Connect a Slack workspace.</div> }
+  ```
+- **Error keys** the form sees:
+
+  | Key | Control | When |
+  |---|---|---|
+  | `connectionNotFound` | `<duplo-connection-field>` | The loaded list lacks the value (e.g. the scope was deleted). |
+  | `providerPending` / `providerNotFound` | `<duplo-provider-picker>` | "+ New provider" is open and not added yet / the list lacks the value. |
+  | `credentialPending` / `credentialNotFound` | `<duplo-credential-form>` | "+ New credential" is open and not added yet / the list lacks the value. |
+  | `scopePending` / `scopeNotFound` | `<duplo-scope-picker>` | "+ New scope" is open and not added yet / the list lacks the value. |
+
+- A not-found value shows as a disabled "… not found" option. While the list loads, or after it fails, the value
+  is kept and counts as valid — so a saved value moves between levels unchanged.
+- `f.invalid` is true for every key above, so `[disabled]="f.invalid"` blocks Save on a pending "+ New" and on a
+  not-found value; the admin must pick one that exists. The template's setup page does this.
+- To block only on a pending "+ New" (level 2), test the `*Pending` keys instead of `f.invalid`, in both
+  `[disabled]` and `(ngSubmit)`. Level 1 has no pending key: its "+ New" runs in a modal.
+  ```html
+  <button type="submit" [disabled]="prov.errors?.['providerPending'] || cred.errors?.['credentialPending'] || scope.errors?.['scopePending']">Save</button>
+  ```
 
 ## Multi-step wizards — there is NO library stepper
 

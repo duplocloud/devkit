@@ -66,16 +66,24 @@ The host serves its own SDK as a NuGet feed:
 2. `GET …/extensions/sdk-bundle` → zip of `.nupkg`s; unzip into `backend/sdk-packages/`.
 3. `backend/nuget.config` points at `./sdk-packages`; the `.csproj` references
    `Duplocloud.AiHelpdesk.Sdk` `Version="[$(DuploSdkVersion)]" ExcludeAssets="runtime"` (compile-only).
-4. `dotnet publish backend -p:DuploSdkVersion=<version>` → ships only your DLL (SDK assemblies are NOT
-   bundled; the host's Default ALC provides them at load → shared type identity).
+4. `dotnet restore backend -p:TargetFramework=<tfm> -p:DuploSdkVersion=<version>`, then
+   `dotnet publish backend --no-restore -p:TargetFramework=<tfm> -p:DuploSdkVersion=<version>` → ships only your
+   DLL (SDK assemblies are NOT bundled; the host's Default ALC provides them at load → shared type identity).
+   `<tfm>` follows the SDK version: `net10.0` from 1.2.0, `net8.0` below it. A `net10.0` build does not load on a
+   .NET 8 host. Restore runs on its own because publish's implicit restore does not see the property.
 
 ## SDK version pinning — why exactness matters
 
-`ExtensionStudioLoader` **rejects** a bundle whose `manifest.sdkVersion` ≠ the host's running SDK version. The host
-version is read from the running `Duplo.Ai.Model` assembly, and the SDK feed is packed at that same version, so
-host runtime == feed == your extension's pin. A skew surfaces as `Could not load file or assembly
-'Duplo.Ai.DataManagement, Version=…'`. Always set `manifest.sdkVersion` from `sdk-version`, and build against
-the matching `sdk-bundle`.
+What the loader accepts depends on the host's SDK line. A host on SDK 1.0.x or 1.1.x **rejects** a bundle whose
+`manifest.sdkVersion` ≠ its running SDK version; a skew surfaces as `Could not load file or assembly
+'Duplo.Ai.DataManagement, Version=…'`. A host on SDK 1.2.0 or later loads a bundle built against an older SDK of
+the same major version, from its oldest compatible version (1.0.3 today) up to its own, and then reads the
+bundle's compiled metadata for SDK types or members the host no longer has, refusing it if any are missing. A
+bundle built against a newer SDK than the host's, or a different major version, is refused on either line. So a
+`net8.0` bundle built against 1.0.x keeps loading on a 1.2.0 host, while a `net10.0` bundle never loads on a
+.NET 8 host. For a new build, always set `manifest.sdkVersion` from `sdk-version` and compile against the
+matching `sdk-bundle`: the installer hands a host only a bundle whose SDK version matches, whatever the loader
+would accept.
 
 ## Reloading changed code — bump `manifest.version`
 
@@ -88,7 +96,8 @@ studio.
 
 ## What a local run needs (checklist)
 - Base URL + an Administrator bearer token.
-- .NET 8 SDK + Node 22 (Angular 22 requires `^22.22.3 || ^24.15.0 || >=26.0.0`) + npm `>= 10.9.0` locally
+- .NET 10 SDK (it builds the `net8.0` an older host needs as well) + Node 22 (Angular 22 requires
+  `^22.22.3 || ^24.15.0 || >=26.0.0`) + npm `>= 10.9.0` locally
   (or use the in-platform agent image, which has all of them).
 - This skill dir (with `templates/helloworld/` + `reference/`).
 - Network access to the platform for `sdk-version`/`sdk-bundle` and `load-bundle`.

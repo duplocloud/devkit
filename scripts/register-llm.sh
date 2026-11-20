@@ -7,16 +7,16 @@
 #
 # Provider-agnostic: the ids come from .env, which run.sh sets per provider — CLAUDE_MODEL is what the
 # agent runs on by default (the mapping default), CLAUDE_EXTRA_MODELS is a comma-separated list of extra
-# ids to offer alongside it (e.g. Opus next to Sonnet). Bare ids (claude-sonnet-5) for direct Anthropic,
-# inference-profile ids (us.anthropic.claude-sonnet-5) for either Bedrock mode, and whatever the gateway
-# calls the model (e.g. anthropic/claude-sonnet-5 on OpenRouter) for the gateway provider. These are not
+# ids to offer alongside it (e.g. Opus next to Sonnet). Bare ids (claude-sonnet-5-5) for direct Anthropic,
+# inference-profile ids (us.anthropic.claude-sonnet-5-5) for either Bedrock mode, and whatever the gateway
+# calls the model (e.g. anthropic/claude-sonnet-5-5 on OpenRouter) for the gateway provider. These are not
 # interchangeable: the direct Anthropic API rejects the us.* prefix and Bedrock requires it, so
 # registering the wrong variant yields a picker entry that fails on use.
 #
 # Usage: ./scripts/register-llm.sh [default-model-id [extra-model-id...]]
 #   With no args, reads CLAUDE_MODEL + CLAUDE_EXTRA_MODELS from .env (what the agent container uses).
 #   LLM_PROVIDER_LABEL (env, optional) suffixes the display names, e.g. "AWS Bedrock" →
-#   "us.anthropic.claude-sonnet-5 (AWS Bedrock)". Defaults to a label inferred from the default id.
+#   "us.anthropic.claude-sonnet-5-5 (AWS Bedrock)". Defaults to a label inferred from the default id.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

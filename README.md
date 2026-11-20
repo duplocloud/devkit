@@ -1,11 +1,9 @@
-# DuploCloud Extension Developer Kit
+# DuploCloud Agent Developer Kit
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/duplocloud/devkit?label=release)](https://github.com/duplocloud/devkit/releases)
 
-Run the DuploCloud AI HelpDesk platform on your laptop in containers — then build your own
-**Agent** against it. Each Agent you write ships a backend, a UI, and its own provisioning, and
-hot-loads into the running platform with no restart.
+Run the DuploCloud Agentic Platform on your laptop in containers, then build your own Agent against it. Each Agent you write ships a backend, a UI, and its own provisioning, and hot-loads into the running platform with no restart.
 
 ![The DuploCloud platform running locally, with the New Extension form filled in](docs/images/devkit-new-extension.png)
 
@@ -85,10 +83,9 @@ The installer reinstalls a same-version rebuild only over a build it installed i
 such as `deploy-extension.sh` with the installer stopped or Extension Studio's in-platform flow, bump the version or
 run `./scripts/remove-extension.sh [id]` before relying on the installer for a rebuild.
 
-**From the catalog.** The Available tab lists the extensions your license entitles you to. Install there hands
-the click to this installer only once the UI tag and the studio tag in `.env.example` are images that do that.
-Those two tags predate that handoff. The installer reads that catalog only when `.env` sets these keys, so by
-default it runs on your own builds alone:
+**From the catalog.** The Available tab lists the extensions your license entitles you to, a trial included, and
+Install there hands the click to this installer. The installer reads that catalog only when `.env` sets these keys,
+so by default it runs on your own builds alone:
 
 ```bash
 LICENSE_SERVER_URL=https://console.duplocloud.com
@@ -111,7 +108,8 @@ back out a build that hangs the studio when it starts. Stop the studio, disable 
 
 ```bash
 docker compose stop duplo-ai-studio
-docker compose exec mongo mongosh -u authuser -p authpass --authenticationDatabase admin duplo-ai-helpdesk \
+docker compose exec mongo mongosh -u authuser -p "$(grep '^MONGO_ROOT_PASSWORD=' .env | cut -d= -f2-)" \
+  --authenticationDatabase admin duplo-ai-helpdesk \
   --eval 'db.loaded_extensions.updateOne({ExtensionId: "[id]", IsCurrent: true}, {$set: {Status: NumberInt(1)}})'
 docker compose start duplo-ai-studio
 ```
@@ -129,6 +127,7 @@ for each `docker compose` above.
 | [Architecture](docs/architecture.md) | How the services fit together and how hot-loading works |
 | [Configuration](docs/configuration.md) | Every `.env` variable, its default, and its effect |
 | [CLI reference](docs/cli-reference.md) | `run.sh`, `stop.sh`, `logs.sh`, and every script — flags and behavior |
+| [Releasing extensions](docs/releasing-extensions.md) | What a push to `main` releases, signs and registers through the release-extension action, who publishes, and how to release to your own portal |
 | [Upgrading](docs/upgrading.md) | Taking framework updates without losing your work |
 | [Troubleshooting](docs/troubleshooting.md) | Symptoms, causes, and fixes |
 | [FAQ](docs/faq.md) | Licensing, data, and platform support |

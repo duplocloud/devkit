@@ -178,15 +178,15 @@ fi
 
 # Same model ids and defaults run.sh's own arms use, so a model already registered under one provider
 # is recognized (or replaced) the same way a fresh ./run.sh setup would.
-BEDROCK_MODEL="us.anthropic.claude-sonnet-5"
-BEDROCK_EXTRA_MODELS="us.anthropic.claude-opus-5"
+BEDROCK_MODEL="us.anthropic.claude-sonnet-5-5"
+BEDROCK_EXTRA_MODELS="us.anthropic.claude-opus-5-5"
 
 case "$TARGET" in
   anthropic)
     KEY="$(resolve "$F_ANTHROPIC" ANTHROPIC_API_KEY 'Anthropic API key' secret)"
     setenv ANTHROPIC_API_KEY "$KEY"
-    setenv CLAUDE_MODEL "claude-sonnet-5"
-    setenv CLAUDE_EXTRA_MODELS "claude-opus-5"
+    setenv CLAUDE_MODEL "claude-sonnet-5-5"
+    setenv CLAUDE_EXTRA_MODELS "claude-opus-5-5"
     [ -z "$(getenv ANTHROPIC_BASE_URL)" ] || echo "    note: ANTHROPIC_BASE_URL is still set in .env — the agent will send your Anthropic key THERE, not to api.anthropic.com. Clear it (./scripts/switch-llm.sh gateway then back, or edit .env) unless that's intended."
     LLM_DESC="direct Anthropic"
     ;;

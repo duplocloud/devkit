@@ -131,7 +131,7 @@ already set, so a second run is silent.
 
 | Prompt | What to enter |
 | --- | --- |
-| `Admin password:` | Your portal password. Not echoed. Remember it — the database keeps it, and a later `.env` edit cannot change it. |
+| `Admin password:` → `Confirm Admin password:` | Your portal password, entered twice (it asks again until both match). Not echoed. Remember it — the database keeps it, and a later `.env` edit cannot change it. |
 | `Select LLM provider:` → `Enter 1 or 2:` | `1` for `anthropic (API key)`, `2` for `bedrock (AWS keys)`. On an EC2 instance with a working Bedrock role, option `3` uses that role with no keys. |
 | `Anthropic API key:` *(provider 1)* | Your `sk-ant-…` key. Not echoed. |
 | `AWS access key id:` / `AWS secret access key:` *(provider 2)* | Your Bedrock credentials. |
@@ -165,7 +165,7 @@ You are done when you see:
   API       http://localhost:60031
   Workspace extension-dev  (68d1f0c2a4b95e0c3d7e1a42)  ·  agent registered + attached
   Token     DUPLO_ADMIN_TOKEN set in .env (permanent)
-  LLM       System default → claude-sonnet-5 (direct Anthropic); also available: claude-opus-5
+  LLM       System default → claude-sonnet-5-5 (direct Anthropic); also available: claude-opus-5-5
 
 Build & deploy your extension (scripts read the target from .env — no DUPLO_BASE= prefix needed):
   ./scripts/build-extension.sh  extensions/<name>               # your extensions live in extensions/<name>/
@@ -176,7 +176,15 @@ Build & deploy your extension (scripts read the target from .env — no DUPLO_BA
   #   then load it, since the installer reads only extensions/:
   #   ./scripts/deploy-extension.sh samples/helloworld/dist/extension.zip
   # re-attach the agent to another workspace: ./scripts/register-agent.sh <workspace-id>
+
+==> Open the portal in your browser:  http://localhost:4210
+    Sign in as <you@yourcompany.com> with the admin password you set.
 ```
+
+The last line is the URL to open. It is `http://localhost:$UI_PORT`, following `UI_PORT` if you move it,
+unless you have set `Authentication__FrontendBaseUrl` to another host, which is then shown as-is. If the portal is still starting, a `⚠ The portal isn't answering yet` line
+follows it; give it a minute. Running over SSH, the run also prints the `ssh -L` command that forwards the
+port to your own machine.
 
 Re-running `./run.sh` from here is safe and idempotent: every step above is skipped when it is already
 satisfied. What the values in that banner mean is in
@@ -184,7 +192,8 @@ satisfied. What the values in that banner mean is in
 
 ## 1.7 Sign in
 
-1. Open <http://localhost:4210>.
+1. Open the URL from the run's last line, `==> Open the portal in your browser:` (by default
+   <http://localhost:4210>).
 
 2. Sign in with the credentials you just gave `./run.sh`:
 

@@ -12,7 +12,12 @@
 # real Anthropic API" — a different code path that would send the gateway's token nowhere useful — so
 # blanking ANTHROPIC_API_KEY here is load-bearing, exactly like bedrock-instance-role blanks AWS keys.
 
-GATEWAY_DEFAULT_MODEL="claude-sonnet-5"
+GATEWAY_DEFAULT_MODEL="claude-sonnet-5-5"
+# Earlier values of GATEWAY_DEFAULT_MODEL (space-separated). The gateway arm keeps the .env model across
+# runs, so a .env still holding one of these exactly (almost always the prompt's default, accepted) is
+# upgraded to the current default; see provider_gateway_configure. Only these bare ids — a gateway's own
+# names (e.g. OpenRouter's anthropic/claude-sonnet-5) are never touched.
+GATEWAY_PREVIOUS_DEFAULTS="claude-sonnet-5"
 # Context-window defaults, set on the gateway path ONLY. A gateway usually serves model ids the Claude
 # CLI does not recognise, and an unrecognised id has no known context window: long sessions then hard-400
 # instead of compacting. Declaring both up front makes that work without the user having to know the
@@ -64,8 +69,8 @@ provider_gateway_configure() {
     2. an access token         — the API key or bearer token the gateway gave you. Just press Enter
                                  if your gateway doesn't require one (a local Bifrost, for instance).
     3. a model name            — exactly as your gateway lists it. OpenRouter uses names like
-                                 anthropic/claude-sonnet-5; a pass-through gateway usually takes
-                                 the plain Anthropic id, e.g. claude-sonnet-5.
+                                 anthropic/claude-sonnet-5-5; a pass-through gateway usually takes
+                                 the plain Anthropic id, e.g. claude-sonnet-5-5.
 
 TXT
   fi
@@ -88,7 +93,17 @@ TXT
   token="$(gateway_resolve_optional "$F_GATEWAY_TOKEN" ANTHROPIC_AUTH_TOKEN \
              'Gateway access token / API key (press Enter if your gateway needs none)')"
 
-  model="$F_GATEWAY_MODEL"; [ -z "$model" ] && model="$(getenv CLAUDE_MODEL)"
+  model="$F_GATEWAY_MODEL"
+  if [ -z "$model" ]; then
+    model="$(getenv CLAUDE_MODEL)"
+    # Plain string equality per entry, as in _provider_subscription.sh — no glob matching on .env input.
+    for prev in $GATEWAY_PREVIOUS_DEFAULTS; do
+      if [ "$model" = "$prev" ]; then
+        echo "    note: CLAUDE_MODEL was the previous default '$model' — moving to $GATEWAY_DEFAULT_MODEL (pass --gateway-model to keep another)." >&2
+        model="$GATEWAY_DEFAULT_MODEL"; break
+      fi
+    done
+  fi
   if [ -z "$model" ] && [ "$NONINTERACTIVE" != 1 ]; then
     read -r -p "Model name as your gateway lists it [$GATEWAY_DEFAULT_MODEL]: " model
   fi

@@ -16,7 +16,6 @@
       "restSegment": "extensions/hello-parents",
       "subType": "hello-parent",
       "archetype": "typed",
-      "registrar": "DevOpsResource",
       "entityType": "Duplo.Extension.ParentChild.HelloParent",
       "specType": "Duplo.Extension.ParentChild.HelloParentSpec",
       "resultType": "Duplo.Extension.ParentChild.HelloParentResult",
@@ -28,7 +27,6 @@
       "restSegment": "hello-children",
       "subType": "hello-child",
       "archetype": "typed",
-      "registrar": "DevOpsResource",
       "parent": {
         "ticketOriginType": "HelloParent",
         "routeSegment": "extensions/hello-parents",
