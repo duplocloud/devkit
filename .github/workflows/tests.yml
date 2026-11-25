@@ -1,0 +1,44 @@
+# Runs the dev-kit's own test scripts (tests/test-*.sh) and shellcheck on every PR and push to main.
+#
+# The tests are plain bash and stub out docker, dotnet and the platform, so they need no credentials,
+# no running stack and no org secrets. That means they run the same on a fork PR as they do here.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: shellcheck (warnings and errors)
+        run: shellcheck -S warning run.sh stop.sh logs.sh scripts/*.sh
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install the Python packages the signing tests use
+        # A venv, because the runner's system Python refuses pip installs (PEP 668).
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --require-hashes -r scripts/extension-sign.requirements.txt
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+      - name: Run every tests/test-*.sh
+        run: |
+          failed=()
+          for t in tests/test-*.sh; do
+            echo "::group::$t"
+            if bash "$t"; then echo "::endgroup::"; else echo "::endgroup::"; echo "::error file=$t::$t failed"; failed+=("$t"); fi
+          done
+          if [ ${#failed[@]} -gt 0 ]; then
+            printf 'Failed:\n'; printf '  %s\n' "${failed[@]}"; exit 1
+          fi
+          echo "All test scripts passed."
