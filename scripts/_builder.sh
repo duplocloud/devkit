@@ -250,7 +250,7 @@ builder_keep_local_copy() { # builder_keep_local_copy <pull-error-text>
 # which would let two builds of one version differ. The digest is the multi-arch index, so it resolves on amd64
 # and arm64 alike. .github/workflows/builder-image.yml prints the new digest after each publish. Moving this pin
 # (and docker-compose.yml's matching default) is a reviewed change, since it changes what every extension builds with.
-_BUILDER_PINNED_IMAGE="quay.io/duplocloud/duplo-extension-builder@sha256:8185e6a74379ae99e145f55608b3bc17e3037e95e64a612a226fe0eb15c0dbcd"
+_BUILDER_PINNED_IMAGE="quay.io/duplocloud/duplo-extension-builder@sha256:c53105d199f6f9c1106a48becc8fb031124b34cc74069eee4ed8ff06d28b5dc0"
 
 builder_resolve_image() {
   # The raw value is kept for the error message: BUILDER_PULL may have come from .env rather than the
@@ -389,8 +389,54 @@ builder_studio_url() {
 #
 # EVERY FLAG BELOW MIRRORS THE `builder` SERVICE IN docker-compose.yml. That duplication is the price of
 # this path — change the service and change this with it.
+# builder_resolve_license: make ARMDOT_LICENSE_FILE_PATH absolute and refuse anything but a non-empty regular file.
+# Exported back, so every later consumer sees the same absolute path. Called before any `cd` by the build script,
+# so a relative path means relative to where the user ran it, and before any runtime is chosen by builder_dispatch,
+# so compose and the direct launch both refuse a bad path on the host with one clear message. Both container paths
+# need an absolute source: `-v` and compose's short volume syntax read a relative one as a named volume, and docker
+# creates a directory at a missing bind source, which `-s` alone would then accept. Empty is left alone, since the
+# compose service passes an empty value into the container when the host set none, and empty means a plain build.
+builder_resolve_license() {
+  [ -n "${ARMDOT_LICENSE_FILE_PATH:-}" ] || return 0
+  local p="$ARMDOT_LICENSE_FILE_PATH"
+  case "$p" in /*) ;; *) p="$PWD/$p" ;; esac
+  if [ ! -f "$p" ] || [ ! -s "$p" ]; then
+    echo "ERROR: ARMDOT_LICENSE_FILE_PATH names a missing or empty file: $ARMDOT_LICENSE_FILE_PATH" >&2
+    return 1
+  fi
+  export ARMDOT_LICENSE_FILE_PATH="$p"
+}
+
+# builder_resolve_armdot_dir: with a license set, make DUPLO_ARMDOT_DIR absolute and refuse anything but a directory
+# holding the four ArmDot build files, which live under armdot/ in duplocloud-internal/.github rather than here.
+# Exported back for the same reason as the license path. Without a license the variable is left alone and unused.
+builder_resolve_armdot_dir() {
+  [ -n "${ARMDOT_LICENSE_FILE_PATH:-}" ] || return 0
+  local d="${DUPLO_ARMDOT_DIR:-}" f
+  if [ -z "$d" ]; then
+    echo "ERROR: ARMDOT_LICENSE_FILE_PATH is set, so DUPLO_ARMDOT_DIR must name a directory holding the ArmDot build files" >&2
+    echo "       (a checkout of armdot/ from duplocloud-internal/.github). DuploCloud's release action sets it." >&2
+    return 1
+  fi
+  case "$d" in /*) ;; *) d="$PWD/$d" ;; esac
+  for f in ArmDot.Obfuscation.props ArmDot.Obfuscation.targets ArmDotObfuscationAssemblyInfo.cs Directory.Build.targets.template; do
+    [ -f "$d/$f" ] || { echo "ERROR: DUPLO_ARMDOT_DIR is missing $f: $DUPLO_ARMDOT_DIR" >&2; return 1; }
+  done
+  export DUPLO_ARMDOT_DIR="$d"
+}
+
 builder_run_direct() {
   local script="$1"; shift
+
+  # The ArmDot license file, already absolute and checked by builder_resolve_license, and the directory of ArmDot
+  # build files that goes with it. Checked again here because tests and other callers may enter this function directly.
+  local armdot_license="" armdot_dir=""
+  if [ -n "${ARMDOT_LICENSE_FILE_PATH:-}" ]; then
+    builder_resolve_license || return 1
+    builder_resolve_armdot_dir || return 1
+    armdot_license="$ARMDOT_LICENSE_FILE_PATH"
+    armdot_dir="$DUPLO_ARMDOT_DIR"
+  fi
 
   # Seeded non-empty on purpose: macOS ships bash 3.2, where expanding an EMPTY array under `set -u`
   # ("${args[@]}") is an unbound-variable error.
@@ -401,6 +447,13 @@ builder_run_direct() {
   # and the compose path warm the SAME caches rather than each paying for a cold build.
   args+=(-v "duplo_devkit_nuget_$DUPLO_UID:/cache/nuget")
   args+=(-v "duplo_devkit_npm_$DUPLO_UID:/cache/npm")
+
+  # The license and the ArmDot build files mount read-only at fixed in-container paths, mirroring the compose volume
+  # entries.
+  if [ -n "$armdot_license" ]; then
+    args+=(-v "$armdot_license:/run/armdot/license.key:ro")
+    args+=(-v "$armdot_dir:/run/armdot/config:ro")
+  fi
 
   # extra_hosts: the route to a studio that is not on this compose network.
   args+=(--add-host "host.docker.internal:host-gateway")
@@ -427,6 +480,11 @@ builder_run_direct() {
   args+=(-e "DUPLO_HOST=${DUPLO_HOST:-}")
   args+=(-e "DUPLO_TOKEN=${DUPLO_TOKEN:-}")
   args+=(-e "DUPLO_ADMIN_TOKEN=${DUPLO_ADMIN_TOKEN:-}")
+  if [ -n "$armdot_license" ]; then
+    args+=(-e "ARMDOT_LICENSE_FILE_PATH=/run/armdot/license.key")
+    args+=(-e "DUPLO_ARMDOT_DIR=/run/armdot/config")
+  fi
+  args+=(-e "DUPLO_SDK_VERSIONS=${DUPLO_SDK_VERSIONS:-}")
 
   exec "$RUNTIME" "${args[@]}" "$BUILDER_IMAGE" "$script" "$@"
 }
@@ -442,6 +500,17 @@ builder_run_direct() {
 # script, above their traps and mktemps; that is a requirement, not a coincidence to preserve by luck.
 builder_dispatch() {
   local script="$1"; shift
+
+  # The license path is checked on the host before any runtime is chosen, so a bad value fails here with one
+  # message whichever way the build runs. .env is consulted like the other builder knobs, since compose reads it.
+  if [ -z "${ARMDOT_LICENSE_FILE_PATH:-}" ]; then
+    ARMDOT_LICENSE_FILE_PATH="$(builder_clean_value "$(_envv ARMDOT_LICENSE_FILE_PATH)")"
+  fi
+  builder_resolve_license || exit 1
+  if [ -z "${DUPLO_ARMDOT_DIR:-}" ]; then
+    DUPLO_ARMDOT_DIR="$(builder_clean_value "$(_envv DUPLO_ARMDOT_DIR)")"
+  fi
+  builder_resolve_armdot_dir || exit 1
 
   # Precedence: --native (which sets the variable) → the environment → .env → default containerized.
   # Reading .env matters because that is the only per-repo, per-user place to say "this laptop has the
@@ -473,7 +542,7 @@ builder_dispatch() {
     error:toolchain)
       echo "ERROR: missing build tool(s): $(builder_missing_tools)" >&2
       echo "       This is running inside a container with no reachable runtime, so the build cannot be" >&2
-      echo "       delegated. Use an image that ships the toolchain (.NET SDK 8 + Node 22), e.g." >&2
+      echo "       delegated. Use an image that ships the toolchain (.NET SDK 10 + Node 22), e.g." >&2
       echo "       build/Dockerfile.builder in this repo." >&2
       exit 1 ;;
     error:runtime)

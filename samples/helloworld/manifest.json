@@ -3,6 +3,7 @@
   "id": "com.duplocloud.helloworld",
   "name": "Hello World",
   "version": "0.1.0",
+  "agent": "Infrastructure",
 
   "sdkVersion": "REPLACED_BY_SKILL_FROM_sdk-version_ENDPOINT",
   "backend": {
@@ -16,7 +17,6 @@
       "restSegment": "extensions/helloworlds",
       "subType": "hello-world",
       "archetype": "typed",
-      "registrar": "DevOpsResource",
       "entityType": "Duplo.Extension.HelloWorld.HelloWorld",
       "specType": "Duplo.Extension.HelloWorld.HelloWorldSpec",
       "resultType": "Duplo.Extension.HelloWorld.HelloWorldResult",
@@ -41,19 +41,12 @@
     },
     "menus": [
       {
-        "id": "com.duplocloud.helloworld-devops",
-        "title": "DevOps",
-        "type": "collapsible-section",
-        "children": [
-          {
-            "id": "com.duplocloud.helloworld-hello-world",
-            "title": "Hello World",
-            "type": "item",
-            "matIcon": "waving_hand",
-            "relativeUrl": "extensions/helloworlds",
-            "order": 40
-          }
-        ]
+        "id": "com.duplocloud.helloworld-hello-world",
+        "title": "Hello World",
+        "type": "item",
+        "matIcon": "waving_hand",
+        "relativeUrl": "extensions/helloworlds",
+        "order": 40
       }
     ],
     "routes": [

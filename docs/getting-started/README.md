@@ -3,7 +3,7 @@
 Everything you need to go from an empty directory to a working DuploCloud extension. No prior
 DuploCloud knowledge assumed, and nothing to read outside this repo.
 
-**What you'll have at the end:** the DuploCloud AI Helpdesk platform running locally, connected to
+**What you'll have at the end:** the DuploCloud AI platform running locally, connected to
 your AWS account and to an EKS cluster, with your own extension loaded into it as a first-class
 resource type — its own backend, its own UI, and its own provisioning.
 

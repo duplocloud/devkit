@@ -1,0 +1,6 @@
+<Project>
+  <!-- Test stand-in for the ArmDot props kept in duplocloud-internal/.github. Only the pin the build reads. -->
+  <PropertyGroup>
+    <ArmDotEngineVersion>0.0.0-test</ArmDotEngineVersion>
+  </PropertyGroup>
+</Project>

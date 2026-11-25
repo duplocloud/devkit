@@ -72,15 +72,15 @@ The full index is [docs/README.md](../README.md). The pages you are most likely 
 
 ## 6.4 Going to production, and contributing back
 
-**This kit is licensed for local development only.** That is not a soft recommendation:
+**The Starter Tier can run in production**, within the limits your license sets (for example, the number of
+users and Agents):
 
-- [TERMS.md](../../TERMS.md) — the terms covering the proprietary `quay.io/duplocloud/*` container
-  images and the vendored UI library. Local development only.
+- [TERMS.md](../../TERMS.md) — links the DuploCloud Terms of Service, which cover the proprietary
+  `quay.io/duplocloud/*` container images and the vendored UI library.
 - [NOTICE](../../NOTICE) — the boundary drawn plainly: what the Apache-2.0
   [LICENSE](../../LICENSE) covers (the dev-kit source you have been editing) and what it does not
   (the images and the vendored library).
-- **Running any of this in production is a licensing conversation, not a configuration change.**
-  Email **sales@duplocloud.net** for a production license.
+- **Need more than the Starter Tier allows?** Email **sales@duplocloud.net** about Pro or Enterprise licensing.
 
 Contributing:
 

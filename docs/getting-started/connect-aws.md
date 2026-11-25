@@ -10,7 +10,7 @@ signed in to the portal. You also need an AWS account you can create an IAM user
 
 ## Why an access key, and not a role
 
-The published DuploCloud material leads with an IAM role. That works when a *hosted* HelpDesk
+The published DuploCloud material leads with an IAM role. That works when a *hosted* DuploCloud AI
 deployment is doing the connecting: the deployment runs inside AWS with an identity of its own, and it
 assumes your role from that identity.
 
@@ -121,7 +121,7 @@ this provider."* The provider says *which* account. The credential says *how to 
 
 The last step of the wizard is **Scope**.
 
-A **scope** is the boundary of what the agent may touch. Both HelpDesk tickets and extensions target a
+A **scope** is the boundary of what the agent may touch. Both tickets and extensions target a
 scope — a ticket runs against the scope you pick on it, and an extension's resource spec carries the
 scope IDs it was given.
 
@@ -177,7 +177,7 @@ Switch back to **AI DevOps** with the app switcher at the top left before you st
 
 3. Leave the model selector at the bottom right of that box alone. It is already set, and reads your
    model followed by `(Direct Anthropic)` with a sub-line of `SDK: local-agent` — for example
-   `claude-sonnet-5 (Direct Anthropic)` (with `claude-opus-5` also offered). There is no separate agent to choose.
+   `claude-sonnet-5-5 (Direct Anthropic)` (with `claude-opus-5-5` also offered). There is no separate agent to choose.
 
 4. Open **Select Scopes** and pick **`aws-readonly`**. Each entry shows the scope name with a small
    type badge beside it — `aws` for this one.

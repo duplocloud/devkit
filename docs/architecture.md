@@ -11,11 +11,11 @@ Nothing here builds from source. Every service pulls a published image pinned by
 | --- | --- | --- | --- |
 | `duplo-ai-studio` | `quay.io/duplocloud/backend` | 60031 | The platform API, serving `/v1/aiservicedesk`. Owns extensions, workspaces, resources, and tickets, and enforces the license in `Licensing__Token`. |
 | `duplo-ui` | `quay.io/duplocloud/duplo-ai-helpdesk-ui` | 4210 | The Angular portal. The image serves the SPA only; the mounted `nginx/default.conf` proxies API prefixes to the studio, so the browser sees one origin and there is no CORS. |
-| `claude-code-agent` | `quay.io/duplocloud/duplo-agent` | 8010 | The LLM agent that executes provisioning tickets. Calls back to the studio at `http://duplo-ai-studio:60021`. |
-| `dind` | `docker:27-dind` | — | Docker-in-Docker daemon for the agent, mirroring the helpdesk-helm chart's sidecar. Shares `claude-code-agent`'s network namespace and listens on its loopback only (`DOCKER_HOST=tcp://127.0.0.1:2375`), so the agent can run containers and nothing else can reach the daemon. Mounts the same `/data` so bind-mount paths match. Runs privileged. |
-| `mongo` | `mongo:7.0.14` | 27018 | All platform state, including the `loaded_extensions` records. Matches the version pinned in the helpdesk-helm chart. |
+| `claude-code-agent` | `quay.io/duplocloud/duplo-agent` | — | The LLM agent that executes provisioning tickets. Reachable only in-network at `http://claude-code-agent:8000`, and every API route requires the bearer token `run.sh` mints as `Agent__ApiAuthToken`, which the studio sends. Calls back to the studio at `http://duplo-ai-studio:60021`. |
+| `dind` | `docker:27-dind` | — | Docker-in-Docker daemon for the agent, mirroring the duplo-ai-helm chart's sidecar. Shares `claude-code-agent`'s network namespace and listens on its loopback only (`DOCKER_HOST=tcp://127.0.0.1:2375`), so the agent can run containers and nothing else can reach the daemon. Mounts the same `/data` so bind-mount paths match. Runs privileged. |
+| `mongo` | `mongo:7.0.14` | 27018 (loopback) | All platform state, including the `loaded_extensions` records. Matches the version pinned in the duplo-ai-helm chart. |
 | `qdrant` | `qdrant/qdrant:v1.18.2` | 6333 | The vector database behind the Knowledge Base. The studio reaches it in-network at `http://qdrant:6333`; the host port is published so its dashboard is available for debugging. Runs with RBAC on, so the studio can mint read-only per-collection tokens instead of sharing the master key. |
-| `xterm` | `quay.io/duplocloud/duplo-xterm` | 6061 | In-browser terminal. The browser reaches it on the published host port, so `AIStudio__XtermHost` must be host-reachable. |
+| `xterm` | `quay.io/duplocloud/duplo-xterm` | 6061 (loopback) | In-browser terminal. The browser reaches it on the published host port, so `AIStudio__XtermHost` must be host-reachable. Published on `127.0.0.1` only and limited to the portal's origins through `ALLOWED_ORIGINS`, since the container runs privileged and the terminal server has no authentication of its own. |
 | `installer` | `quay.io/duplocloud/helpdesk-installer` | none | Installs and upgrades extensions through the studio's API, from your builds in the read-only `extensions/` mount and, when configured, the license server's catalog. The studio calls it at `Extensions__InstallerUrl`, so it publishes no host port. See [Installing an extension](../README.md#installing-an-extension). |
 | `init-perms` | `busybox:1.36` | none | One-shot. Chowns the shared named volumes to uid 1001 so the non-root studio and agent can write them, and the installer's state volume to 65532, its distroless nonroot user. Named volumes are created root-owned, so this runs on every startup. |
 
@@ -109,3 +109,12 @@ The UI's accessible-workspace list is permission-set based, with no superuser by
 hit every API while the portal still shows no workspaces. `run.sh` therefore creates three things beyond
 the `extension-dev` workspace: a permission set granting it, a permission-set group assigning your user,
 and the workspace itself. Without them, login lands on `/app/auth/no-tenant-access`.
+
+`run.sh` also installs a default set of extensions from the extension registry, listed in its
+`DEVKIT_EXTENSIONS` array (today Cloud Setup, `com.duplocloud.cloud-setup`, the agent the ticket calls the Cloud Deployment Agent).
+Entries are manifest ids, the key the installer uses; an agent's UUID is not an install key.
+`scripts/install-extensions.sh` does the work: it refreshes the registry catalog, skips ids the catalog doesn't
+list or offers no version of (matched on the manifest id), leaves an extension that is already current, pinned or
+mid-install alone, and otherwise installs the build the installer offers with `pin: false`. The installer finishes
+in the background, so the script polls the catalog's `requests[]` until the request is done or failed. Run it by
+hand with any manifest id.

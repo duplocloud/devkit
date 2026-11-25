@@ -8,9 +8,9 @@ contact_links:
   - name: Security vulnerability — do not open an issue
     url: https://github.com/duplocloud/devkit/blob/main/SECURITY.md
     about: Email ai-reporting@duplocloud.net instead, so the fix can be worked privately and disclosed with you.
-  - name: Production licensing
+  - name: Pro or Enterprise licensing
     url: mailto:sales@duplocloud.net
-    about: The images this kit runs are licensed for local development only. Sales handles production licensing.
+    about: The Starter Tier runs in production within its license limits. Sales handles Pro and Enterprise licensing.
   - name: A problem in the DuploCloud platform itself
     url: https://duplocloud.com/contact/
     about: Bugs in the quay.io/duplocloud/* images come from the product, not this repo. Use your normal DuploCloud support channel.

@@ -3,6 +3,7 @@
   "id": "com.duplocloud.parentchild",
   "name": "Parent / Child",
   "version": "0.1.0",
+  "agent": "Infrastructure",
 
   "sdkVersion": "REPLACED_BY_SKILL_FROM_sdk-version_ENDPOINT",
   "backend": {
@@ -16,7 +17,6 @@
       "restSegment": "extensions/hello-parents",
       "subType": "hello-parent",
       "archetype": "typed",
-      "registrar": "DevOpsResource",
       "entityType": "Duplo.Extension.ParentChild.HelloParent",
       "specType": "Duplo.Extension.ParentChild.HelloParentSpec",
       "resultType": "Duplo.Extension.ParentChild.HelloParentResult",
@@ -28,7 +28,6 @@
       "restSegment": "hello-children",
       "subType": "hello-child",
       "archetype": "typed",
-      "registrar": "DevOpsResource",
       "parent": {
         "ticketOriginType": "HelloParent",
         "routeSegment": "extensions/hello-parents",
@@ -60,19 +59,12 @@
     },
     "menus": [
       {
-        "id": "com.duplocloud.parentchild-devops",
-        "title": "DevOps",
-        "type": "collapsible-section",
-        "children": [
-          {
-            "id": "com.duplocloud.parentchild-parent-child",
-            "title": "Parent / Child",
-            "type": "item",
-            "matIcon": "account-tree",
-            "relativeUrl": "extensions/hello-parents",
-            "order": 44
-          }
-        ]
+        "id": "com.duplocloud.parentchild-parent-child",
+        "title": "Parent / Child",
+        "type": "item",
+        "matIcon": "account-tree",
+        "relativeUrl": "extensions/hello-parents",
+        "order": 44
       }
     ],
     "routes": [

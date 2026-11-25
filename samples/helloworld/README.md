@@ -84,7 +84,7 @@ npx http-server frontend/dist -p 4401 --cors -c-1      # -c-1: no caching, so a 
 Then point the portal at it: in `duplo-ui/portal/src/app/services/extension-manifest.store.ts`, put this
 sample's `manifest.json` `frontend` blob into `mockLocalExt` with
 `remote.remoteEntry: 'http://localhost:4401/remoteEntry.json'` (absolute — a relative path would resolve
-against the API host). Run the portal (`npm run run:all`) and open **AI Suite → DevOps → Hello World**.
+against the API host). Run the portal (`npm run run:all`) and open **AI Suite → Infrastructure → Hello World**.
 
 ## Adapt for a new resource
 

@@ -1,6 +1,6 @@
 ---
 name: duplo-extension-dev
-description: Build and load a DuploCloud platform extension (a typed extension — C# ResourcesController + service + entity, plus an Angular remote and a provisioning skill) and hot-load it into the platform. Works both inside an Extension resource's provisioning ticket and locally (you supply the platform URL + an admin token). Scaffolds from the hello-world example, compiles the backend with dotnet against the host SDK feed, packages, and registers — no host restart.
+description: Build and load a DuploCloud platform extension (a typed extension — C# ResourcesController or AdminResourcesController + service + entity, plus an Angular remote and a provisioning skill) and hot-load it into the platform. Works both inside an Extension resource's provisioning ticket and locally (you supply the platform URL + an admin token). Scaffolds from the hello-world example, compiles the backend with dotnet against the host SDK feed, packages, and registers — no host restart.
 ---
 
 # duplo-extension-dev — write a DuploCloud platform extension
@@ -24,8 +24,9 @@ from a built-in resource (Network, Namespace, …).
 > [04-hooks](reference/04-hooks.md) — every hook/seam and when it fires ·
 > [05-custom-actions](reference/05-custom-actions.md) — endpoints beyond CRUD and how the remote consumes them ·
 > [06-registration](reference/06-registration.md) — in-platform vs local load, SDK pinning, reloading changed code ·
-> [07-scope-credentials](reference/07-scope-credentials.md) — reading the selected scopes' credentials in a skill ·
+> [07-scope-credentials](reference/07-scope-credentials.md) — reading the selected scopes' credentials in a skill, and the shared provider types the setup page connects ·
 > [08-parent-child-and-menus](reference/08-parent-child-and-menus.md) — multi-resource extensions and `frontend.menus[]` ·
+> Navbar buttons: `frontend.headerActions[]` — [02-authoring-guide](reference/02-authoring-guide.md#frontendheaderactions) ·
 > [09-result-templates](reference/09-result-templates.md) — the declarative renderer is not supported ·
 > [10-sdk-api](reference/10-sdk-api.md) — cloud access from C# (`IScopeCredentials`, `IScopeClientFactory`) ·
 > [11-deprovisioning](reference/11-deprovisioning.md) — delete/deprovision per mode ·
@@ -37,7 +38,10 @@ from a built-in resource (Network, Namespace, …).
 > [17-custom-result-views](reference/17-custom-result-views.md) — the hand-written Result content: Overview tiles, tabs, panels ·
 > [18-access-control](reference/18-access-control.md) — the `[AccessControl]` declaration and named actions ·
 > [19-detail-page](reference/19-detail-page.md) — the detail-page shell, the lifecycle rail, per-resource phases per mode ·
-> [20-ui-library](reference/20-ui-library.md) — every `ng-common-lib` export, a "need X → use Y" picker, verified recipes, and what works in a remote.
+> [20-ui-library](reference/20-ui-library.md) — every `ng-common-lib` export, a "need X → use Y" picker, verified recipes, the connections kit, and what works in a remote ·
+> [21-theming](reference/21-theming.md) — Light/Dark and brand themes: the `$g-*` colour names, rules, editors and charts.
+> [21-admin-resources](reference/21-admin-resources.md) — **admin-scoped** resources: `AdminResourcesController`, the admin route, the Admin Workspace, AI Admin menus/routes, and the skill write-back URL. ·
+> [23-secrets](reference/23-secrets.md) — a Spec/Result field that holds a password/token/key: `[SecretValue]`/`[AgentSecretValue]`, encryption-at-rest, the reveal endpoint, write-only forms.
 
 > **Every dev-kit extension is TYPED — there is no archetype choice.** A typed extension ships a compiled
 > .NET DLL (`manifest.archetype = "typed"`) with the resource's own controller/route/collection, an Angular
@@ -62,19 +66,20 @@ from a built-in resource (Network, Namespace, …).
 Everything between Phase 1 and Phase 5 is identical in both modes; only the load step (Phase 6) differs.
 Full mechanics: [06-registration](reference/06-registration.md).
 
-> **Getting the working copy.** The dev-kit repo is **PRIVATE**, so a **GitHub scope is required**; its token reaches
-> `gh` (`.config/gh/hosts.yml` + `GH_CONFIG_DIR`), so clone with **`gh repo clone …`** (never an unauthenticated
-> `git clone` of the dev-kit). 🔒 **Never read/print a credentials file** (`cat`/`echo`/`head`/`grep` of `hosts.yml`,
+> **Getting the working copy.** The dev-kit repo (`duplocloud/devkit`) is public: a plain `git clone` works. In-platform
+> the bootstrap has already cloned it (honouring the admin's `spec.devKitRepo`/`spec.devKitBranch`), so work in that
+> copy. The user's own repo (`spec.gitRepo`) needs the **GitHub scope**, whose token reaches `gh`
+> (`.config/gh/hosts.yml` + `GH_CONFIG_DIR`), so clone that one with **`gh repo clone …`**. 🔒 **Never read/print a credentials file** (`cat`/`echo`/`head`/`grep` of `hosts.yml`,
 > `.aws/credentials`, …) — to verify GitHub auth use **`gh auth status`**, never `cat hosts.yml`.
 > - **`spec.gitRepo` set (user's own repo):** `gh repo clone <orgName>/<name> repo` (with `-b <branch>`). If the repo
 >   is **EMPTY**, overlay the dev-kit's content EXCEPT `.git` so the user repo keeps its own `.git`/ownership:
->   `gh repo clone duplocloud/devkit /tmp/devkit && rsync -a --exclude=.git /tmp/devkit/ repo/`.
+>   `git clone https://github.com/duplocloud/devkit /tmp/devkit && rsync -a --exclude=.git /tmp/devkit/ repo/`.
 >   If it **already has** dev-kit content, just work in it — but **enumerate first**: `ls extensions/*/manifest.json`.
 >   Other developers' extensions may live beside yours; the requirement decides whether you MODIFY an existing
 >   `extensions/<name>/` or scaffold a NEW `extensions/<name2>/` (ask when ambiguous), and before scaffolding new,
 >   read a sibling to match its conventions. **Hot-load is on-demand**, **push is user-initiated only**
 >   (chat or the result-page badge); prompt to **commit**/**resync** and report `result.gitStatus` after each git op.
-> - **No `spec.gitRepo`:** `gh repo clone duplocloud/devkit` and work in it (throwaway, hot-load only).
+> - **No `spec.gitRepo`:** work in the dev-kit copy (throwaway, hot-load only).
 > - **Local (human-cloned):** you already cloned the dev-kit. First time, run `./scripts/change_git_owner.sh <your-repo>`
 >   to adopt it; if your repo already has dev-kit content, just work in it.
 >
@@ -97,9 +102,35 @@ Settle before building (derive, else ask — **after** listening):
   the **same** value. Never a bare or `clouds/…` segment — [00-naming](reference/00-naming.md) is canonical and the
   build gate enforces it. In a repo that already holds extensions, the name must collide with **no sibling** —
   including the frontend's federation remote `name` and the Mongo `extension_<entity>` collection name.
-- **Spec fields** — each with name, type, and required/optional. **Result fields** — same.
+- **Extension scope — workspace or admin** (per resource; not the same thing as the *Provider scopes* that carry
+  credentials). **Workspace** (the default) = a tenant's resource, used by workspace members, rendered in AI
+  DevOps. **Admin** = platform-wide configuration administrators manage (a VPN server, an SSO integration, a
+  notification setting): its controller derives from `AdminResourcesController` and carries the usual
+  `[AccessControl(Parent = typeof(Workspace), ParentIdProperty = "OwnerWorkspaceId")]`, its route is
+  `v1/aiservicedesk/admin/data/environment/extensions/<…>` (no `{workspaceId}`), every row belongs to the system
+  Admin Workspace, access is administrators plus anyone granted the Admin Workspace, and its menu renders in AI
+  Admin. Derive it from the requirement ("only admins", "platform-wide", "global setting" → admin); if unsure, ask;
+  never default to admin. For an admin resource also settle:
+  - **which Provider scopes provisioning needs.** The Admin Workspace starts with none: an administrator must
+    first attach them to it (PUT on the Admin Workspace's `scopeIds`), and `spec.scopeIds` must be a subset of
+    those — the platform skips any other id.
+  - **whether workspace resources consume it** (pick it, read its details). That is the common case — model it
+    the way `samples/admin-settings`' `AdminSettingConsumer` does.
+  - for **parent → child**, that the child controller applies the admin overrides itself (there is no admin child
+    controller in the SDK) and is then administrators-only — see reference/21.
+  Admin needs a host SDK that ships `AdminResourcesController`; the build probes for it. Full rules:
+  [21-admin-resources](reference/21-admin-resources.md).
+- **Spec fields** — each with name, type, and required/optional. **Result fields** — same. For every field,
+  ask: is this a password/API token/key, or anything else sensitive? Don't wait for the user to volunteer
+  it — a field named `apiKey`/`password`/`token`/`secret` (or described that way) always gets this question.
+  If yes, settle whether it's actually an external-system credential (→ a Scope/Credential,
+  [07-scope-credentials](reference/07-scope-credentials.md), not a raw field) or an inherent attribute of
+  the resource itself (→ [23-secrets](reference/23-secrets.md): `[SecretValue]`/`[AgentSecretValue]`,
+  encryption-at-rest, a reveal endpoint, a write-only edit form) — present the field table with a
+  **Sensitive?** column so the answer is visible when you ask for approval.
 - **Provisioning MODE** — decide HOW this resource is provisioned. **Do not default to an agent skill.** Pick by
-  what the work actually is (derive from the requirement; confirm if unsure):
+  what the work actually is (derive from the requirement; tell the user your pick by its plain name from
+  [Talking to the user](#talking-to-the-user)):
   | Mode | Choose when the requirement is… | Wiring | Sample |
   |---|---|---|---|
   | **Worker** | a **deterministic** job: pure compute, or **reconcile/apply multiple objects** with retry/drift; words like *"worker", "background", "compute", "reconcile", "keep in sync"*. **No LLM needed.** | service `NoSkillsFallbackMode => ProvisioningMode.Worker`; **no** skill / `skillMappings`; a `ResourceWorkerBase` whose `ApplyAsync` does the work + `SaveProgressAsync`; register `AddHostedService` in `IDuploExtension.Configure` | `samples/worker-compute` (compute) · `samples/worker-appstack` (k8s) |
@@ -115,6 +146,11 @@ Settle before building (derive, else ask — **after** listening):
   invent a name: anything absent from the portal's sprite (e.g. Material Symbols names like `waving_hand`) renders
   as an empty box. Use the domain → icon
   table in [08-parent-child-and-menus](reference/08-parent-child-and-menus.md#choosing-maticon--give-the-nav-entry-a-real-icon-not-the-templates-placeholder).
+- **Admin setup page (always — not a question)** — settle what it sets up: **one connection per external
+  provider** the agent uses (ClickUp, Slack, Jira, a custom API) and the agent's own admin-wide settings. Use
+  the shared provider type and field keys for a well-known system
+  ([07](reference/07-scope-credentials.md#shared-provider-types)). An agent with no
+  provider and no settings still ships the page. Built in Phase 2 → "The admin setup page".
 - **Ask AI sessions (OPT-IN — never by default)** — build them ONLY when the requirement explicitly asks ("ask AI",
   "AI chat sessions", "on-demand tickets"); never offer or scaffold them unprompted. When requested, settle the
   prefilled context block and implement from [16-ask-ai](reference/16-ask-ai.md).
@@ -135,6 +171,7 @@ Settle before building (derive, else ask — **after** listening):
   | **reconcile/apply multiple** objects with retry (Worker, real infra) | `samples/worker-appstack` | worker-compute (compute-only) |
   | pure **compute**, no cloud/scope (Worker) | `samples/worker-compute` | worker-appstack (real infra) |
   | **observe-only** (No-provision) | `IsProvisioningNeeded => false` ([04-hooks](reference/04-hooks.md)); on-demand actions: `samples/network-stack` | — |
+  | **admin-managed, platform-wide** configuration (AI Admin menu, `AdminResourcesController`), and workspace resources that consume it | `samples/admin-settings` | `samples/helloworld` (workspace-scoped) |
 
   **Forms tiebreaker:** linear steps, or lots of fields/toggles/repeatable rows → copy from **network-stack**'s wizard;
   a handful of flat fields → **helloworld**. The form axis and the mode axis are independent — pick one row from each.
@@ -148,34 +185,123 @@ Settle before building (derive, else ask — **after** listening):
   scaffold ships), under a parent entity (child resources), or grouped under the extension's own category node. Does
   any **custom endpoint** need an explicitly granted **named action** instead of plain CRUD (restart / console /
   credential-minting / apply-infrastructure)? — [18-access-control](reference/18-access-control.md).
-- **Menu placement** — ask where it appears in the AI Suite left-nav (by **title**, never silently default to
-  DevOps): a **new top-level group** (e.g. `Jenkins`, `GCP`), **nested under an existing section** (e.g. `DevOps`), or
-  **no menu**. The user gives titles; **you** generate ids, `relativeUrl`s and the matching `frontend.routes[]` —
+- **Menu placement** — the items it adds **inside** its left-nav section, or **no menu**. With an **Agent** (below),
+  the Agent decides the section, and every top-level `menus[]` node lands under it, so settle only the item titles
+  and their order within the section. Without
+  one, placement is by **title**: a **new top-level group** (e.g. `Jenkins`, `GCP`) or **nested under an existing
+  section** (e.g. `Infrastructure`). Default to its own group and state it in the summary; ask only when the
+  requirement points two ways. An **admin** resource's tree goes in the **AI Admin** nav: its top-level node carries
+  `"scope": "admin"`, and so does each `routes[]` entry it links to ([21](reference/21-admin-resources.md#frontend)). The user gives titles; **you** generate ids, `relativeUrl`s and the matching `frontend.routes[]` —
   [08-parent-child-and-menus](reference/08-parent-child-and-menus.md). Also settle **title** + **`matIcon`** per
   item — derive the icon from the extension's purpose, per the Left-nav icon bullet above.
+- **Agent** — the top-level left-nav section the extension sits in: an **existing** section (`Infrastructure`, or
+  any other built-in heading by its exact title) or a **new** one (`Compliance`, `Release Management`, or a typed
+  name). Ask it with the Agent row in the table below, which also offers the position.
+  Write it as the **manifest-root** `agent` field (sibling of `id` / `name` / `version`; never on a menu node; one
+  agent per extension):
+  - **Existing section** → the plain string, e.g. `"agent": "Infrastructure"`. A built-in section keeps its own
+    position, so never add an order. Never write `"DevOps"`: the built-in heading is now Infrastructure, and
+    `"DevOps"` creates a second, separate heading.
+  - **New section** → **always** the object form with an order, e.g.
+    `"agent": { "name": "Release Management", "order": 85 }`. Without an order a new section defaults to `0` and
+    sits at the very top of the nav, above HelpDesk. Use `85` (just above Settings) unless the author picks a
+    position; "after <section>" is that section's number + 5, "at the top" is `5`. Built-in numbers: HelpDesk 10,
+    Projects 20, Infrastructure 30, Scopes 40, KB 50, Resources 60, Agent Studio 70, Analytics 80, Settings 90.
+  Every extension's default section comes from its own manifest `agent` (DuploCloud's own extensions included); an
+  admin can override the section and position from the Marketplace, and that override wins and survives upgrades.
+  The name must be non-empty, at most 64
+  characters, with no control characters, and `order` an integer — an invalid value is rejected at upload (HTTP 400)
+  and fails the provisioning when deployed through a resource.
+  Every top-level `menus[]` node then renders as a child of the agent's heading, so don't wrap menus
+  in a node titled after the agent ([08 → Filing under an agent](reference/08-parent-child-and-menus.md#filing-under-an-agent--the-root-agent-field)).
+  If the author declines to pick one, delete the template's `agent` line - omit the field entirely, never write `agent: ""`.
 - **One or many resources?** — **flat** (independent — e.g. `GCP` → network/cluster/database) or **parent → child**
   (`samples/parent-child`); several top-level menu groups are fine — [08](reference/08-parent-child-and-menus.md).
 
-**Present the settled shape for approval** (local: the plan you `ExitPlanMode` with; in-platform: the `Processing`
-summary you post) **as a structured shape, not a prose blurb:** a **Spec** field table (name · type ·
-required/optional), a **Result** field table (name · type), the **provisioning mode** with a one-line reason, the
-**detail view's shape** — the **lifecycle phases** this resource goes through (label + the status/result field that
-drives each; [19-detail-page](reference/19-detail-page.md) → "Deriving phases") and the **Result tabs** (Overview at
-minimum; name each further tab; [17-custom-result-views](reference/17-custom-result-views.md)) — and a short
-**user-experience** walkthrough: left-nav placement, the add form (with the AI-use disclosure in Agent mode), the list, the detail page, and what provisioning
-does end-to-end. Do this per resource for multi-resource extensions.
+### Talking to the user
+
+The list above is your checklist; its words are yours. The user knows their problem: what people type in, what
+they want to see afterwards, who manages it, which outside system it talks to. Settle the checklist from that, and
+put questions to the user in their words, once, in one batch:
+
+- **Always ask:** the Name, Agent, Spec fields and Result fields rows, each as your guess for the user to confirm, and
+  the Sensitive fields row for any field that looks like a password, token or key. For the Agent row, put your guess
+  first ("I'd put it in a new **Release Management** section just above Settings") and keep the row's choices and the
+  position offer, so the user sees both what a section is and that they can move it.
+  In-platform, when these four are all the batch holds, they ride the pause below instead of a separate ask.
+- **Also ask:** any other row where the requirement points two ways and a wrong guess changes what gets built.
+- **Every other row:** state your choice as a default in the summary below. The user approves the summary before
+  you build, so a stated default is a decision.
+
+Never put a checklist term to the user (spec, result, resource, scope, provider, provisioning, mode, CRUD,
+endpoint, controller, section id), except under **Technical details** in the summary, which is for reviewers. Examples below use a Jenkins job; use the user's own system and words.
+
+| Decision | Ask the user | Default when the requirement is silent |
+|---|---|---|
+| Name | "I'll call it **Jenkins Jobs**. Keep that name?" (derive the ids yourself) | derived from the requirement |
+| Extension scope | "Who manages these: people in a workspace, or only platform admins?" | people in a workspace |
+| Provider scopes for testing | "To test this I need to reach Jenkins. Which saved connection should I use?" List them by name, plus "it doesn't need one". | none when the work touches no outside system. In-platform the create form's Scopes field answers this and the ticket cannot list connections: when the field is empty and the work needs one, state "No Jenkins connection was picked, so I'll build it without testing against Jenkins." |
+| Spec fields | "When someone adds one, what do they fill in? My guess: job name (required), branch (default main)." | the requirement's Inputs section |
+| Sensitive fields | Per field that looks like a password, token or key: "Should **API key** stay hidden once it's saved, like a password? Is it how this signs in to Jenkins, or does each job have its own?" | hidden; signing in to the outside system belongs to its connection |
+| Result fields | "When it's done, what should the page show? My guess: build number, status, duration, a link to the log." | the requirement's Result section |
+| Provisioning mode | Never asked. State it: "This is a fixed set of steps, so it runs as a **background job** with no AI. Tell me if it needs AI judgement." | derived (table below) |
+| Custom endpoints | "Besides add, edit and delete, does it need any buttons? For example **Run now** or **View logs**." | none |
+| Access control | Only when a button does something sensitive: "Can anyone in the workspace press **Restart**, or only people you allow?" | anyone in the workspace |
+| One or many resources | Only with more than one thing, and never when one only uses the other (an admin thing that workspaces pick): "Does one **Pipeline** hold many **Jobs**?" | flat; an admin thing plus a workspace thing that picks it follows `samples/admin-settings` |
+| Agent | Always asked: "Your agent gets a section in the left menu in the DuploCloud AI platform. Should it join an existing section, like **Infrastructure**, or start a new one: **Compliance**, **Release Management**, or a name of your own? A new section goes just above **Settings** unless you want it somewhere else, for example right after Infrastructure." | Infrastructure for infrastructure work; a new section at 85 (just above Settings) |
+| Menu placement | Only when the requirement points two ways: "Inside that section, should it be one **Jenkins Jobs** page, or separate **Jobs** and **Pipelines** pages?" | one page per resource |
+| Deprovision / teardown | "When someone deletes one here, should the Jenkins job be deleted too?" | delete what provisioning created |
+| Outside auth | "How does Jenkins sign in: username and API token, or a single token?" | from the chosen connection |
+| Admin setup page | Only when the requirement hints at admin-wide settings: "Is there anything an admin should set once for everyone, for example a default Jenkins folder?" | one connection per outside system the requirement names; no settings |
+
+The four provisioning modes, as the user hears them:
+
+| Mode | Plain name | What the agent says |
+|---|---|---|
+| Worker | **Background job** | Runs a fixed set of steps in the background and retries until done. No AI. |
+| Agent | **AI agent** | An AI works out the steps each time. For open-ended work. |
+| Passthrough | **Instant** | Creates one thing the moment you save. |
+| No-provision | **Read-only** | Shows information and creates nothing. |
+
+The form shape (simple form, step-by-step setup, repeatable rows, one-holds-many, tabbed results) is your pick from
+the sample index above. Describe it in plain words in the summary ("a three-step setup: Connection, Job,
+Schedule"); the user can ask for a different one.
+
+**The summary the user approves** (local: the plan you `ExitPlanMode` with; in-platform: the "Build this?" ask below),
+per resource for multi-resource extensions:
+
+1. **What you'll get**: five to eight plain lines. Its name, where it appears in the menu (AI DevOps or AI Admin, and for AI DevOps the left-menu section and its
+   position, e.g. "a new **Release Management** section just above Settings"), what someone
+   fills in, what happens after they save (name the pattern by its plain name; in Agent mode, that the add form
+   tells users AI does the work), what the page shows, which values stay hidden, what delete does, and what an admin sets up once.
+2. One line per default the user has not confirmed, so they can object.
+3. **Technical details**, as a structured shape: a **Spec** field table (name · type · required/optional · sensitive?), a
+   **Result** field table (name · type · sensitive?), the **extension scope** (workspace / admin) and the **provisioning mode**,
+   each with a one-line reason, and the **detail view's shape** — the **lifecycle phases** this resource goes through
+   (label + the status/result field that drives each; [19-detail-page](reference/19-detail-page.md) → "Deriving
+   phases") and the **Result tabs** (Overview at minimum; name each further tab;
+   [17-custom-result-views](reference/17-custom-result-views.md)) — and the **setup page's steps** (one connection per
+   provider, then the settings).
 
 **Where the answers come from / how to ask:**
-- **In-platform:** read `spec.description`/`spec.icon` from `shared/extension.json`. If anything required is missing
-  or ambiguous, POST status **`Blocked`** with a `blockedReason` that lists the specific questions (and post the
-  same as a ticket chat message), then **stop** — do not scaffold. On the next invocation re-read
-  `shared/extension.json` + the latest chat reply and proceed **only** once every required item is unambiguous.
-  Once clear, POST `Processing` and continue (Phase 6 shows the curl).
+- **In-platform:** read `spec.description`/`spec.icon`/`spec.scopeIds` from `shared/extension.json` (plus
+  `shared/uploads/*`). Ask through the bootstrap's protocol (`duplo-extension-ticket`, "Questions — ask in chat, never
+  park"): POST `Blocked` with `subStatus` `Needs more details` and a `blockedReason` of one plain line, then ONE
+  `ask_human` call holding the whole batch (skip it when it holds only the four always-ask guesses). When the answers
+  arrive, go straight to the pause.
+  Then pause before any code, whatever the batch held. POST `Blocked` with the `blockedReason` "Review what I'll build":
   ```bash
   curl -fsS -X POST "$RES/status" -H "Authorization: Bearer $DUPLO_TOKEN" -H "Content-Type: application/json" \
-    -d '{ "status": "Blocked", "blockedReason": "Need before I can build: (1) menu placement — section id / \"top-level\" / none? (2) spec fields + types. ..." }'
+    -d '{ "status": "Blocked", "subStatus": "Needs more details", "blockedReason": "Review what I'\''ll build" }'
   ```
-- **Local:** ask the developer conversationally and **wait** for answers. Do not scaffold until clear.
+  then ask ONE `ask_human` `yes_no` question: the summary, ending "Build this?". Add no options of your own: the
+  platform's "Chat about this" row is where the user says what to change.
+  - **Yes** → POST `Processing` / `Authoring code` and go to Phase 2.
+  - **No / anything else** → the reply is the change request. Revise the summary and repeat the pause: the `Blocked`
+    POST before every ask, then the question.
+  - Never scaffold before a **Yes**.
+- **Local:** ask the batch in one message (`AskUserQuestion` when the session has it) and **wait** for answers. The
+  summary is the plan you `ExitPlanMode` with. Do not scaffold until it is approved.
 
 ## Phase 2 — scaffold from the template
 
@@ -189,9 +315,11 @@ In a **clone-and-own repo** (adopted via `scripts/change_git_owner.sh` or `scrip
 extension lives in its own **`extensions/<name>/`** dir. Scaffold from the bundled template (skip if a starter was
 already seeded — then adapt what's there):
 ```bash
-[ -d "extensions/<name>" ] || cp -r "$(dirname "$0")/templates/helloworld" "extensions/<name>"
+cd "$(git rev-parse --show-toplevel)"   # the repo root; in-platform, the clone the bootstrap made
+[ -d "extensions/<name>" ] || cp -r ".claude/skills/duplo-extension-dev/templates/helloworld" "extensions/<name>"
 ```
-(In-platform inside a provisioning ticket, scaffold into the ticket workdir instead — same steps, different dir.)
+In-platform the bootstrap clones the dev-kit (or the user's repo) into the ticket workdir and works from that clone's
+root, so `extensions/<name>/` and the template are both inside it.
 
 Adapt inside `extensions/<name>/` — rename `HelloWorld`→`<Name>` consistently **across backend AND frontend**
 (the build fails on leftover `HelloWorld`/`HelloService`/`hw-` identifiers). Per [02-authoring-guide](reference/02-authoring-guide.md):
@@ -203,6 +331,12 @@ Adapt inside `extensions/<name>/` — rename `HelloWorld`→`<Name>` consistentl
   (the FULL namespaced `extensions/<feature>-<resource>`) **plus the access-node declaration decided in Phase 1**
   ([18](reference/18-access-control.md)). Class name `<Name>sController` in file `<Name>Controller.cs` (platform
   convention; the manifest never references the controller type). Custom endpoints per [05](reference/05-custom-actions.md).
+  **Admin scope:** derive from `AdminResourcesController<…>`
+  (`using Duplo.Ai.DataManagement.Controllers.Admin.Resource;`) and route it at
+  `v1/aiservicedesk/admin/data/environment/<restSegment>` — no `{workspaceId}`, and **the same** access-node
+  declaration as a workspace controller (mandatory: access follows the Admin Workspace's grants, and the host
+  rejects an admin controller whose entity is not a registered node)
+  ([21](reference/21-admin-resources.md#backend), worked example `samples/admin-settings`).
 - `backend/Duplo.Extension.HelloWorld.csproj` — rename to `Duplo.Extension.<Name>.csproj` (keep the SDK
   PackageReference `ExcludeAssets="runtime"` + `nuget.config`).
 - `frontend/src/app/*` — list/add/view for your fields. **Set the service's `REST_SEGMENT` to the FULL namespaced
@@ -214,9 +348,74 @@ Adapt inside `extensions/<name>/` — rename `HelloWorld`→`<Name>` consistentl
   computed (your lifecycle ladder, per mode) and the Result strip's Overview tiles + any further tabs
   ([19](reference/19-detail-page.md), [17](reference/17-custom-result-views.md)). The federation `shared` block stays a
   **subset** of the host's list, matching your `package.json` ([02](reference/02-authoring-guide.md#native-federation-sharing--share-the-libs-di-peer-packages-avoids-nullinjectorerror)).
+  **Admin scope:** the service's `base()` is `/v1/aiservicedesk/admin/data/environment/${REST_SEGMENT}`, it
+  drops `REMOTE_UserSession`, and **no admin request names a workspace** — the backend resolves the Admin
+  Workspace itself. Look the provisioning ticket up with `GET <base>/{id}/ticket-status` (`ticketName`, not
+  `tickets/<ws>/origin-context`), and link it to `/ai/suite/admin/tickets/chat/<name>` — never the
+  service-desk route, which rejects the hidden Admin Workspace.
 - `manifest.json` — `id`, `version`, `backend.{assemblyDir=<id>/<version>/backend, entryAssembly}`,
-  the `resources[]` entry (`archetype:"typed"`, `registrar:"DevOpsResource"`, + the five FQ type names),
-  `skills`/`skillMappings` (**Agent mode only** — omit for Worker/Passthrough/No-provision), `frontend`.
+  the `resources[]` entry (`archetype:"typed"` + the five FQ type names; there is no `registrar` field),
+  `skills`/`skillMappings` (**Agent mode only** — omit for Worker/Passthrough/No-provision), `frontend`. **Admin scope:** add `"scope": "admin"` to the top-level `menus[]` node and to each
+  `routes[]` entry that tree links to (`path`/`relativeUrl` stay `extensions/<…>`). The build gate checks the
+  controller route, the `scope` values, menu↔route scope parity, and that the FE calls the admin route.
+  Keep the setup route and `frontend.setup` (next section).
+
+### The admin setup page — every agent has one
+Admins finish an agent's setup at **AI Admin → Agent Setup → {agent name}**. The template carries it; full contract
+in [02](reference/02-authoring-guide.md#frontendsetup).
+- **New agent:** keep all three pieces from the template. `<idName>` below is the last segment of the manifest
+  `id` (template: `helloworld`); the path is unique as long as the id's last segment is. For a reverse-DNS id like
+  `com.duplocloud.issue-reporter` it is `extensions/issue-reporter-setup`, not `com.duplocloud…` or the folder name:
+  - the admin route `{ "path": "extensions/<idName>-setup", "scope": "admin" }` in `frontend.routes[]`;
+  - `"setup": { "title": "Set up", "relativeUrl": "extensions/<idName>-setup" }` in `frontend` (same path);
+  - the page `frontend/src/app/setup/*` + `settings.service.ts`, and in `extension.routes.ts` the `canMatch`
+    entry that matches the setup mount by path: set `SETUP_PATH` to the same `extensions/<idName>-setup`.
+    Rename per the FE rename table in [02](reference/02-authoring-guide.md#frontend). Replace the sample
+    `HELLO_WORLD_TYPE` with one type definition per provider.
+  - **Settings endpoint:** the platform has none for agents. Add a plain `[Authorize]` `ControllerBase` routed at
+    `SETTINGS_URL` (`v1/aiservicedesk/admin/extensions/<idName>/settings`) that serves GET/PUT of one settings
+    object ([02](reference/02-authoring-guide.md#frontendsetup)). Until then the localStorage fallback keeps
+    values in one browser only, and provisioning can't read them. Once the controller exists, delete the 404
+    fallback (the `catchError` branches, `FALLBACK_KEY`, the `local` note).
+  - To use a connection at provisioning, attach its scope to the workspace or the Admin Workspace
+    ([07](reference/07-scope-credentials.md#creating-the-connection--the-connections-kit) step 3) and read it from
+    `spec.ScopeIds`.
+- **Existing agent:** whenever you change one, check for the setup page (`frontend.setup`, its admin route, the
+  page). Check in this order; the first match wins:
+  1. Setup page present → update it to match the agent's features: one connection per provider the agent uses,
+     plus the agent's own settings. Drop steps for features you removed.
+  2. Already has an admin settings page or endpoint → make that the setup page. Mount it on the setup route through
+     the `canMatch` entry and `SETUP_PATH`. Replace its provider pickers with the kit. Keep its own settings
+     service; don't copy `settings.service.ts`.
+     - **Hand-made providers:** if its docs or earlier versions had admins create providers by hand (usually
+       Type `Other`), pass those types in `alsoTypes`, or saved connections show "Connection not found". Find
+       them in the agent's README and setup docs, and the category its old picker used
+       ([07](reference/07-scope-credentials.md#connections-made-by-hand)).
+     - **The page must work on the admin mount**, where the URL and session have no workspace. A guard that
+       rebuilds a workspace URL must allow on the setup mount (the host already admin-guards it). Hide "Back"
+       links and workspace-relative navigation there, or route them sensibly. A workspace-only call must not
+       block the page. Tell the mounts apart with the template's `canMatch` / `SETUP_PATH`
+       (`extension.routes.ts`).
+     - **Old settings route:** keep it, with a guard that returns a `UrlTree` to
+       `/ai/suite/admin/<relativeUrl>` (not `redirectTo`, which keeps the old URL so the setup mount check misses).
+       The guard must not fire on the setup mount itself. Remove the old menu entries and buttons that linked to it.
+       Reference: the `settings` route in duploai-issue-reporter's `extension.routes.ts` (setup check in `setup-mount.ts`;
+       until it merges, both are on [duploai-issue-reporter#23](https://github.com/duplocloud-internal/duploai-issue-reporter/pull/23)).
+  3. No setup page → add it from the template. In the copied `settings.service.ts`, re-point the
+     `REMOTE_DuploHttpClient` import to the agent's own service.
+  - All three need `ng-common-lib` ≥ 0.8.0. Upgrade an older agent first
+    ([UPGRADING-ng-common-lib](../../../docs/UPGRADING-ng-common-lib.md)).
+- **Pick the kit level** ([20](reference/20-ui-library.md#connections-the-setup-kit)):
+  1. **Level 1 `<duplo-connection-field>`** — the default; one field per provider.
+  2. **Level 2 parts** (`<duplo-provider-picker>`, `<duplo-credential-form>`, `<duplo-scope-picker>`) — only when
+     setup needs its own steps between provider, credential and scope.
+  3. **Level 3 `ConnectionsService`** — only for a non-form UX.
+- **Shared provider types:** ClickUp, Slack and Jira use the agreed type names and field keys in
+  [07](reference/07-scope-credentials.md#shared-provider-types); the first registration wins.
+  Form rules (error keys, your own `required` message): [14](reference/14-forms-and-wizards.md#connections-in-a-form).
+- **Build check:** `scripts/validate-setup.sh <manifest.json>` runs inside `build-extension.sh` and fails the build
+  on an invalid `frontend.setup` (the portal would silently drop it) or a `SETUP_PATH` that differs from it. The
+  gate also fails on leftover template setup names (`hw-setup`, `HELLO_WORLD_TYPE`, `extensions/helloworld-setup`).
 
 ### Wire the chosen provisioning mode (the helloworld template is AGENT-shaped — convert it)
 After picking the mode in Phase 1, make the backend match it — **a missing piece silently falls back to
@@ -237,7 +436,9 @@ status", the "Needs your input" phase) exists **only in Agent mode** ([19](refer
      (copy `samples/worker-compute`'s `phases()`), remove `track()`/`ticketName()` and the list-row "Track Provisioning"
      item, label the add button **"Create"** (not "Provision").
 - **Agent**: keep `skills/provision-*/SKILL.md` (+ `provision.sh`, write to the OWN route) and the manifest
-  `skills` + `skillMappings`; keep the ticket UI and the `<app-ai-disclosure />` on every Add/Edit form. **Deprovision seam (if it creates real infra):** the platform reuses the
+  `skills` + `skillMappings`; keep the ticket UI and the `<app-ai-disclosure />` on every Add/Edit form. **Admin scope:** the skill writes back to the admin route —
+  `RES=${DUPLO_BASE:-$DUPLO_HOST}/v1/aiservicedesk/admin/data/environment/<restSegment>/<id>` (no workspace id);
+  the provisioning token covers only that resource's admin `status`/`results`. **Deprovision seam (if it creates real infra):** the platform reuses the
   SAME ticket and sends the generic teardown message — there is **no separate deprovision skill mapping**, so the
   provision `SKILL.md` needs a **Deprovision** section + an idempotent `deprovision.sh`, or a second skill in the same
   `skillNames` ([11](reference/11-deprovisioning.md)). Once your skill POSTs `DeProvisioned`, the platform hard-deletes
@@ -265,13 +466,17 @@ SDK_VER=$(printf '%s' "$SDK_RESP" | jq -r '.version // empty')
 curl -fsSL -H "Authorization: Bearer $DUPLO_TOKEN" "${DUPLO_BASE:-$DUPLO_HOST}/v1/aiservicedesk/extensions/sdk-bundle" -o /tmp/sdk.zip
 unzip -o /tmp/sdk.zip -d extensions/<name>/backend/sdk-packages
 ```
-Write `$SDK_VER` into `manifest.json` `sdkVersion` — the loader rejects a mismatch
+Write `$SDK_VER` into `manifest.json` `sdkVersion` — the loader checks it against the range it loads
 ([06-registration](reference/06-registration.md#sdk-version-pinning--why-exactness-matters)).
 
 ## Phase 4 — build backend + frontend
 
 ```bash
-( cd extensions/<name>/backend && dotnet publish Duplo.Extension.<Name>.csproj -c Release -o ../dist/backend -p:DuploSdkVersion="$SDK_VER" )
+# SDK 1.2.0 and later ship net10.0 reference assemblies, older ones net8.0, and a net10.0 build does not load on a
+# .NET 8 host. Restore runs first because a property given to publish does not reach its implicit restore.
+case "$SDK_VER" in 0.*|1.0.*|1.1.*) TFM=net8.0 ;; *) TFM=net10.0 ;; esac
+( cd extensions/<name>/backend && dotnet restore Duplo.Extension.<Name>.csproj -p:TargetFramework="$TFM" -p:DuploSdkVersion="$SDK_VER" \
+    && dotnet publish Duplo.Extension.<Name>.csproj --no-restore -c Release -o ../dist/backend -p:TargetFramework="$TFM" -p:DuploSdkVersion="$SDK_VER" )
 ( cd extensions/<name>/frontend && { [ -f package-lock.json ] && npm ci || npm install; } && npm run build )
 ```
 **Keep the scaffold's `package-lock.json`** and use `npm ci` whenever it exists (plain strict `npm install` only as
@@ -330,8 +535,10 @@ backend code** ([06](reference/06-registration.md#reloading-changed-code--bump-m
   as the verification, then POST status `Complete`. **Do NOT** try to `GET …/environment/<restSegment>`
   with the resource-scoped `$DUPLO_TOKEN` — that token is not authorized for arbitrary routes and will
   return 403/404 even though the extension loaded fine.
-- **Local (admin token):** you may confirm the live route directly: `GET …/environment/<restSegment>` → 200,
+- **Local (admin token):** you may confirm the live route directly: `GET …/environment/<restSegment>` → 200
+  (admin extension scope: `GET …/admin/data/environment/<restSegment>` → 200 for an admin, 403 for a user without an Admin Workspace grant, created
+  rows are owned by the Admin Workspace, not your workspace, and the menu shows only in AI Admin),
   and `GET …/admin/extensions` lists it. Create one → it persists to its `extension_<entity>` collection, fires a
-  provisioning ticket (Agent mode), your skill runs and fills the Result. (Teardown: `DELETE …/admin/extensions/{id}`
-  → route withdraws live.)
+  provisioning ticket (Agent mode), your skill runs and fills the Result. **AI Admin → Agent Setup** lists the
+  agent and opens its setup page. (Teardown: `DELETE …/admin/extensions/{id}` → route withdraws live.)
 

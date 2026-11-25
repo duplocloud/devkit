@@ -12,18 +12,19 @@ creation) and writes many files — approving each one is tedious. To avoid a st
    mode** — they are read-only (env probes, scope listing) plus questions to the user; **write no files and run no
    builds yet**.
 2. Once the requirements are unambiguous, present **one consolidated implementation plan** and call
-   **`ExitPlanMode`**. The plan must **always** lead with the resource shape — before any file list or commands:
-   - **Spec** — a table of spec fields (name · type · required/optional) per resource.
-   - **Result** — a table of result fields (name · type) per resource.
-   - **User experience** — a short walkthrough: where it appears in the left-nav, the create/add form, the list
-     view, the detail page (Spec | Result, the Result tabs, and the **lifecycle phases** this resource goes through —
-     a small table of phase · driving status/result field; see `reference/19-detail-page.md`), and what
-     provisioning does end-to-end.
-   - **Access control** — where each resource sits in the permission tree (default: under the Workspace) and a
-     table of any named actions (id · endpoint · why it needs an explicit grant), or "default: workspace-scoped
-     CRUD, no named actions" (see `.claude/skills/duplo-extension-dev/reference/18-access-control.md`).
+   **`ExitPlanMode`**. The plan must **always** lead with the summary from the skill's
+   [Talking to the user](../skills/duplo-extension-dev/SKILL.md#talking-to-the-user), before any file list or commands:
+   - **What you'll get** — the plain walkthrough the user reads first.
+   - The defaults the user has not confirmed, one line each.
+   - **Technical details** — the Spec and Result field tables, workspace or admin per resource, the provisioning
+     mode, the lifecycle phases and Result tabs (`.claude/skills/duplo-extension-dev/reference/19-detail-page.md`),
+     and access control: each resource's place in the permission tree and any endpoint that needs its own grant
+     (`.claude/skills/duplo-extension-dev/reference/18-access-control.md`), and the setup page: one connection per
+     provider the agent uses, plus its settings (`.claude/skills/duplo-extension-dev/reference/02-authoring-guide.md`
+     → `frontend.setup`).
 
-   Then list the files you'll create under `extensions/<name>/` and the exact build/deploy commands. In the
+   Then list the files you'll create under `extensions/<name>/` and the exact build/deploy commands, starting with the
+   Admin Workspace attach when Step 5 needs one. In the
    `ExitPlanMode` call, declare the Bash permissions the build needs via `allowedPrompts` so the user approves the
    whole implementation **in a single step**, e.g.:
    - "run the dev-kit `scripts/` (build-extension, deploy-extension, register-agent)"
@@ -58,9 +59,9 @@ Decide the target with the user:
   1. **Start it locally** — run `./run.sh` (sets up the local platform), then re-run this preflight.
   2. **Use a remote platform** — set `DUPLO_TARGET=remote`, `DUPLO_HOST=<url>`, `DUPLO_TOKEN=<Administrator
      bearer token>` in `.env` (edit the file), then continue.
-- **Local stack is UP (200):** ask *"Use the local dev-kit platform, or a remote one?"*
-  - **Local** → ensure `DUPLO_TARGET=local` in `.env`; continue.
-  - **Remote** → set `DUPLO_TARGET=remote` + `DUPLO_HOST`/`DUPLO_TOKEN` in `.env`; continue.
+- **Local stack is UP (200):** ask *"Build against the DuploCloud running on this machine, or one hosted elsewhere?"*
+  - **This machine** → ensure `DUPLO_TARGET=local` in `.env`; continue.
+  - **Elsewhere** → set `DUPLO_TARGET=remote` + `DUPLO_HOST`/`DUPLO_TOKEN` in `.env`; continue.
 
 Then **confirm the chosen target is reachable** (200 from `<base>/v1/aiservicedesk/extensions/sdk-version`
 with its token) before proceeding. For the rest of this command resolve `BASE`/`TOKEN` the way `scripts/_target.sh`
@@ -75,14 +76,14 @@ Lead with the requirement and **listen** — do not interrogate with a checklist
 
   ```
   ## What you want to build
-  A Jenkins Job resource — trigger a Jenkins build from DuploCloud and track its outcome.
+  Jenkins jobs — trigger a Jenkins build from DuploCloud and track its outcome.
 
-  ## Inputs (what the user fills in when creating one)
+  ## Inputs (what someone fills in when adding one)
   - job name (required)
   - branch (default: main)
   - build parameters (optional, key-value)
 
-  ## What should happen (what provisioning does with the inputs)
+  ## What should happen (after someone saves one)
   Call Jenkins to start the build, poll until it finishes, capture the build number and result.
 
   ## Result to show
@@ -95,14 +96,32 @@ Lead with the requirement and **listen** — do not interrogate with a checklist
   already live here (a shared repo — other developers' work), let the requirement decide: MODIFY an existing
   `extensions/<name>/` or scaffold a NEW `extensions/<name2>/`; ask when it's ambiguous. Before scaffolding new,
   read a sibling extension to match its conventions.
-- **Then suggest a name.** From that description, propose a short, lowercase extension name (e.g. `widgets`,
-  `reports`) and say what it drives — the extension id, the resource type(s), and the Native Federation remote name. Ask the user
-  to confirm or change it; do not ask for a name cold before hearing the requirement. In a shared repo the name —
-  and the frontend's federation remote `name` — must collide with no sibling extension.
+- **Then derive a name**: one plain name, which Step 4's batch asks the user to keep or change (the Name row of the
+  skill's [Talking to the user](../skills/duplo-extension-dev/SKILL.md#talking-to-the-user)). Derive the extension id,
+  the resource type(s) and the federation remote name from it yourself. In a shared repo the name — and the frontend's federation remote
+  `name` — must collide with no sibling extension.
 
-## Step 3 — List the target's scopes, ask which to test with
-A scope carries the credentials the agent will use during provisioning. First settle the **workspace** to author
-against, then list its scopes and ask which one(s) this extension needs **for testing**:
+## Step 3 — Where it lives, then the connections to test with
+First settle, per resource, whether it is managed in a workspace or by platform admins: the **extension scope**
+(workspace / admin / both) in the skill's Phase 1 checklist, which also holds the admin rules. Derive it from the
+requirement; ask the Extension scope row's plain question only when the requirement points two ways. It decides
+where the connections below are listed.
+
+Then settle the **Provider scopes** — the credentials the agent uses during provisioning — for each resource. The
+user calls them saved connections.
+
+**Admin resource:** do **not** skip this. Its provisioning ticket runs in the Admin Workspace, and the platform
+hands the agent only scope ids that are attached to that workspace (any other id in `spec.scopeIds` is skipped).
+The Admin Workspace starts with none. So, if provisioning needs credentials:
+1. Use the **Admin Workspace** as `WS` in the listing below: the SDK constant
+   `Workspace.AdminWorkspaceId`.
+2. List its scopes with the script below. If a needed provider scope is missing, list all of them
+   (`GET <base>/v1/aiservicedesk/admin/data/scopes`) and carry the connection question to Step 4's batch. Attaching
+   the chosen one is Step 5's first action: these steps are read-only.
+3. The resource's `spec.scopeIds` must be a subset of the Admin Workspace's `scopeIds`; its add form offers only
+   those.
+
+For a **workspace** resource, settle the **workspace** to author against, then list its Provider scopes:
 - **Local** → workspace is `EXTENSION_DEV_WORKSPACE_ID` (from `.env`).
 - **Remote** → use `DUPLO_WORKSPACE_ID` if set in `.env`; otherwise `GET <base>/v1/aiservicedesk/admin/data/workspaces`,
   show the list, ask the user to pick one, and offer to save it to `.env` as `DUPLO_WORKSPACE_ID`.
@@ -138,33 +157,30 @@ except urllib.error.HTTPError as e:
     print("Could not list scopes:", e.code, e.read().decode()[:200])
 PY
 ```
-Show the list, then ask the user **which scope(s)** to use for testing. Record the chosen `scopeId`(s) — they
+Keep the list for Step 4's batch, which asks for the connection with these names as the options. Do not ask it
+here. Record the chosen `scopeId`(s) — they
 become the resource spec's `ScopeIds` when you create a test resource, and the provisioning skill reads that
 scope's credentials from `other_scopes/<name>.json` (see
 `.claude/skills/duplo-extension-dev/reference/07-scope-credentials.md`). If the target system isn't registered
 yet, help the user create a provider (`type: "other"`, `category: other`) + scope first.
 
-## Step 4 — Clarifying questions (gate)
-Now that you've heard the requirement, turn the template answers into a precise shape: **section 2 → the exact Spec
-field table, section 4 → the exact Result field table, section 3 → the provisioning mode** (derive per SKILL Phase 1;
-don't default to agent). Ask any remaining questions you need to build correctly. **Archetype is always typed (C#
-backend + Angular remote + provisioning skill) — never ask the user to choose an archetype.** Remaining questions, e.g.:
-- exact **spec fields** and **result fields** per resource (name · type · required/optional);
-- **only if the requirement describes more than one related resource:** is it a flat set or a
-  **parent → child** hierarchy? (drives `ParentRefSpec`/`ChildResourceController` + nested menu — see reference/08);
-- **custom actions / extra controller endpoints** consumed by the FE (logs, trigger, etc.);
-- **access control**: is "anyone granted the workspace may manage it" right (the default), or does the resource
-  sit under a parent / an extension category? Should any endpoint require an **explicitly granted named action**
-  rather than plain CRUD (restart, console/exec, credential-minting shapes — see reference/18-access-control.md)?
-- **menu** placement (a top-level `collapsible-section` with `item` children renders nested correctly);
-- **Ask AI** is opt-in: scaffold it ONLY if the user's requirement explicitly asks for AI chat sessions on the
-  resource — never offer it or add it unprompted (see skill reference 16-ask-ai);
-- for an external system: **auth** style (basic/bearer) and which API calls provisioning makes (a custom
-  external HTTP API, etc.).
+## Step 4 — Questions (gate)
+Turn the template answers into the skill's Phase 1 checklist: **section 2 → the Spec fields, section 4 → the Result
+fields, section 3 → the provisioning mode** (derive per Phase 1; never default to Agent). Then ask the one batch that
+the skill's [Talking to the user](../skills/duplo-extension-dev/SKILL.md#talking-to-the-user) defines, in the user's
+words, and wait. It carries the name from Step 2 and the saved connection from Step 3 (*"To test this I need to reach <system>. Which
+saved connection should I use?"*, the listed names plus "it doesn't need one"), so the user answers once. The archetype is always typed (C# backend + Angular remote + provisioning skill): never ask about
+it. Ask AI is opt-in: never offer it unprompted.
 
-**Do not write code until these are unambiguous.**
+**Do not write code until the plan is approved.**
 
 ## Step 5 — Scaffold + build (hand off to the skill)
+**Admin resource with a connection the Admin Workspace lacks:** attach it first. `GET
+<base>/v1/aiservicedesk/admin/data/workspaces/<WS>`, then `PUT` it back with the chosen id appended to `scopeIds`
+(`.claude/skills/duplo-extension-dev/reference/07-scope-credentials.md` → "Creating the connection — the connections
+kit", step 3), and confirm the `PUT`'s response lists it. Without it the platform drops the id from the test
+resource's `spec.scopeIds` and provisioning runs with no credentials.
+
 Now follow the `duplo-extension-dev` skill — read `.claude/skills/duplo-extension-dev/SKILL.md` and its
 `reference/` docs, then:
 - scaffold into **`extensions/<name>/`** (one dir per extension under `extensions/` — copy the skill's
@@ -174,6 +190,8 @@ Now follow the `duplo-extension-dev` skill — read `.claude/skills/duplo-extens
 - author backend + frontend + provision skill(s) + `manifest.json` to match the agreed requirements. **Rename every
   `HelloWorld`/`HelloService`/`hw-` identifier (backend AND frontend) to your resource, and set the FE service's
   `REST_SEGMENT` to the full `extensions/<…>` path — the build fails otherwise.**
+- style with the `$g-*` theme names only (no hex, no `var(--white)` backgrounds) so the extension follows the portal's
+  Light/Dark switch — `.claude/skills/duplo-extension-dev/reference/21-theming.md`,
 - build + deploy (the scripts resolve the target from `.env`/env via `scripts/_target.sh`):
   ```bash
   ./scripts/build-extension.sh  extensions/<name>
@@ -181,8 +199,8 @@ Now follow the `duplo-extension-dev` skill — read `.claude/skills/duplo-extens
   ```
 
 ## Step 6 — Verify provisioning (ask the user which way)
-Once the extension is deployed and the new resource type is live, **ask the user how they want to test it** and
-proceed with their choice:
+Once the extension is deployed and the new resource type is live, ask the user *"Do you want to add one yourself in
+the portal while I watch, or should I add a test one for you?"* and proceed with their choice (A or B):
 
 - **A) User creates it in the UI; the agent watches.** The user opens the UI, navigates to the new resource type,
   and creates one (selecting the chosen scope). You **watch the provisioning** — tail the agent
@@ -191,6 +209,8 @@ proceed with their choice:
 - **B) The agent creates it via API and self-watches.** You create the resource yourself — `POST
   …/user/data/workspaces/<ws>/environment/<restSegment>` with the spec (including the chosen `ScopeIds`) — then
   poll its status/result (and, if useful, `./logs.sh claude-code-agent`) until `Complete`/`Failed` and report.
+  For an **admin** resource use `POST …/admin/data/environment/<restSegment>` (admin token), confirm the row's
+  `ownerWorkspaceId` is not your workspace (the platform assigns the Admin Workspace), and in option A the user creates it from the **AI Admin** menu.
 
 Either way, the chosen `scopeId`(s) become the resource spec's `ScopeIds`, and the provisioning skill reads that
 scope's credentials from `other_scopes/<name>.json`. See the skill's

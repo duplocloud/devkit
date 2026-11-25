@@ -93,13 +93,13 @@ DI container** (`ExtensionRegistrar.RegisterExtension` registers each resource's
 "resources": [
   {
     "ticketOriginType": "HelloParent", "restSegment": "extensions/hello-parents", "subType": "hello-parent",
-    "archetype": "typed", "registrar": "DevOpsResource",
+    "archetype": "typed",
     "entityType": "…HelloParent", "specType": "…HelloParentSpec", "resultType": "…HelloParentResult",
     "hooksType": "…HelloParentHooks", "serviceType": "…HelloParentService"
   },
   {
     "ticketOriginType": "HelloChild", "restSegment": "hello-children", "subType": "hello-child",   // CHILD restSegment is BARE by design — the extensions/ namespacing comes from the parent route (00-naming carve-out)
-    "archetype": "typed", "registrar": "DevOpsResource",
+    "archetype": "typed",
     "parent": {                                  // ← links child to parent (nested under it)
       "ticketOriginType": "HelloParent",
       "routeSegment": "extensions/hello-parents",   // namespaced; MUST equal the parent's restSegment
@@ -123,7 +123,7 @@ and either a `relativeUrl` (a leaf → a route) or `children[]` (a group). The p
 title** and recurses (`mergeExtensionMenuItems`/`upsertMenuNodeByTitle` in `src/app/menu/menu.ts`):
 
 - A top-level tree whose title doesn't exist yet becomes a **new top-level group** (e.g. `Jenkins`, `GCP`).
-- A tree whose **root title matches an existing section** (e.g. `DevOps`) **nests into it** — the existing item is
+- A tree whose **root title matches an existing section** (e.g. `Infrastructure`) **nests into it** — the existing item is
   reused and your children appended. Matching is case-insensitive on the displayed title; **never reference an
   internal `parentGroupId`/id** — title is the only key.
 - One extension may contribute **several** top-level groups (just add more entries to `menus[]`).
@@ -150,6 +150,12 @@ title** and recurses (`mergeExtensionMenuItems`/`upsertMenuNodeByTitle` in `src/
 ]
 ```
 
+**AI Admin menus.** Put `"scope": "admin"` on a tree's **top-level** node to merge it into the AI Admin nav
+instead of AI DevOps (title matching works the same there); nested nodes never carry `scope`. Every link in an admin
+tree needs a `routes[]` entry with the same `path` and `"scope": "admin"` (mounted at `/ai/suite/admin/<path>`). An
+extension that surfaces on both sides declares one tree per side. An admin-scoped parent's child controller applies
+the admin overrides itself — see [21-admin-resources](21-admin-resources.md#backend).
+
 > Legacy: a single `frontend.menu = { parentGroupId, node }` still loads (merged into a group by id) but is
 > **deprecated** — new extensions MUST use `menus[]`.
 
@@ -165,6 +171,101 @@ see [00-naming](00-naming.md)):
 ```
 `extension-route-registrar.ts` injects these under `suite/:tenantId` at runtime (no host rebuild). A child
 resolver recovers `:parentId` by walking `ActivatedRoute.params`.
+
+### Filing under an agent — the root `agent` field
+`agent` is an optional field at the **manifest root** — a sibling of `id`, `name`, `version` and `frontend` — naming
+the agent this extension is filed under. It describes the **extension**, so it never goes on a `menus[]` node.
+**One agent per extension.**
+
+It is either a plain string or `{ "name": …, "order": <integer> }`. The object form is for any extension whose
+author wants to set its heading order:
+
+```jsonc
+// manifest.json (root) - joining a built-in section
+"agent": "Infrastructure",
+
+// …or a new section, always with an order
+"agent": { "name": "Release Management", "order": 35 },
+```
+
+Use the plain string to join an **existing** (built-in) section, and the object form, always with an order, for a
+**new** one (see below).
+
+**The manifest `agent` decides the default heading; an admin can override it.**
+
+- **Every extension's heading comes from its own manifest `agent`** (string or `{ "name": …, "order": <integer> }`);
+  DuploCloud's own extensions are no different. It decides the default left-nav heading. Extensions sharing a name
+  (trimmed, case-insensitive) share one heading.
+- **Admin override** — an admin can change an extension's section and position from the Marketplace (the placement
+  picker). The override **wins over the manifest** and **survives upgrades**, so the manifest value is only the default.
+
+Ask the author in one question, naming the section and its position (the skill's Agent row has the wording):
+
+> Your agent gets a section in the left menu in the DuploCloud AI platform. Should it join an existing section, like
+> **Infrastructure**, or start a new one: **Compliance**, **Release Management**, or a name of your own? A new section
+> goes just above **Settings** unless you want it somewhere else, for example right after Infrastructure.
+
+Write the chosen name **verbatim** — no slugging — and:
+
+- **Existing section** (`Infrastructure`, or another built-in heading by its exact displayed title: HelpDesk,
+  Projects, Scopes, KB, Resources, Agent Studio, Analytics, Settings) → the plain string. The built-in keeps its own
+  position, so an order is never written.
+- **New section** → `{ "name": …, "order": N }`, **always with an order**. A new section with no order defaults to
+  `0` and sits at the very top of the nav, above HelpDesk. `N` is `85` (just above Settings) unless the author picks
+  a position: "after <section>" is that section's number + 5 (after Infrastructure → `35`), "at the top" is `5`.
+
+`Observability` is not offered: it reads like the existing **Analytics → Observability** page, but only top-level
+headings are matched, so it would create a second, top-level Observability section.
+
+If the author declines to pick an agent, delete the
+template's `agent` line - **omit the field entirely**; never write `agent: ""`. An extension with no agent still shows in the nav (by menu
+title, Pattern A above), but the Marketplace lists it under **Other**.
+
+**Validation.** An invalid `agent` is rejected when the extension is uploaded (HTTP 400), and fails the provisioning
+when it is deployed through an extension resource. An extension already installed with an invalid `agent` still
+loads, re-enables and rolls back; it is simply filed under no agent. The rules:
+
+- the name is non-empty after trimming, at most 64 characters, with no control characters;
+- `order`, when present, is an integer;
+- the object has no keys other than `name` and `order`.
+
+How the portal places it:
+
+- The portal groups every extension sharing an agent under **one** left-nav heading, titled with the agent name
+  and marked with a shared agent icon. An agent named like a built-in heading joins it rather than creating a second
+  one: `"Infrastructure"` merges into the built-in **Infrastructure** heading (formerly **DevOps**). The match is on
+  the heading's title as the deployment displays it (after `config.json` `labels`), so `"DevOps"` no longer matches
+  it and creates a separate **DevOps** heading. Under a built-in heading the built-in pages come first, then the
+  agent's extensions.
+- **Every top-level `frontend.menus[]` node becomes a child of that heading.** So don't wrap your menus in a node
+  titled after the agent — that would render as a same-named sub-group under the heading. A top-level `item` sits
+  directly under the heading; a top-level `collapsible-section` becomes a sub-group under it.
+  With `agent` set, the heading decides top-level placement; the title-based placement in Pattern A above
+  applies to extensions without one.
+- **Menu `order` vs agent `order`.** A menu node's `order` only positions it among the heading's children. A manifest
+  agent's `order` is the heading's nav position, used **exactly as given**, in the same number space as the built-in
+  headings (HelpDesk 10, Projects 20, Infrastructure 30, Scopes 40, KB 50, … Settings 90). A missing order is `0`; ties go by title. If several
+  extensions of one manifest agent disagree on `order`, the lowest wins.
+- The deployment's `config.json` → `ai-menu.order`, keyed by the heading id, **overrides** the heading's position:
+  - `ai-suite-agent-<slug(name)>` for manifest agents, where the slug keeps runs of `[a-z0-9]` joined by `-`, e.g.
+    `ai-suite-agent-release-management`. A name with no ASCII letters or digits gets a hashed id instead.
+  - An agent named like a built-in heading (`Infrastructure`) sits under that heading, so it moves by the built-in's id
+    (`ai-suite-infrastructure`), not by an `ai-suite-agent-…` key.
+
+```jsonc
+// manifest.json : filed under the Infrastructure agent — the item lands directly under the Infrastructure heading
+{
+  "id": "com.duplocloud.helloworld", "name": "Hello World", "version": "0.1.0",
+  "agent": "Infrastructure",
+  …
+  "frontend": {
+    "menus": [
+      { "id": "com.duplocloud.helloworld-hello-world", "title": "Hello World", "type": "item",
+        "matIcon": "star-outline", "relativeUrl": "extensions/helloworlds", "order": 40 }
+    ]
+  }
+}
+```
 
 ### Choosing `matIcon` — give the nav entry a real icon, not the template's placeholder
 The portal renders every menu node as `<mat-icon svgIcon="{{ item.matIcon }}">`, resolved against two SVG sprites
@@ -216,6 +317,9 @@ studio API — `UI_PORT` locally):
 curl -fsS http://localhost:${UI_PORT:-4210}/assets/images/icons/mdi.svg | grep -c 'id="shield-check"'   # 1 = present, 0 = blank box
 curl -fsS http://localhost:${UI_PORT:-4210}/assets/images/icons/duplo.svg | grep -o 'id="[a-z0-9-]*"'   # the brand set
 ```
+
+### Header actions vs menus
+Menus add a page to the left nav. Header actions add a button to the top navbar that runs code (open a modal, navigate) on `/ai/` pages (AI Admin only with `showInAdmin: true`). Use a menu for a page; use a header action for a quick, page-independent command. See [02-authoring-guide](02-authoring-guide.md#frontendheaderactions).
 
 ### Pattern B — child inside the parent's detail view (tightly-coupled children)
 Don't give the child its own menu entry. Instead, the parent's **view** component renders a tab of its children

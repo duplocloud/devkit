@@ -1,5 +1,10 @@
-# Toolchain image for building dev-kit extensions: .NET SDK 8 (the backend targets net8.0) + Node 22
-# plus the shell tools scripts/build-extension.sh needs.
+# Toolchain image for building dev-kit extensions: .NET SDK 10 + the .NET 8 runtime + Node 22 plus the shell tools
+# scripts/build-extension.sh needs. The SDK builds net8.0 as well as net10.0, and the script picks the target
+# framework from the host SDK version, so one toolchain serves hosts on either runtime. The .NET 8 shared runtime
+# is there for the ArmDot step, which runs on the built assembly and needs the runtime that assembly targets: without
+# it a release that lists a 1.0.x or 1.1.x SDK version builds its net8.0 bundle and then fails to obfuscate it with
+# "Failed to find a .NET Core runtime v8.0". It is copied from Microsoft's 8.0 runtime image, pinned by digest, the way
+# Node is copied below; the SDK image's own 10.0 runtime stays beside it.
 #
 # Node 22 tracks the frontend, it is not a preference. The samples are Angular 22, whose declared engines
 # are "^22.22.3 || ^24.15.0 || >=26.0.0" — so the 22.x line satisfies Angular only from 22.22.3 up. The
@@ -14,8 +19,12 @@
 # keeps the image multi-arch (amd64 for CI, arm64 for Apple Silicon laptops) without trusting an extra
 # package source. Both tags float, so this is not a reproducible build; pinning is a separate concern.
 FROM node:22-bookworm-slim AS node
+# mcr.microsoft.com/dotnet/aspnet:8.0-noble, 8.0.34 runtimes (docker buildx imagetools inspect), multi-arch.
+FROM mcr.microsoft.com/dotnet/aspnet:8.0-noble@sha256:fb50a3d0efad014b4fa8ee85fa498818172e38216cc73742821319f9db827bb2 AS net8
 
-FROM mcr.microsoft.com/dotnet/sdk:8.0-bookworm-slim
+FROM mcr.microsoft.com/dotnet/sdk:10.0-noble
+COPY --from=net8 /usr/share/dotnet/shared/Microsoft.NETCore.App /usr/share/dotnet/shared/Microsoft.NETCore.App
+COPY --from=net8 /usr/share/dotnet/shared/Microsoft.AspNetCore.App /usr/share/dotnet/shared/Microsoft.AspNetCore.App
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
@@ -40,16 +49,20 @@ RUN ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
  # would also make the build's output in the bind-mounted /work world-writable, including node_modules/
  # and the extension.zip we hand to the user.
  && mkdir -p /cache/nuget /cache/npm \
- && chmod 777 /cache /cache/nuget /cache/npm
+ && chmod 777 /cache /cache/nuget /cache/npm \
+ # The .NET 10 CLI takes a named mutex on its first run and throws "cannot open the device or file
+ # 'NuGet-Migrations'" when neither of its home directories exists yet; the .NET 8 CLI created them on
+ # demand. Both are created here, world-writable like /tmp, so the caller's arbitrary uid can fill them.
+ && mkdir -p /tmp/build-home /tmp/dotnet-home \
+ && chmod 1777 /tmp/build-home /tmp/dotnet-home
 
 # Quieten the first-run banner and telemetry, and keep the package caches on the mounted volumes.
 #
-# HOME and DOTNET_CLI_HOME deliberately are neither volumes nor pre-created (the tools create them on
-# demand). They hold regenerable CLI state — first-use sentinels, a generated NuGet.Config, template
-# metadata — and persisting that state in a shared volume is what broke cross-uid builds: dotnet creates
-# .nuget/NuGet/ as 0755 and NuGet.Config as 0600 owned by the first uid to run, so a later run as a
-# different uid died with "Access to the path '.../NuGet.Config' is denied". /tmp is 1777 and never a
-# volume, so each container gets its own throwaway copy.
+# HOME and DOTNET_CLI_HOME deliberately are not volumes. They hold regenerable CLI state — first-use
+# sentinels, a generated NuGet.Config, template metadata — and persisting that state in a shared volume is
+# what broke cross-uid builds: dotnet creates .nuget/NuGet/ as 0755 and NuGet.Config as 0600 owned by the
+# first uid to run, so a later run as a different uid died with "Access to the path '.../NuGet.Config' is
+# denied". Under /tmp, which is never a volume, each container gets its own throwaway copy.
 ENV DOTNET_NOLOGO=1 \
     DOTNET_CLI_TELEMETRY_OPTOUT=1 \
     DOTNET_CLI_HOME=/tmp/dotnet-home \

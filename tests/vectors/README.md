@@ -5,7 +5,7 @@ private keys. They are committed on purpose so that two independent verifiers ca
 against the same inputs. No console, portal or license trusts them. Never use them for anything
 else.
 
-The .NET helpdesk copies this directory as-is into its own test suite. For every entry in
+The .NET platform copies this directory as-is into its own test suite. For every entry in
 `cases.json`, its verifier must produce the same outcome as the console's
 `verify_artifact_signature` (`apps/extensions/signing/verify.py`).
 
@@ -95,4 +95,4 @@ stay the same. ECDSA signatures are randomised, so the `.sig` files change on ev
 writing `cases.json`, the command checks every case against the console verifier.
 
 The committed files are the source of truth. Only regenerate when the format changes, and copy
-the result to the helpdesk again.
+the result to the platform again.

@@ -3,6 +3,7 @@
   "id": "com.duplocloud.worker-appstack",
   "name": "Worker AppStack",
   "version": "0.1.0",
+  "agent": "Infrastructure",
 
   "sdkVersion": "REPLACED_BY_SKILL_FROM_sdk-version_ENDPOINT",
   "backend": {
@@ -16,7 +17,6 @@
       "restSegment": "extensions/appstacks",
       "subType": "app-stack",
       "archetype": "typed",
-      "registrar": "DevOpsResource",
       "entityType": "Duplo.Extension.AppStack.AppStack",
       "specType": "Duplo.Extension.AppStack.AppStackSpec",
       "resultType": "Duplo.Extension.AppStack.AppStackResult",
@@ -33,14 +33,7 @@
       "type": "module"
     },
     "menus": [
-      {
-        "id": "com.duplocloud.worker-appstack-devops",
-        "title": "DevOps",
-        "type": "collapsible-section",
-        "children": [
-          { "id": "com.duplocloud.worker-appstack-as", "title": "App Stacks", "type": "item", "matIcon": "layers", "relativeUrl": "extensions/appstacks", "order": 43 }
-        ]
-      }
+      { "id": "com.duplocloud.worker-appstack-as", "title": "App Stacks", "type": "item", "matIcon": "layers", "relativeUrl": "extensions/appstacks", "order": 43 }
     ],
     "routes": [
       { "path": "extensions/appstacks", "resourceType": "AppStack", "subType": "app-stack" }

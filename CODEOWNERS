@@ -1,8 +1,8 @@
 # Code owners for the dev kit.
 #
-# ENFORCED. Branch protection on `main` has "Require review from Code Owners" enabled, so a
-# pull request touching these paths blocks until one of the owners below approves it.
+# ENFORCED. The repository rulesets require a review from a Code Owner, so a pull request touching
+# these paths blocks until a member of the team below approves it.
 #
 # Syntax: https://docs.github.com/articles/about-code-owners
 
-*   @aboutte @gk-duplo
+*   @duplocloud/public-repo-maintainers

@@ -34,7 +34,7 @@
   height: 56px;
   border-radius: 14px;
   background: $g-primary-50;
-  color: $g-primary;
+  color: $g-primary-text;
   display: grid;
   place-items: center;
   flex: none;
@@ -111,7 +111,7 @@
 
 // Spec | Result segmented switcher — dark active segment.
 .seg {
-  background: $g-white;
+  background: $g-surface;
   border: 1px solid $g-border;
   border-radius: 8px;
   padding: 3px;
@@ -130,7 +130,7 @@
 
     &.active {
       background: $g-secondary;
-      color: $g-white;
+      color: $g-on-primary;
       font-weight: 600;
     }
   }

@@ -1,5 +1,8 @@
 # Privacy
 
+DuploCloud's privacy policy is at **<https://duplocloud.com/legal/privacy-policy/>**. This page adds the
+specifics of the usage metrics the dev kit's UI can send.
+
 The dev kit's UI can send product usage metrics to DuploCloud via Mixpanel. This page says exactly
 what that means.
 

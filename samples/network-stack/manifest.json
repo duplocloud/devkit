@@ -3,6 +3,7 @@
   "id": "com.duplocloud.networkstack",
   "name": "Network Stack",
   "version": "0.1.0",
+  "agent": "Infrastructure",
 
   "sdkVersion": "REPLACED_BY_SKILL_FROM_sdk-version_ENDPOINT",
   "backend": {
@@ -16,7 +17,6 @@
       "restSegment": "extensions/network-stacks",
       "subType": "network-stack",
       "archetype": "typed",
-      "registrar": "DevOpsResource",
       "entityType": "Duplo.Extension.NetworkStack.NetworkStack",
       "specType": "Duplo.Extension.NetworkStack.NetworkStackSpec",
       "resultType": "Duplo.Extension.NetworkStack.NetworkStackResult",
@@ -41,19 +41,12 @@
     },
     "menus": [
       {
-        "id": "com.duplocloud.networkstack-devops",
-        "title": "DevOps",
-        "type": "collapsible-section",
-        "children": [
-          {
-            "id": "com.duplocloud.networkstack-network-stack",
-            "title": "Network Stacks",
-            "type": "item",
-            "matIcon": "lan",
-            "relativeUrl": "extensions/network-stacks",
-            "order": 41
-          }
-        ]
+        "id": "com.duplocloud.networkstack-network-stack",
+        "title": "Network Stacks",
+        "type": "item",
+        "matIcon": "lan",
+        "relativeUrl": "extensions/network-stacks",
+        "order": 41
       }
     ],
     "routes": [

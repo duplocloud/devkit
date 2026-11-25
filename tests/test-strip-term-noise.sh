@@ -143,5 +143,99 @@ t "secret: EOF yields rc=1, not masked by the trailing 'echo >&2'"
 rc="$( (eval "$(awk '/^strip_term_noise\(\) \{/,/^}/' run.sh; awk '/^prompt\(\) \{/,/^}/' run.sh)"; prompt V "x" secret < /dev/null >/dev/null 2>&1; echo $?) )"
 if [ "$rc" = 1 ]; then ok; else bad "rc=$rc (expected 1) — the echo-after-read sequencing bug is back"; fi
 
+# prompt_new_password() — the admin password is asked twice and must match (DUPLOAI-5380), and must be
+# at least ADMIN_PW_MIN_LEN characters (DUPLOAI-5693). Runs the helper in a subshell on piped input;
+# prints "<rc>|<value>" on stdout, stderr to $ERRF.
+ERRF="$(mktemp)"; trap 'rm -f "$ERRF"' EXIT
+pnp() { # input
+  printf "$1" | (eval "$(awk '/^strip_term_noise\(\) \{/,/^}/' run.sh; awk '/^prompt\(\) \{/,/^}/' run.sh; grep '^ADMIN_PW_MIN_LEN=' run.sh; awk '/^prompt_new_password\(\) \{/,/^}/' run.sh)"
+    PW=""; prompt_new_password PW "Admin password" >/dev/null 2>"$ERRF"; printf '%s|%s' "$?" "$PW")
+}
+echo "prompt_new_password() — confirmation:"
+t "run.sh defines prompt_new_password and uses it for the admin password"
+if grep -q '^prompt_new_password() {' run.sh && grep -q "prompt_new_password PASSWORD 'Admin password'" run.sh; then ok; else bad "helper missing or not wired in"; fi
+
+t "matching entries are accepted"
+r="$(pnp 'Vijay123#Long\nVijay123#Long\n')"
+if [ "$r" = "0|Vijay123#Long" ]; then ok; else bad "got $(printf '%q' "$r")"; fi
+
+t "a mismatch re-asks, then accepts the matching pair"
+r="$(pnp 'abcdefghijk1\nabcdefghijk2\nPassword2Long\nPassword2Long\n')"
+if [ "$r" = "0|Password2Long" ] && grep -q 'do not match' "$ERRF"; then ok; else bad "got $(printf '%q' "$r"), stderr: $(cat "$ERRF")"; fi
+
+t "an empty entry is refused, then the next pair is accepted"
+r="$(pnp '\nPassword3Long\nPassword3Long\n')"
+if [ "$r" = "0|Password3Long" ] && grep -q 'cannot be empty' "$ERRF"; then ok; else bad "got $(printf '%q' "$r"), stderr: $(cat "$ERRF")"; fi
+
+t "escape noise in one entry doesn't cause a false mismatch"
+r="$(pnp '\033[APassword4Long\nPassword4Long\n')"
+if [ "$r" = "0|Password4Long" ]; then ok; else bad "got $(printf '%q' "$r")"; fi
+
+t "EOF before confirmation returns non-zero (no infinite loop)"
+r="$(pnp 'Password5Long\n')"
+if [ "${r%%|*}" != 0 ] && [ "${r#*|}" = "" ]; then ok; else bad "got $(printf '%q' "$r")"; fi
+
+t "EOF after repeated mismatches returns non-zero"
+r="$(pnp 'aaaaaaaaaaaa\nbbbbbbbbbbbb\ncccccccccccc\ndddddddddddd\n')"
+if [ "${r%%|*}" != 0 ] && grep -q 'do not match' "$ERRF"; then ok; else bad "got $(printf '%q' "$r")"; fi
+
+echo "prompt_new_password() — minimum length (DUPLOAI-5693):"
+t "run.sh sets ADMIN_PW_MIN_LEN=12"
+if grep -q '^ADMIN_PW_MIN_LEN=12$' run.sh; then ok; else bad "constant missing or changed"; fi
+
+t "a short entry is refused before confirmation, then the next pair is accepted"
+r="$(pnp 'short\nLongEnough123\nLongEnough123\n')"
+if [ "$r" = "0|LongEnough123" ] && grep -q 'at least 12 characters' "$ERRF"; then ok; else bad "got $(printf '%q' "$r"), stderr: $(cat "$ERRF")"; fi
+
+t "11 characters is refused"
+r="$(pnp '12345678901\n12345678901\n')"
+if [ "${r%%|*}" != 0 ] && grep -q 'at least 12 characters' "$ERRF"; then ok; else bad "got $(printf '%q' "$r"), stderr: $(cat "$ERRF")"; fi
+
+t "exactly 12 characters is accepted"
+r="$(pnp '123456789012\n123456789012\n')"
+if [ "$r" = "0|123456789012" ] && ! grep -q 'at least' "$ERRF"; then ok; else bad "got $(printf '%q' "$r"), stderr: $(cat "$ERRF")"; fi
+
+echo "check_flag_password() — --password length (DUPLOAI-5693):"
+# Runs the real function from run.sh; prints its exit status and leaves stderr in $ERRF.
+cfp() { # flag_pw saved_pw
+  ( eval "$(grep '^ADMIN_PW_MIN_LEN=' run.sh; awk '/^check_flag_password\(\) \{/,/^}/' run.sh)"
+    check_flag_password "$1" "$2" ) 2>"$ERRF"; echo "$?"
+}
+
+t "a short --password with no saved password is refused"
+r="$(cfp 'Short123' '')"
+if [ "$r" = 1 ] && grep -q 'at least 12 characters' "$ERRF"; then ok; else bad "rc=$r stderr: $(cat "$ERRF")"; fi
+
+t "11 characters with no saved password is refused"
+r="$(cfp '12345678901' '')"
+if [ "$r" = 1 ]; then ok; else bad "rc=$r"; fi
+
+t "exactly 12 characters with no saved password is accepted"
+r="$(cfp '123456789012' '')"
+if [ "$r" = 0 ] && [ ! -s "$ERRF" ]; then ok; else bad "rc=$r stderr: $(cat "$ERRF")"; fi
+
+t "a short --password is accepted when a password is already saved"
+r="$(cfp 'Short123' 'Short123')"
+if [ "$r" = 0 ] && [ ! -s "$ERRF" ]; then ok; else bad "rc=$r stderr: $(cat "$ERRF")"; fi
+
+t "no --password is accepted (the prompt handles it)"
+r="$(cfp '' '')"
+if [ "$r" = 0 ]; then ok; else bad "rc=$r"; fi
+
+# The check must run before anything that tears the stack down or contacts the license server, or a
+# short password is only refused after --reset wiped the DB and the license request went out.
+CALL='check_flag_password "$F_PASSWORD" "$PF_SAVED_PW" || exit 1'
+t "run.sh calls check_flag_password with --reset counted as no saved password"
+if grep -qxF 'PF_SAVED_PW=""; [ "$RESET" = 1 ] || PF_SAVED_PW="$(getenv Authentication__LocalAdminPassword)"' run.sh \
+   && grep -qxF "$CALL" run.sh; then ok; else bad "pre-flight call missing"; fi
+
+t "the check runs before --reset's teardown and the license request"
+call_ln="$(grep -nxF "$CALL" run.sh | head -1 | cut -d: -f1)"
+reset_ln="$(grep -nxF 'if [ "$RESET" = 1 ]; then' run.sh | head -1 | cut -d: -f1)"
+lic_ln="$(grep -n 'BEGIN LICENSE BLOCK' run.sh | head -1 | cut -d: -f1)"
+if [ -n "$call_ln" ] && [ -n "$reset_ln" ] && [ -n "$lic_ln" ] \
+   && [ "$call_ln" -lt "$reset_ln" ] && [ "$call_ln" -lt "$lic_ln" ]; then ok
+else bad "call=$call_ln reset=$reset_ln license=$lic_ln"; fi
+
 echo; echo "$PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

@@ -5,19 +5,23 @@
     The build skill:
       1. GET  {host}/v1/aiservicedesk/extensions/sdk-version  -> -p:DuploSdkVersion=<value>
       2. GET  {host}/v1/aiservicedesk/extensions/sdk-bundle   -> unzip into ./sdk-packages
-      3. dotnet publish -c Release -o <dist>/backend  (restores SDK from ./sdk-packages via nuget.config)
+      3. dotnet restore, then dotnet publish without a restore of its own, -c Release -o <dist>/backend, both
+         with -p:TargetFramework picked from that version (restores SDK from ./sdk-packages via nuget.config)
     The SDK is referenced compile-only (ExcludeAssets="runtime") and exact-pinned to the running host
     version, so the extension ships only its own DLL + genuinely third-party deps and shares the host's
     SDK type identity at load time (ExtensionLoadContext resolves SDK assemblies from the host).
   -->
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseAppHost>false</UseAppHost>
     <IsPackable>false</IsPackable>
     <!-- Overridden by the build skill: -p:DuploSdkVersion=<value from sdk-version> -->
     <DuploSdkVersion Condition="'$(DuploSdkVersion)' == ''">1.0.0</DuploSdkVersion>
+    <!-- The framework follows the SDK version: 1.0.x and 1.1.x ship net8.0 assemblies, 1.2.0 and later only net10.0.
+         build-extension.sh passes TargetFramework by the same rule; this is what an IDE or a plain publish gets. -->
+    <TargetFramework Condition="$([MSBuild]::VersionLessThan('$(DuploSdkVersion)', '1.2.0'))">net8.0</TargetFramework>
+    <TargetFramework Condition="'$(TargetFramework)' == ''">net10.0</TargetFramework>
   </PropertyGroup>
 
   <ItemGroup>
@@ -26,10 +30,9 @@
 
   <ItemGroup>
     <PackageReference Include="Duplocloud.AiHelpdesk.Sdk" Version="[$(DuploSdkVersion)]" ExcludeAssets="runtime" />
-    <!-- EnrichResultAsync's live-subnet read (DescribeSubnets). Compile-only: the host's SDK closure
-         already ships AWSSDK.EC2 (it backs AwsHostOperations — see reference/10-sdk-api.md gotchas),
-         so the extension must NOT bundle a second copy. -->
-    <PackageReference Include="AWSSDK.EC2" Version="4.0.116" ExcludeAssets="runtime" />
+    <!-- EnrichResultAsync's live-subnet read (DescribeSubnets) compiles against the AWSSDK.EC2 the SDK package
+         already brings (it backs AwsHostOperations — see reference/10-sdk-api.md gotchas), and the host provides
+         it at run time. A pin of its own here fell behind the SDK's and failed restore with NU1605. -->
   </ItemGroup>
 
 </Project>

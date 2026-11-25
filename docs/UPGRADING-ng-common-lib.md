@@ -1,7 +1,8 @@
 # Upgrading an extension's UI library: the vendored `@duplocloud-internal/ng-common-lib` tarball
 
 For extensions built from this dev-kit (or from the `duplo-extension-dev` skill template) that vendor the UI
-library as a tarball. The current line is 0.4.0 (Angular 22); the notes below contrast it with the 0.1.x line.
+library as a tarball. The current line is 0.8.0 (Angular 22); [What changed in 0.5.1](#what-changed-in-051) covers
+the dark theme, and the notes after it contrast the 0.2.x line with 0.1.x.
 
 > **This is not a drop-in upgrade.** 0.2.0 is compiled against **Angular 22** and ships as ESM
 > (`fesm2022`, `"type": "module"`); its peer range is `@angular/core@^22.1.0`. It is meant to be consumed by
@@ -19,6 +20,77 @@ If your extension is already an Angular 22 Native-Federation remote (it has `fro
 and no `frontend/webpack.config.js`), the steps below are all you need.
 
 ---
+
+## What changed in 0.8.0
+
+- **Connections kit.** An agent's admin setup page can create a provider, a credential and a scope together,
+  without Admin → Providers. Three levels, each built from the one below:
+  1. `<duplo-connection-field>` (`ConnectionFieldComponent`) — the ready flow; the default.
+  2. `<duplo-provider-picker>`, `<duplo-credential-form>`, `<duplo-scope-picker>` (`ProviderPickerComponent`,
+     `CredentialFormComponent`, `ScopePickerComponent`) — parts for your own steps.
+  3. `ConnectionsService` — functions, no UI; failures are a `ConnectionError`.
+- New types and helpers: `ConnectionTypeDefinition`, `ConnectionCredentialSchema`, `ConnectionField`,
+  `ConnectionVariant`, `ConnectionResult`, `ConnectionOption`, `ConnectionProvider`, `ConnectionScope`,
+  `ConnectRequest` and `ConnectionError`.
+- Usage, inputs and outputs:
+  [20-ui-library](../.claude/skills/duplo-extension-dev/reference/20-ui-library.md#connections-the-setup-kit).
+  Shared provider types: [07-scope-credentials](../.claude/skills/duplo-extension-dev/reference/07-scope-credentials.md#shared-provider-types).
+- `<duplo-connection-field>` takes `alsoTypes` (default none): connections of those provider types are listed beside
+  the main type, for providers admins made by hand
+  ([07](../.claude/skills/duplo-extension-dev/reference/07-scope-credentials.md#connections-made-by-hand)).
+- Nothing was removed. Nothing to change in an existing extension; add a setup page when you next touch it.
+
+## What changed in 0.7.x
+
+- No change an extension needs to act on. Nothing was removed.
+
+## What changed in 0.6.x
+
+- **0.6.0** adds the Kubernetes explorer: `K8sExplorerComponent` (`<app-k8s-explorer [scopeId]>`),
+  `K8sStatePanelComponent`, `UserK8sExplorerDataSource`, `AdminK8sExplorerDataSource`, the kind registry
+  (`K8S_KIND_LIST`, `K8S_KIND_REGISTRY`, `getK8sKind`, …) and the `K8s*` types. It needs the xterm stylesheet served at
+  `assets/css/xterm/xterm.css` (library README, section 7).
+- Smaller additions: the `SILENT_403` request-context token (the error interceptor skips its "Access denied" toast
+  for that request), `StringUtils.pluralize`, `minRows` and `fill` inputs on `<app-xterm-socket>`, and
+  `scss/_dots-loader.scss`.
+- Nothing was removed. Nothing to change in an existing extension.
+
+## What changed in 0.5.3
+
+- **Terminal tokens.** The token defaults add `--terminal-bg` / `--terminal-fg` (near-black with light grey text in
+  both modes, matching the portal's chat command blocks), so they now cover 22 tokens. Use them through
+  `$g-terminal-bg` / `$g-terminal-fg`, or `commandBlockTheme()` for an xterm.
+- The dark `--success-text`, `--danger-text` and `--warning-text` defaults now match the portal's values.
+- Nothing to change in an existing extension.
+
+## What changed in 0.5.2
+
+- `"sideEffects"` now names the library file, so a bundler cannot drop the token-defaults call even when
+  an extension imports nothing from the library. Nothing to change in the extension.
+
+## What changed in 0.5.1
+
+- **Dark theme.** Components follow the portal's Light / Dark switch through theme tokens (`--surface`,
+  `--primary-text`, `--border-color`, …) instead of fixed white backgrounds. Editors and charts follow it through
+  `withMonacoTheme`, `CodeMirrorThemeService`, `EchartsThemeService` and `xtermTheme`.
+- **Token defaults.** When the library loads it adds one `<style id="duplo-theme-defaults">` with
+  zero-specificity defaults (`:where(:root)` and `:where(:root[data-theme='dark'])`) for the 20 tokens the dark
+  theme added. The portal's own values always win; on a portal that predates the dark theme the defaults keep the
+  extension's look unchanged. Check a build with `grep -rl duplo-theme-defaults dist`.
+- **Why upgrade:** an older bundled copy repaints the portal's tables white in dark mode while the extension's page
+  is open, because its datatable styles are global.
+- Extension styles move to the `$g-*` theme names — see [theming.md](theming.md) and the
+  `duplo-extension-theme-migration` skill. Steps 1–5 below apply unchanged with the 0.5.3 tarball.
+
+## What changed in 0.4.x
+
+- **0.4.0** adds `AiDisclosureComponent` (`<app-ai-disclosure>`), `IamRoleHelpComponent` (`<app-iam-role-help>`),
+  the `aiLabelConfig` pipe (`AILabelConfigPipe`) and the config helpers in `utils/ui-config`
+  (`getUiConfig`, `brandTitle`, `brandText`, `resolveLabel`, `docsLink`, …), for the whitelabelled portal.
+- `AI_SUITE_LABEL_CONFIG` is marked deprecated; labels now come from the portal's `config.json` through `resolveLabel()`.
+- Behaviour change: the help-tooltip URL comes from `links.helpTextJson` in the portal's `config.json`. The library
+  default is the public help JSON; set it to `null` to skip the fetch (tooltips stay empty).
+- Nothing was removed. Nothing to change in an existing extension.
 
 ## What changed in 0.2.0
 
@@ -55,7 +127,7 @@ Either pack it from the platform UI repo:
 
 ```bash
 cd duplo-ui/portal && npm install && npm run pack:common-lib
-# → duplocloud-internal-ng-common-lib-0.2.0.tgz
+# → duplocloud-internal-ng-common-lib-0.8.0.tgz
 ```
 
 `pack:common-lib` builds both libraries, bundles the `ng-block-ui` fork into the package, and packs the
@@ -64,13 +136,13 @@ tarball in one step.
 Or pull the published one from GitHub Packages (needs a `read:packages` token):
 
 ```bash
-npm pack @duplocloud-internal/ng-common-lib@0.2.0
+npm pack @duplocloud-internal/ng-common-lib@0.8.0
 ```
 
 ### 2. Swap the vendored tarball
 
 **In this repo**, two vendoring schemes coexist — refresh both, or use
-`./scripts/refresh-common-lib.sh /path/to/duplocloud-internal-ng-common-lib-0.2.0.tgz` to do it in one shot.
+`./scripts/refresh-common-lib.sh /path/to/duplocloud-internal-ng-common-lib-0.8.0.tgz` to do it in one shot.
 The script drops the tarball into both locations, deletes the old one from each, and rewrites the `file:`
 dependency in every `package.json` that references it.
 
@@ -78,7 +150,7 @@ dependency in every `package.json` that references it.
   path is safe):
 
   ```bash
-  cp /path/to/duplocloud-internal-ng-common-lib-0.2.0.tgz packages/
+  cp /path/to/duplocloud-internal-ng-common-lib-0.8.0.tgz packages/
   rm packages/duplocloud-internal-ng-common-lib-<old-ver>.tgz
   ```
 
@@ -86,7 +158,7 @@ dependency in every `package.json` that references it.
 
   ```diff
   -    "@duplocloud-internal/ng-common-lib": "file:../../../packages/duplocloud-internal-ng-common-lib-<old-ver>.tgz",
-  +    "@duplocloud-internal/ng-common-lib": "file:../../../packages/duplocloud-internal-ng-common-lib-0.2.0.tgz",
+  +    "@duplocloud-internal/ng-common-lib": "file:../../../packages/duplocloud-internal-ng-common-lib-0.8.0.tgz",
   ```
 
 - **The `duplo-extension-dev` skill template** keeps its own copy at
@@ -95,7 +167,7 @@ dependency in every `package.json` that references it.
   must stay self-contained:
 
   ```bash
-  cp /path/to/duplocloud-internal-ng-common-lib-0.2.0.tgz \
+  cp /path/to/duplocloud-internal-ng-common-lib-0.8.0.tgz \
     .claude/skills/duplo-extension-dev/templates/helloworld/frontend/vendor/
   rm .claude/skills/duplo-extension-dev/templates/helloworld/frontend/vendor/duplocloud-internal-ng-common-lib-<old-ver>.tgz
   ```
@@ -120,8 +192,8 @@ grep -n "ng-common-lib" package-lock.json
 ```
 
 Both the `dependencies` entry and the `node_modules/@duplocloud-internal/ng-common-lib` entry should read
-`file:../../../packages/duplocloud-internal-ng-common-lib-0.2.0.tgz`, with `"version": "0.2.0"` and integrity
-`sha512-/69ZgZvvSNMoGO2GQnySpW7Upfd9zVmtNqFWTa/2oQHWcIIJ+M8JdBiv3jfeyk3kG6SfZHvdPD8OylfFLnjRng==`. The entry
+`file:../../../packages/duplocloud-internal-ng-common-lib-0.8.0.tgz`, with `"version": "0.8.0"` and integrity
+`sha512-e84HQXsKl1/NIUn318GDpop10ypAnZWRENsA9UEHYuYCiBqZ+x72FM4qZeBFoOT5n5uvnGL0oMv3TIKcWhMepA==`. The entry
 also carries `"bundleDependencies": ["ng-block-ui"]`.
 
 ### 4. Install and build

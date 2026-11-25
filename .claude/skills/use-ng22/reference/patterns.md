@@ -260,8 +260,8 @@ The platform's `form-field`, `validation-state`, `validation-errors`, `form-grou
 are `NgModel`-based. Use them, or the form stops matching the suite.
 
 ### 8.2 Signals + `NgModel` together ✅
-`[(ngModel)]="sig"` is **broken** — it compiles to `sig = $event`, which cannot assign to a signal.
-Bind one-way and write explicitly:
+`[(ngModel)]="sig"` works on a `WritableSignal` (Angular 17.2+ calls `sig.set($event)`). The explicit pair
+below is equivalent and makes the write visible:
 ```html
 <input name="firstName" [ngModel]="firstName()" (ngModelChange)="firstName.set($event)"
        required validation-state validation-errors />
@@ -387,7 +387,6 @@ directly at `node_modules/@angular/core/resources/best-practices.md`).
 | omit `changeDetection` **and** assign plain fields | `signal()` | silent no-repaint; the bug this catalogue exists for |
 | `changeDetection: Eager` in new code | omit it, use signals | shim for bulk migrations only |
 | getter used in a template | `computed()` | re-runs every check |
-| `[(ngModel)]="sig"` | `[ngModel]="sig()" (ngModelChange)="sig.set($event)"` | cannot assign to a signal |
 | `constructor(private x: X)` | `inject(X)` | |
 | `@ViewChild` + `AfterViewInit` | `viewChild()` signal | no lifecycle sequencing |
 | `*ngIf` / `*ngFor` | `@if` / `@for … track` | |

@@ -47,8 +47,11 @@ unzip -o /tmp/sdk.zip -d backend/sdk-packages
 # 2. Backend DLL. The SDK is compile-only, but publish still copies its whole transitive closure
 #    (Mongo/AWS/AspNetCore + native runtimes/) into dist/backend — the host already has all of it, so only
 #    this extension's own dll belongs in the bundle (step 4). Or just run scripts/build-extension.sh, which
-#    trims automatically.
-( cd backend && dotnet publish Duplo.Extension.HelloWorld.csproj -c Release -o ../dist/backend -p:DuploSdkVersion="$SDK_VER" )
+#    trims automatically. SDK 1.2.0 and later need a net10.0 build, older ones net8.0; the framework goes in as
+#    a property, and restore runs first because publish's own restore does not see it.
+case "$SDK_VER" in 0.*|1.0.*|1.1.*) TFM=net8.0 ;; *) TFM=net10.0 ;; esac
+( cd backend && dotnet restore Duplo.Extension.HelloWorld.csproj -p:TargetFramework="$TFM" -p:DuploSdkVersion="$SDK_VER" \
+    && dotnet publish Duplo.Extension.HelloWorld.csproj --no-restore -c Release -o ../dist/backend -p:TargetFramework="$TFM" -p:DuploSdkVersion="$SDK_VER" )
 
 # 3. Frontend remote — uses the platform UI lib @duplocloud-internal/ng-common-lib from the vendored
 #    tarball (frontend/vendor/*.tgz, referenced via file: in package.json), so NO token is needed.

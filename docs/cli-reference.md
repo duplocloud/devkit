@@ -21,8 +21,8 @@ it is safe and silent.
 ./run.sh --email you@yourcompany.com --password 'pw' --model anthropic --anthropic-key sk-ant-...
 ./run.sh --model bedrock --aws-access-key-id AKIA... --aws-secret-access-key ... [--aws-session-token ...] [--aws-region us-west-2]
 ./run.sh --model bedrock-instance-role [--aws-region us-east-1]
-./run.sh --model gateway --gateway-url https://openrouter.ai/api --gateway-token sk-or-... [--gateway-model anthropic/claude-sonnet-5]
-./run.sh --model subscription --subscription-token sk-ant-oat01-... [--subscription-model claude-sonnet-5]
+./run.sh --model gateway --gateway-url https://openrouter.ai/api --gateway-token sk-or-... [--gateway-model anthropic/claude-sonnet-5-5]
+./run.sh --model subscription --subscription-token sk-ant-oat01-... [--subscription-model claude-sonnet-5-5]
 ```
 
 `--anthropic-key` and the `--aws-*` keys can instead come from the environment (`ANTHROPIC_API_KEY`,
@@ -39,14 +39,14 @@ On an EC2 host the provider prompt first probes whether the instance role can ac
 | `--license <jwt>` | Use a license JWT you already have. No licensing call is made. |
 | `--non-interactive`, `-y` | Never prompt. A missing required value is an error instead: `Missing <KEY> — pass its flag (non-interactive).` |
 | `--email <addr>` | Admin email (your UI login, and the address the license is issued to). Work or personal addresses both work; privacy-relay and disposable domains are rejected by the license server. |
-| `--password <pw>` | Admin password. |
+| `--password <pw>` | Admin password. On a fresh install (no password saved in `.env` yet) it must be at least 12 characters, the portal's password policy; an already-saved password is taken as-is (`--reset` discards it, so the minimum applies again). A short one is refused up front, before `--reset` tears anything down or a license is requested. |
 | `--model <1\|2\|3\|4\|5\|anthropic\|bedrock\|gateway\|bedrock-instance-role\|subscription>` | LLM provider. `1` is anthropic, `2` is bedrock, `3` is gateway, `4` is bedrock-instance-role, `5` is subscription. Option `4` is only offered at the prompt when the probe proves the role can invoke Bedrock, but `--model bedrock-instance-role` can be passed directly — it then probes and **fails** rather than falling back, since you asked for it explicitly. |
 | `--anthropic-key <key>` | Anthropic API key. |
 | `--subscription-token <token>` | `subscription` only. A long-lived Claude Code token, minted with `claude setup-token` on your own machine — it opens a browser, so it cannot be done from inside the dev kit. Expect `sk-ant-oat01-…`; an `sk-ant-api…` key pasted here is caught with a note, since it would otherwise be sent as a bearer token and fail with a puzzling 401. |
-| `--subscription-model <id>` | `subscription` only. A **bare** first-party model id (`claude-sonnet-5`, `claude-opus-5`). Defaults to `claude-sonnet-5`. A `us.anthropic.*` inference-profile id left over from a Bedrock run is rejected by the first-party API, so it is swapped for the default with a note rather than failing. |
+| `--subscription-model <id>` | `subscription` only. A **bare** first-party model id (`claude-sonnet-5-5`, `claude-opus-5-5`). Defaults to `claude-sonnet-5-5`. A `us.anthropic.*` inference-profile id left over from a Bedrock run is rejected by the first-party API, so it is swapped for the default with a note rather than failing. |
 | `--gateway-url <url>` | `gateway` only. Base URL of an Anthropic-compatible LLM gateway — OpenRouter (`https://openrouter.ai/api`), a Bifrost running on this machine (`http://host.docker.internal:8080` — the agent runs in a container, so `localhost` would be the container itself), LiteLLM, Snowflake Cortex. Without `/v1/messages`; a trailing slash is stripped. Must start with `http://` or `https://`. |
 | `--gateway-token <token>` | `gateway` only. The API key / bearer token the gateway expects. Optional: omit for an unauthenticated gateway. Pass `none` to blank a token saved from an earlier run. |
-| `--gateway-model <id>` | `gateway` only. The model name **as the gateway lists it** (OpenRouter: `anthropic/claude-sonnet-5`; a pass-through gateway usually takes the plain `claude-sonnet-5`). Defaults to `claude-sonnet-5`. |
+| `--gateway-model <id>` | `gateway` only. The model name **as the gateway lists it** (OpenRouter: `anthropic/claude-sonnet-5-5`; a pass-through gateway usually takes the plain `claude-sonnet-5-5`). Defaults to `claude-sonnet-5-5`. A `.env` still holding the previous default (`claude-sonnet-5`, exactly) is moved to it with a note when the flag is not passed; any other value, including a gateway's own name such as `anthropic/claude-sonnet-5`, is kept. |
 | `--gateway-max-context-tokens <n>` | `gateway` only, never prompted. Overrides `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, which `gateway` sets to **262144** by default (a gateway usually serves model ids the Claude CLI doesn't recognise, and those have no known context window). |
 | `--gateway-compact-window <n>` | `gateway` only, never prompted. Overrides `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, default **200000**. Keep it below the max-context value. |
 | `--gateway-disable-betas <0\|1>` | `gateway` only, never prompted, unset by default. Sets `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` — needed for Snowflake Cortex. See [configuration](configuration.md#llm-provider). |
@@ -70,9 +70,16 @@ On an EC2 host the provider prompt first probes whether the instance role can ac
 5. Obtains a license for that address if `Licensing__Token` is empty — see
    [configuration.md § Licensing](configuration.md#licensing). This is where a run can wait on you: the
    license server emails the address a link, and the run polls for up to 2 minutes after it is clicked.
-6. Resolves password and LLM provider: flag, then `.env`, then prompt.
-7. Generates `Encryption__MasterKey` and `Authentication__JwtSharedSecret` once, if unset.
-8. `docker compose pull`, then `docker compose up -d`.
+6. Resolves password and LLM provider: flag, then `.env`, then prompt. A prompted password is asked
+   twice and must match (and be non-empty); a `--password` flag or `.env` value is used as-is.
+7. Generates `Encryption__MasterKey`, `Authentication__JwtSharedSecret` and `Agent__ApiAuthToken` once, if unset.
+8. `docker compose pull`, then settles `MONGO_ROOT_PASSWORD`, generated once if unset. A data volume initialised
+   before the mongo key existed still answers to the old fixed password, so the run starts mongo alone, waits for it to
+   answer, changes the root password to the generated value, and writes it to `.env` only once the database has taken
+   it. A run that stops between the two steps finishes the rotation next time with the same value. A database that
+   answers to neither password stops the run and names `--reset`. This sits after the pull and every prompt so a
+   studio still running from before the upgrade keeps a working password until the next step recreates it.
+   Then `docker compose up -d`.
 9. Waits up to ~4.5 minutes for the studio to answer on `/healthz` — an anonymous route, because this
    happens before the admin token exists.
 10. Mints a permanent admin API token into `DUPLO_ADMIN_TOKEN`, revoking its own prior `dev-kit-admin`
@@ -88,8 +95,13 @@ On an EC2 host the provider prompt first probes whether the instance role can ac
 16. Configures the Knowledge Base (`scripts/register-qdrant.sh`): registers the local Qdrant as a provider,
     makes it selectable from the `extension-dev` workspace, and creates the empty `devkit-docs` collection.
     Never fatal — a Knowledge Base that did not configure does not stop the platform coming up.
+17. Installs the default extensions listed by manifest id in `run.sh`'s `DEVKIT_EXTENSIONS` from the extension
+    registry (`scripts/install-extensions.sh`), today Cloud Setup (`com.duplocloud.cloud-setup`): refreshes the registry catalog,
+    installs the version the installer offers, and waits for the installer to finish (up to
+    `EXT_INSTALL_TIMEOUT`, default 300 seconds, per extension). An id the catalog doesn't list, or offers no
+    version of, is skipped. Never fatal — an extension that did not install does not stop the platform coming up.
 
-Steps 10–16 are each idempotent and skipped when already satisfied. So is step 5: a license already in
+Steps 10–17 are each idempotent and skipped when already satisfied. So is step 5: a license already in
 `.env` is used as-is, and a run that was interrupted mid-verification resumes from the request id it saved.
 
 ## `stop.sh`
@@ -129,7 +141,7 @@ combine.
 `--reset` blanks these keys, then sets up fresh: `Authentication__LocalAdminEmail`,
 `Authentication__LocalAdminPassword`, `Authentication__SuperUsers`, `DEVKIT_MODEL`, `ANTHROPIC_API_KEY`,
 `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `Encryption__MasterKey`,
-`Authentication__JwtSharedSecret`, `DUPLO_ADMIN_TOKEN`, `EXTENSION_DEV_WORKSPACE_ID`,
+`Authentication__JwtSharedSecret`, `MONGO_ROOT_PASSWORD`, `Agent__ApiAuthToken`, `DUPLO_ADMIN_TOKEN`, `EXTENSION_DEV_WORKSPACE_ID`,
 `EXTENSION_DEV_PERMSET_ID`, `EXTENSION_DEV_PERMSETGROUP_ID`, `QDRANT_PROVIDER_ID`, `QDRANT_SCOPE_ID`,
 `QDRANT_COLLECTION_ID`.
 
@@ -164,11 +176,12 @@ Your `extensions/` directory is **never** touched by any of these — it is only
 
 | Script | What it does |
 | --- | --- |
-| `build-extension.sh <extension-dir>` | Validate naming, fetch the host SDK, `dotnet publish`, `npm build`, and zip to `<dir>/dist/extension.zip`. |
+| `build-extension.sh <extension-dir>` | Validate naming, fetch the host SDK, `dotnet publish`, `npm build`, and zip to `<dir>/dist/extension.zip`. With `DUPLO_SDK_VERSIONS` set to a list of versions, one per line, it restores each of those SDK versions from the package feed instead, with no host, and writes one `<dir>/dist/sdk-<v>/extension.zip` per version. |
 | `build-all.sh` | Build every `extensions/<name>/manifest.json` in the repo. What CI runs. |
 | `deploy-extension.sh <path-to-extension.zip>` | Hot-load one bundle onto the platform — no restart. |
-| `deploy-all.sh` | Hot-load every built bundle. Run after `build-all.sh`. |
+| `deploy-all.sh` | Hot-load every built bundle. Run after `build-all.sh`. For an extension built with `DUPLO_SDK_VERSIONS`, it reads the host's SDK version and loads the one `dist/sdk-<v>/extension.zip` stamped with it, since the host loads only a bundle whose `sdkVersion` equals its own, and fails the run when no built version matches. |
 | `remove-extension.sh <extension-id>` | Unload and delete a loaded extension by its manifest id, e.g. `com.duplocloud.helloworld`. |
+| `install-extensions.sh <manifest-id> [...]` | Install extensions from the extension registry by manifest id, e.g. `com.duplocloud.cloud-setup` — never an agent UUID or the catalog's display id. Refreshes the registry catalog and uses that reply as the catalog (a failed refresh only warns, then reads the cached one), and matches on the manifest id: an id it doesn't list, this license doesn't cover, or the installer offers no version of is skipped, as is one an admin pinned or the installer is still installing. Otherwise it installs the build the installer's mark offers, with `pin: false` — the installer takes no other version without a pin, so there is no `@<version>`. An extension whose catalog row already shows the offered version as its `installedVersion` is left alone, so no per-extension `/versions` call is needed. The installer works in the background — 202, or 200 when a request was already pending — so the script then polls the catalog's `requests[]` until that request is `done`, or reports `failed` / `backed-out` with the installer's reason (e.g. `not-entitled`, when the license doesn't list the extension). Right after startup the installer's first pass can fail (the studio isn't answering yet) and it offers nothing until it retries about a minute later, so while the catalog's `installer` block shows no good pass yet, the script re-reads the catalog for up to `EXT_CATALOG_WAIT` seconds (default 120) before deciding; an id still without an offer after that is an error to re-run, not a license skip. `EXT_INSTALL_TIMEOUT` (default 300) bounds the wait per extension and `EXT_INSTALL_POLL` (default 5) sets the interval, both in seconds. A catalog whose license state isn't `ok` is an error. Exits 1 if any id failed or timed out; the others are still processed. `run.sh` calls it with `DEVKIT_EXTENSIONS`. |
 
 `build-extension.sh` refuses to build an extension whose naming is wrong — REST segments must start with
 `extensions/`, Mongo collections must be prefixed `extension_`, and template `Hello`/`hw-` identifiers must
@@ -178,15 +191,20 @@ be renamed. Each violation prints a `✗` line, then:
 ERROR: extension naming validation failed — fix the ✗ items above (reference/00-naming.md).
 ```
 
+With `ARMDOT_LICENSE_FILE_PATH` set to an ArmDot license file and `DUPLO_ARMDOT_DIR` naming a checkout of the
+ArmDot build files from the private `duplocloud-internal/.github`, `build-extension.sh` also obfuscates the
+extension's own assembly and stamps the bundle's manifest with `obfuscation`. See "Obfuscating a build" in
+[releasing-extensions.md](releasing-extensions.md).
+
 ### Platform registration
 
 | Script | What it does |
 | --- | --- |
 | `switch-llm.sh <anthropic\|bedrock\|bedrock-instance-role\|gateway\|subscription\|status>` | Switch the running agent's LLM provider in place — no `--reset`, no DB wipe, no re-licensing. Stashes the outgoing provider's credentials in `.env` as `_STASH_<KEY>=` (restored automatically if you switch back) and blanks the live ones, since the agent picks its provider by precedence and a leftover key would otherwise keep winning. Recreates `claude-code-agent` and re-runs `register-llm.sh`. `status` shows the active provider and which others have a usable stash. Same flags as `run.sh`'s provider arms (`--gateway-url`, `--aws-access-key-id`, etc.) — see `--help`. |
 | `register-agent.sh [workspace-id]` | Register the bundled `claude-code-agent` and attach it to a workspace. Provisioning tickets are assigned from the workspace's agent list, so a resource only provisions once its workspace has an agent. Local stack only. |
-| `register-llm.sh [default-id [extra-id...]]` | Register the models the agent can run on and make them the only System models, with the first as the default — so the ticket LLM picker offers exactly those. Provider-agnostic: defaults to `CLAUDE_MODEL` + `CLAUDE_EXTRA_MODELS`, which `run.sh` sets per provider — bare ids for direct Anthropic (`claude-sonnet-5`, `claude-opus-5`), `us.anthropic.*` inference-profile ids for either Bedrock mode. The two are not interchangeable. `LLM_PROVIDER_LABEL` suffixes the display names. |
+| `register-llm.sh [default-id [extra-id...]]` | Register the models the agent can run on and make them the only System models, with the first as the default — so the ticket LLM picker offers exactly those. Provider-agnostic: defaults to `CLAUDE_MODEL` + `CLAUDE_EXTRA_MODELS`, which `run.sh` sets per provider — bare ids for direct Anthropic (`claude-sonnet-5-5`, `claude-opus-5-5`), `us.anthropic.*` inference-profile ids for either Bedrock mode. The two are not interchangeable. `LLM_PROVIDER_LABEL` suffixes the display names. |
 | `register-qdrant.sh [workspace-id]` | Turn the `qdrant` container into a usable Knowledge Base: register it as a `vectorDatabase` provider, create a `qdrant` scope over it so the provider appears in the ticket scope picker, attach that scope to the workspace, and create an empty `devkit-docs` collection owned by it. The workspace defaults to `EXTENSION_DEV_WORKSPACE_ID`; with none the collection is created admin-managed. The collection provisions asynchronously — it shows Pending, then Ready about a minute later. Uploading documents into it additionally needs AWS Bedrock credentials with access to `cohere.embed-v4`, the seeded embedding model; without them the collection still reaches Ready but every upload fails (see [configuration.md](configuration.md#knowledge-base)). `QDRANT_INTERNAL_URL` overrides the Qdrant URL, which must be compose-network-resolvable (`http://qdrant:6333`) because the studio is what dials it. |
-| `detect-bedrock.sh [model-id] [region]` | Probe whether this host is an EC2 instance whose IAM role can invoke Bedrock. Makes a real 1-token Converse call against the model (default `us.anthropic.claude-sonnet-5`) and separately checks a container can reach IMDS. Needs only `python3` and `curl` — SigV4 is signed with the standard library, no AWS CLI or boto3. Prints `BEDROCK_REGION`, `AWS_ROLE`, `CONTAINER_IMDS` (`ok` / `blocked` / `unknown:<why>`), and `BEDROCK_REASON` as `KEY=value` lines for `run.sh` to consume; safe to run standalone. |
+| `detect-bedrock.sh [model-id] [region]` | Probe whether this host is an EC2 instance whose IAM role can invoke Bedrock. Makes a real 1-token Converse call against the model (default `us.anthropic.claude-sonnet-5-5`) and separately checks a container can reach IMDS. Needs only `python3` and `curl` — SigV4 is signed with the standard library, no AWS CLI or boto3. Prints `BEDROCK_REGION`, `AWS_ROLE`, `CONTAINER_IMDS` (`ok` / `blocked` / `unknown:<why>`), and `BEDROCK_REASON` as `KEY=value` lines for `run.sh` to consume; safe to run standalone. |
 | `setup-google-auth.sh [--force] [--grant --sa <sa-email>]` | One-time setup for keyless GCP scopes. Ensures `gcloud auth application-default login` has run — plain `gcloud auth login` does not write the ADC file the studio reads. |
 | `refresh-common-lib.sh <tarball>` | Refresh the vendored `@duplocloud-internal/ng-common-lib` tarball across every sample and the skill template. See [UPGRADING-ng-common-lib.md](UPGRADING-ng-common-lib.md). |
 
@@ -200,10 +218,14 @@ dev-kit URL used by upgrades. Both are sourced, not run.
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
 | `.github/workflows/extension-ci.yml` | push | Builds `extensions/`. Can hot-load on a manual run. |
-| `.github/workflows/release.yml` | push to `main`, or manual | Builds every extension and cuts a GitHub Release with `extension.zip` attached — but only when `manifest.version` is new and its `<name>-v<version>` tag does not exist. Bumping `manifest.version` is how you publish. The deploy step is intentionally commented out. |
+| `.github/workflows/release.yml` | push to `main`, `dev` or `rc`, or manual | Releases every extension through `duplocloud/actions/release-extension`: builds each one, cuts a GitHub Release per build tagged `<name>-v<version>-sdk-<sdkVersion>`, uploads it and registers it with the console as an unpublished version. `main` releases to the prod console; `dev` and `rc` release to the dev console under a channel tag (`<name>-dev-v…`). Bumping `manifest.version` is how you release a new version. It does not hot-load. |
 
-Both need repo secrets `DUPLO_HOST` and `DUPLO_TOKEN`. The build fetches the host SDK feed from
-`DUPLO_HOST`, so it must be reachable from CI — a real platform, not `localhost`.
+Both need repo secrets `DUPLO_HOST` and `DUPLO_TOKEN`. By default the build fetches the host SDK feed from
+`DUPLO_HOST`, so it must be reachable from CI — a real platform, not `localhost`. With the repository variable
+`DUPLO_SDK_VERSIONS` set, `extension-ci.yml` builds one bundle per listed SDK version from the package feed
+and needs the host only to deploy. `release.yml` still needs the host, plus `CONSOLE_API_KEY`, the `CONSOLE_TEAM`
+variable outside DuploCloud's organizations, and the signing, license and role values inside them.
+[Releasing extensions](releasing-extensions.md) has the full list.
 
 It is your repo: commit `extensions/` and push. `dist/`, `node_modules/`, and `backend/sdk-packages/` are
 gitignored, and `.env` is never committed.

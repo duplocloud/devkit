@@ -1,0 +1,103 @@
+{
+  "manifestVersion": "1.0",
+  "id": "duplo.examples.adminsettings",
+  "name": "Admin Settings",
+  "version": "0.3.0",
+
+  "sdkVersion": "REPLACED_BY_SKILL_FROM_sdk-version_ENDPOINT",
+  "backend": {
+    "assemblyDir": "duplo.examples.adminsettings/0.3.0/backend",
+    "entryAssembly": "Duplo.Extension.AdminSettings.dll"
+  },
+
+  "resources": [
+    {
+      "ticketOriginType": "AdminSetting",
+      "restSegment": "extensions/admin-settings",
+      "subType": "admin-setting",
+      "archetype": "typed",
+      "entityType": "Duplo.Extension.AdminSettings.AdminSetting",
+      "specType": "Duplo.Extension.AdminSettings.AdminSettingSpec",
+      "resultType": "Duplo.Extension.AdminSettings.AdminSettingResult",
+      "hooksType": "Duplo.Extension.AdminSettings.AdminSettingHooks",
+      "serviceType": "Duplo.Extension.AdminSettings.AdminSettingService"
+    },
+    {
+      "ticketOriginType": "AdminSettingConsumer",
+      "restSegment": "extensions/admin-setting-consumers",
+      "subType": "admin-setting-consumer",
+      "archetype": "typed",
+      "entityType": "Duplo.Extension.AdminSettings.AdminSettingConsumer",
+      "specType": "Duplo.Extension.AdminSettings.AdminSettingConsumerSpec",
+      "resultType": "Duplo.Extension.AdminSettings.AdminSettingConsumerResult",
+      "hooksType": "Duplo.Extension.AdminSettings.AdminSettingConsumerHooks",
+      "serviceType": "Duplo.Extension.AdminSettings.AdminSettingConsumerService"
+    }
+  ],
+
+  "skills": [
+    { "folder": "duplo.examples.adminsettings/0.3.0/skills/provision-adminsetting", "isBuiltIn": true },
+    { "folder": "duplo.examples.adminsettings/0.3.0/skills/provision-adminsettingconsumer", "isBuiltIn": true }
+  ],
+  "skillMappings": [
+    { "originType": "AdminSetting", "subType": "admin-setting", "skillNames": ["provision-adminsetting"], "timeout": { "provision": 300, "deprovision": 120 } },
+    { "originType": "AdminSettingConsumer", "subType": "admin-setting-consumer", "skillNames": ["provision-adminsettingconsumer"], "timeout": { "provision": 300, "deprovision": 120 } }
+  ],
+
+  "frontend": {
+    "remote": {
+      "remoteName": "duploExtensionAdminSettings",
+      "remoteEntry": "/v1/aiservicedesk/extensions/duplo.examples.adminsettings/fe/remoteEntry.json",
+      "exposedModule": "./Extension",
+      "type": "module"
+    },
+    "menus": [
+      {
+        "id": "duplo.examples.adminsettings-platform-settings",
+        "title": "Platform Settings",
+        "type": "collapsible-section",
+        "matIcon": "cog-outline",
+        "scope": "admin",
+        "children": [
+          {
+            "id": "duplo.examples.adminsettings-platform-settings-admin-settings",
+            "title": "Admin Settings",
+            "type": "item",
+            "matIcon": "tune-variant",
+            "relativeUrl": "extensions/admin-settings",
+            "order": 40
+          }
+        ]
+      },
+      {
+        "id": "duplo.examples.adminsettings-platform-settings-ws",
+        "title": "Platform Settings",
+        "type": "collapsible-section",
+        "matIcon": "cog-outline",
+        "children": [
+          {
+            "id": "duplo.examples.adminsettings-platform-settings-ws-admin-settings",
+            "title": "Admin Settings",
+            "type": "item",
+            "matIcon": "tune-variant",
+            "relativeUrl": "extensions/admin-settings",
+            "order": 40
+          },
+          {
+            "id": "duplo.examples.adminsettings-platform-settings-ws-admin-setting-consumers",
+            "title": "Setting Consumers",
+            "type": "item",
+            "matIcon": "sync",
+            "relativeUrl": "extensions/admin-setting-consumers",
+            "order": 41
+          }
+        ]
+      }
+    ],
+    "routes": [
+      { "path": "extensions/admin-settings", "resourceType": "AdminSetting", "subType": "admin-setting", "scope": "admin" },
+      { "path": "extensions/admin-settings", "resourceType": "AdminSetting", "subType": "admin-setting" },
+      { "path": "extensions/admin-setting-consumers", "resourceType": "AdminSettingConsumer", "subType": "admin-setting-consumer" }
+    ]
+  }
+}
