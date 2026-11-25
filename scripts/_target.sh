@@ -22,3 +22,13 @@ else
   BASE_URL="${DUPLO_BASE:-http://localhost:${_PORT:-60021}}"
   TOKEN="${DUPLO_ADMIN_TOKEN:-$(_envv DUPLO_ADMIN_TOKEN)}"
 fi
+
+# Called by the register-* scripts: they create the agent, LLM models and the System model mapping, which
+# only the local dev-kit stack owns. A remote platform manages its own, so refuse rather than overwrite them.
+# Checks the target, not the URL: an explicit DUPLO_BASE is trusted.
+require_local_target() { # $1 = calling script name
+  [ "$_TARGET" = remote ] || return 0   # same test as the resolver above: anything but "remote" is local
+  echo "$1 configures the local dev-kit stack only, but DUPLO_TARGET resolves to '$_TARGET'." >&2
+  echo "Remote platforms manage their own agents, LLM models and model mappings." >&2
+  exit 1
+}

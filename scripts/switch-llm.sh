@@ -232,7 +232,10 @@ echo "==> Recreating the agent with the new provider…"
 "$RUNTIME" compose up -d claude-code-agent
 
 echo "==> Registering $(getenv CLAUDE_MODEL) ($LLM_DESC) as the System default LLM…"
-if LLM_PROVIDER_LABEL="$LLM_DESC" ./scripts/register-llm.sh; then
+# Local stack only (see run.sh): a remote DUPLO_TARGET/DUPLO_BASE must not redirect the System-mapping rewrite.
+STUDIO_PORT="$(getenv STUDIO_PORT)"
+if DUPLO_TARGET=local DUPLO_BASE="http://localhost:${STUDIO_PORT:-60021}" \
+   LLM_PROVIDER_LABEL="$LLM_DESC" ./scripts/register-llm.sh; then
   case "$TARGET" in
     gateway) echo "✔ agent now on LLM gateway @ $(getenv ANTHROPIC_BASE_URL) (model: $(getenv CLAUDE_MODEL))" ;;
     bedrock-instance-role) echo "✔ agent now on $LLM_DESC @ $(getenv AWS_REGION)" ;;
@@ -240,5 +243,5 @@ if LLM_PROVIDER_LABEL="$LLM_DESC" ./scripts/register-llm.sh; then
     *) echo "✔ agent now on $LLM_DESC (model: $(getenv CLAUDE_MODEL))" ;;
   esac
 else
-  echo "    (LLM registration failed — run ./scripts/register-llm.sh manually)" >&2
+  echo "    (LLM registration failed — run DUPLO_TARGET=local ./scripts/register-llm.sh manually)" >&2
 fi

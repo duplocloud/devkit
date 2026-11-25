@@ -8,8 +8,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # Registers the LOCAL dockerized agent (endpoint http://claude-code-agent:8000, on the compose network).
-# Remote platforms manage their own agents — this is a local-stack tool.
+# Remote platforms manage their own agents — local-only, enforced by require_local_target.
 source "$(dirname "$0")/_target.sh"   # → BASE_URL + TOKEN from .env per DUPLO_TARGET
+require_local_target "$(basename "$0")"
 [ -n "$TOKEN" ] || { echo "No token resolved — set DUPLO_ADMIN_TOKEN (local) or DUPLO_TOKEN (remote) in .env." >&2; exit 1; }
 
 # Idempotent: reuse an existing 'local-agent' instead of creating a duplicate (run.sh calls this every run).
