@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Sourced by scripts/* — resolves BASE_URL + TOKEN from an env file per DUPLO_TARGET (local|remote).
 # Overridable: real env vars win (DUPLO_BASE forces the URL; DUPLO_TARGET/DUPLO_HOST/DUPLO_TOKEN/
 # DUPLO_ADMIN_TOKEN may all come straight from the environment — e.g. CI secrets — with no file at all).
