@@ -16,7 +16,7 @@
 # (stdlib SigV4) — the probe is a real Converse call with maxTokens=1, so it proves *invoke*
 # permission rather than just the presence of a role.
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 # shellcheck source=scripts/_runtime.sh
 . ./scripts/_runtime.sh          # → $RUNTIME (docker | podman)
 

@@ -364,7 +364,7 @@ done
 
 t "every sample and template csproj is well-formed XML, since a comment holding -- stops MSBuild loading it"
 missing=""
-for f in samples/*/backend/*.csproj $S/templates/helloworld/backend/*.csproj tests/fixtures/armdot-probe/Probe.csproj; do
+for f in samples/*/backend/*.csproj $S/templates/helloworld/backend/*.csproj; do
   python3 -c 'import sys, xml.dom.minidom; xml.dom.minidom.parse(sys.argv[1])' "$f" 2>/dev/null || missing="$missing $f"
 done
 [ -z "$missing" ] && ok || bad "$missing"

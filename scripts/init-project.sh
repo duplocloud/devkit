@@ -62,7 +62,8 @@ if [ ! -d extensions ] || [ -z "$(ls -A extensions 2>/dev/null)" ]; then
 fi
 
 # 2. Change git ownership to the user's repo (records .devkit-version + commits the seeded extension).
-"$(dirname "$0")/change_git_owner.sh" "$REMOTE" $([ "$KEEP_HISTORY" = 1 ] && echo --keep-history)
+OWNER_ARGS=("$REMOTE"); [ "$KEEP_HISTORY" = 1 ] && OWNER_ARGS+=(--keep-history)
+"$(dirname "$0")/change_git_owner.sh" "${OWNER_ARGS[@]}"
 
 echo "==> Done. This repo is now yours."
 echo "    • author your extension in $DEST  (or run /duplo-extension in Claude Code)"
