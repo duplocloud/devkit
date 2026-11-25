@@ -84,7 +84,7 @@ resolve() { # flagval envkey prompt secret?
   local cur="$1" envkey="$2" prompt="$3" secret="${4-}"
   [ -z "$cur" ] && cur="$(getenv "$envkey")"
   while [ -z "$cur" ]; do
-    [ "$NONINTERACTIVE" = 1 ] && { echo "Missing $envkey — pass it as a flag (non-interactive)." >&2; exit 1; }
+    [ "$NONINTERACTIVE" = 1 ] && { echo "Missing $envkey — pass it as a flag$(env_hint "$envkey") (non-interactive)." >&2; exit 1; }
     if [ "$secret" = secret ]; then read -rs -p "$prompt: " cur; echo >&2; else read -r -p "$prompt: " cur; fi
   done
   printf '%s' "$cur"
@@ -238,6 +238,9 @@ setenv DEVKIT_MODEL "$TARGET"
 
 if ! runtime_compose_running_services | grep -qx claude-code-agent; then
   echo "==> Agent container isn't running — .env is updated; start the stack with ./run.sh to apply it." >&2
+  if [ ${#ENV_TAKEN[@]} -gt 0 ]; then
+    echo "    ${ENV_TAKEN[*]} came from the environment and were not saved: export them again for ./run.sh." >&2
+  fi
   exit 0
 fi
 

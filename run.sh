@@ -854,7 +854,7 @@ resolve() { # flagval envkey label [secret]
   local cur="$1" envkey="$2" label="$3" secret="${4-}"
   [ -z "$cur" ] && cur="$(getenv "$envkey")"
   if [ -z "$cur" ]; then
-    [ "$NONINTERACTIVE" = 1 ] && { echo "Missing $envkey — pass its flag (non-interactive)." >&2; exit 1; }
+    [ "$NONINTERACTIVE" = 1 ] && { echo "Missing $envkey — pass its flag$(env_hint "$envkey") (non-interactive)." >&2; exit 1; }
     prompt cur "$label" "$secret"
   fi
   printf '%s' "$cur"

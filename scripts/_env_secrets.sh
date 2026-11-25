@@ -25,6 +25,10 @@ env_supplied() { # flagval envkey -> 0 when envkey should come from the environm
   [ -z "$1" ] && [ -z "$(getenv "$2")" ] && [ -n "${!2:-}" ]
 }
 
+env_hint() { # envkey -> " or export it" when envkey can come from the environment, for missing-value errors
+  case "$1" in ANTHROPIC_API_KEY|AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY) printf ' or export it' ;; esac
+}
+
 env_take() { # envkey... -> keep these exported values for the agent (not written to .env)
   ENV_TAKEN+=("$@")
 }
@@ -45,15 +49,20 @@ env_take_session_token() { # flagval
 }
 
 # Call right before `compose up`. Unsets every provider key not taken via env_take, so compose falls
-# back to .env for it; names a non-empty one so a shadowed export is not a silent surprise.
+# back to .env for it; names a non-empty one so a shadowed export is not a silent surprise, and says
+# how to clear a stale .env value that won over a fresh export (e.g. rotated session credentials).
 env_isolate() {
-  local k ignored=""
+  local k ignored="" stored=""
   for k in "${PROVIDER_ENV_KEYS[@]}"; do
     env_taken "$k" && continue
     [ -n "${!k+x}" ] || continue
-    [ -n "${!k}" ] && ignored="$ignored $k"
+    if [ -n "${!k}" ]; then
+      ignored="$ignored $k"
+      [ -n "$(getenv "$k")" ] && stored="$stored $k"
+    fi
     unset "$k"
   done
   [ -z "$ignored" ] || echo "    note: ignoring$ignored exported in your shell — this run uses .env for those."
+  [ -z "$stored" ] || echo "    .env already holds$stored, which wins over the environment; blank it in .env (or ./run.sh --reset) to use the exported value."
   return 0
 }

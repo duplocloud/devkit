@@ -102,6 +102,24 @@ for k in $(grep -oE '(ANTHROPIC_[A-Z_]+|AWS_(ACCESS|SECRET|SESSION)[A-Z_]*|CLAUD
 done
 if [ -z "$miss" ]; then ok; else bad "not isolated:$miss"; fi
 
+t "names a .env value that won over a fresh export, and how to clear it"
+echo "AWS_ACCESS_KEY_ID=stored" > "$ENV"
+out="$(export AWS_ACCESS_KEY_ID=fresh-secret; env_isolate)"
+if printf '%s' "$out" | grep -q '.env already holds AWS_ACCESS_KEY_ID' && printf '%s' "$out" | grep -q -- '--reset' \
+   && ! printf '%s' "$out" | grep -q 'fresh-secret'; then ok; else bad "output: $out"; fi
+
+t "no clear-it hint when .env is empty for the ignored key"
+: > "$ENV"
+out="$(export ANTHROPIC_API_KEY=x; env_isolate)"
+if printf '%s' "$out" | grep -q 'ignoring ANTHROPIC_API_KEY' && ! printf '%s' "$out" | grep -q 'already holds'
+then ok; else bad "output: $out"; fi
+
+echo "env_hint:"
+
+t "missing-value hint offers export only for environment-capable keys"
+if [ "$(env_hint ANTHROPIC_API_KEY)" = " or export it" ] && [ "$(env_hint AWS_SECRET_ACCESS_KEY)" = " or export it" ] \
+   && [ -z "$(env_hint AWS_REGION)" ] && [ -z "$(env_hint EMAIL)" ]; then ok; else bad "env_hint"; fi
+
 echo "wiring:"
 
 t "run.sh and switch-llm.sh source the helper and isolate right before compose up"
@@ -119,6 +137,12 @@ for f in run.sh scripts/switch-llm.sh; do
   grep -A1 'env_supplied "$F_AWS_SECRET" AWS_SECRET_ACCESS_KEY' "$f" | grep -q 'env_take AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY' \
     || miss="$miss $f:bedrock"
 done
+if [ -z "$miss" ]; then ok; else bad "missing:$miss"; fi
+
+t "missing-value errors and the stopped-agent exit mention the environment"
+miss=""
+for f in run.sh scripts/switch-llm.sh; do grep -q 'Missing $envkey.*env_hint "$envkey"' "$f" || miss="$miss $f:hint"; done
+grep -A3 "Agent container isn't running" scripts/switch-llm.sh | grep -q 'export them again' || miss="$miss switch-llm:exit"
 if [ -z "$miss" ]; then ok; else bad "missing:$miss"; fi
 
 t "docs describe the behaviour"

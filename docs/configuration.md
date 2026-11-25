@@ -250,7 +250,11 @@ for that run and **never written to `.env`**; `docker-compose.yml` interpolates 
 environment, so the agent still receives it. Precedence is flag → `.env` → environment → prompt, so a
 value already in `.env` still wins and existing setups are unchanged. For `bedrock`, both keys must come
 from the environment for this to apply; a `--aws-session-token` passed alongside them is used the same way,
-not saved.
+not saved. `AWS_REGION` is not taken from the environment: the region comes from `--aws-region`, then
+`.env`, then the provider's default, and an exported `AWS_REGION` is ignored (the scripts name it).
+
+A value already in `.env` wins even over a newer export, for example rotated session credentials. The
+scripts then name the key; blank it in `.env` (or run `./run.sh --reset`) to use the exported value.
 
 Only the keys the chosen provider takes this way reach the agent. Compose would otherwise pass **any**
 exported provider variable to the agent ahead of `.env` — an exported `ANTHROPIC_API_KEY` would beat Bedrock,
