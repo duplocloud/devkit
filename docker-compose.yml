@@ -104,7 +104,7 @@ services:
   # secret, so no host port is published.
   installer:
     # Defaults to .env.example's pin, so `docker compose up` before run.sh copies INSTALLER_TAG into .env still starts.
-    image: quay.io/duplocloud/helpdesk-installer:${INSTALLER_TAG:-main-52db2327}
+    image: quay.io/duplocloud/helpdesk-installer:${INSTALLER_TAG:-main-3e017eee}
     restart: unless-stopped
     environment:
       - INSTALLER_PLATFORM=compose
