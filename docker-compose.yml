@@ -318,7 +318,7 @@ services:
     # before every build, so the default below is only ever reached by a hand-run `compose run` with no
     # BUILDER_IMAGE set. It is the digest-pinned toolchain regardless of BUILDER_TAG, and must match
     # _BUILDER_PINNED_IMAGE there (use the build scripts, or set BUILDER_IMAGE outright, to pick another).
-    image: ${BUILDER_IMAGE:-quay.io/duplocloud/duplo-extension-builder@sha256:c53105d199f6f9c1106a48becc8fb031124b34cc74069eee4ed8ff06d28b5dc0}
+    image: ${BUILDER_IMAGE:-quay.io/duplocloud/duplo-extension-builder@sha256:b38ad019ca9dfdbd314afbd296f48d8ea00f4c6a606aaa2da824a7ddd7f5a74e}
     # Unset by default, so the build runs on the host's native architecture. Set BUILDER_PLATFORM only
     # to force one (e.g. linux/amd64 if a publish ever ends up amd64-only) — an unset value is dropped
     # by compose, whereas copying duplo-ai-studio's linux/amd64 default would silently emulate a .NET
