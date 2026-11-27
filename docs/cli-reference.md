@@ -96,6 +96,8 @@ On an EC2 host the provider prompt first probes whether the instance role can ac
     installs the version the installer offers, and waits for the installer to finish (up to
     `EXT_INSTALL_TIMEOUT`, default 300 seconds, per extension). An id the catalog doesn't list, or offers no
     version of, is skipped. Never fatal — an extension that did not install does not stop the platform coming up.
+    The same list is written to `.env` as `Extensions__DefaultIds` before the stack starts, so the portal's Get
+    Started page does not count these extensions as agents you installed.
 
 Steps 10–17 are each idempotent and skipped when already satisfied. So is step 5: a license already in
 `.env` is used as-is, and a run that was interrupted mid-verification resumes from the request id it saved.

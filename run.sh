@@ -1128,6 +1128,27 @@ setenv Authentication__LocalAdminPassword "$PASSWORD"
 setenv Authentication__SuperUsers "$EMAIL"
 setenv DEVKIT_MODEL "$MODEL"
 setenv AIStudio__IsMasterDisabled true
+
+# ── the dev-kit's default extensions ──────────────────────────────────────────
+# DUPLOAI-4813: a fresh dev kit comes up with the agents people start from already installed from the extension
+# registry. This list is the one place to add more, and it drives the install further down, once the stack is up:
+# each entry is a MANIFEST id — the license catalog's manifest_id, which the installer keys installs on. Never the
+# agent's UUID (it matches no catalog entry and the install fails not-entitled) and never the catalog's display id
+# (renameable). No @version: the script refreshes the catalog, installs the build the installer offers with
+# pin:false (so it keeps following registry updates), and waits for the installer to report it installed
+# (EXT_INSTALL_TIMEOUT, default 300s).
+DEVKIT_EXTENSIONS=(
+  com.duplocloud.cloud-setup   # Cloud Setup, the ticket's Cloud Deployment Agent (manifest id; its agent id 99104691-… is not an install key)
+)
+# DUPLOAI-5854: the studio serves these ids with isDefault, so the portal's Get Started page doesn't take one for an
+# agent you installed. Written here, before `compose up`, because the studio reads .env only when its container is
+# created. Checked first: bash 3.2 (macOS) under set -u aborts on "${DEVKIT_EXTENSIONS[*]}" when the list is empty.
+if [ ${#DEVKIT_EXTENSIONS[@]} -eq 0 ]; then
+  setenv Extensions__DefaultIds ""
+else
+  setenv Extensions__DefaultIds "$(IFS=,; printf '%s' "${DEVKIT_EXTENSIONS[*]}")"
+fi
+
 # getenv always succeeds (it ends in `|| true`), so a blank UI_PORT needs an explicit check — an
 # `$(getenv UI_PORT || echo 4200)` fallback never fires and would store "http://localhost:". 4200 is the
 # same blank-UI_PORT default as below and in docker-compose.yml.
@@ -1438,18 +1459,10 @@ case "$KB_RC" in
 esac
 
 # ── install the dev-kit's default extensions (idempotent, never fatal) ─────────
-# DUPLOAI-4813: a fresh dev kit comes up with the agents people start from already installed from the extension
-# registry. This list is the one place to add more, and it drives the install: each entry is a MANIFEST id — the
-# license catalog's manifest_id, which the installer keys installs on. Never the agent's UUID (it matches no catalog
-# entry and the install fails not-entitled) and never the catalog's display id (renameable). No @version: the
-# script refreshes the catalog, installs the build the installer offers with pin:false (so it keeps following
-# registry updates), and waits for the installer to report it installed (EXT_INSTALL_TIMEOUT, default 300s).
-# An id the catalog doesn't list or offers no version of is skipped; one already current, pinned or being installed
-# is left alone. Non-fatal, like the KB step above: an extension that failed to install must never stop the
-# platform coming up.
-DEVKIT_EXTENSIONS=(
-  com.duplocloud.cloud-setup   # Cloud Setup, the ticket's Cloud Deployment Agent (manifest id; its agent id 99104691-… is not an install key)
-)
+# DEVKIT_EXTENSIONS is defined above, before the stack starts (see "the dev-kit's default extensions"). An id the
+# catalog doesn't list or offers no version of is skipped; one already current, pinned or being installed is left
+# alone. Non-fatal, like the KB step above: an extension that failed to install must never stop the platform
+# coming up.
 EXT_LINE=""
 echo "==> Installing default extensions…"
 # Checked first: bash 3.2 (macOS) under set -u aborts on "${DEVKIT_EXTENSIONS[@]}" when the list is empty.
