@@ -156,7 +156,7 @@ jobs:
           role-to-assume: ${{ vars.EXTENSION_PUBLISHER_ROLE_ARN }}
           aws-region: us-west-2
 
-      - uses: duplocloud/actions/release-extension@c957359310aec53de0e924910a89029e80e6e74d # v1 plus the channel input (actions#142); pin moves to the next tagged release
+      - uses: duplocloud/actions/release-extension@324849fc13d46a6e7381cdd9dd58c06c09c2d533 # v1 plus the channel input (actions#142) and the agent.zip bundle name (actions#144); pin moves to the next tagged release
         if: steps.guard.outputs.build == 'true'
         with:
           # Each side has its own console, keys and bucket. main is prod; dev and rc are the non-prod side.
