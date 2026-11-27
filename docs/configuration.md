@@ -207,6 +207,7 @@ Managed by `./run.sh` — leave them blank in a fresh `.env` and let it prompt.
 | `Agent__ApiAuthToken` | Generated once (`openssl rand -hex 32`). Regenerated only on `--reset`. The studio sends it as a bearer on every call to `claude-code-agent`, which receives it as `CCA_API_AUTH_TOKEN` and returns 401 to any call without it. |
 | `AIStudio__IsMasterDisabled` | `true`. Required for standalone operation with no DuploCloud master. |
 | `AIStudio__DevKitMode` | `true`. Dev-kit only: exposes the per-extension **Clean Database** admin action, which drops one extension's data collections. |
+| `Extensions__DefaultIds` | Comma-separated manifest ids of the default extensions, written on every run from `run.sh`'s `DEVKIT_EXTENSIONS`. The studio marks them as defaults, so the portal still opens the Get Started page while they are the only extensions installed. |
 
 ## LLM provider
 
