@@ -14,7 +14,7 @@ breaks — licensing, data, platform support — see [faq.md](faq.md).
 - [Licensing](#licensing)
 - [LLM provider](#llm-provider)
 - [Providers: AWS and Kubernetes](#providers-aws-and-kubernetes)
-- [Extensions](#extensions)
+- [Agents](#agents)
 - [State and reset](#state-and-reset)
 - [Getting help](#getting-help)
 
@@ -94,7 +94,7 @@ a `compose` command *by hand* under podman, and the errors do not say what is ac
 | `missing services [builder]` | podman-compose does not implicitly enable a service's `profiles` the way `docker compose run` does, and `builder` sits behind the `tools` profile. `COMPOSE_PROFILES=tools` does **not** help — podman-compose ignores that variable. | Name it: `podman compose --profile tools run --rm --no-deps builder …` |
 | `invalid reference format` on an image ending in `}` | podman-compose 1.5 stops at the first `}` of a nested `${A:-${B}}` and appends the rest literally. | Already removed from `docker-compose.yml`; don't reintroduce nesting — `tests/test-runtime.sh` checks for it. |
 | `compose ps` exits 2 with a usage dump | podman-compose's `ps` has no `--services` or `--status`; its whole grammar is `-q` and `--format`. | The scripts use `runtime_compose_running_services` (in `scripts/_runtime.sh`), which falls back to filtering on the `com.docker.compose.*` labels that both implementations set. |
-| An extension bundle in `dist/` is owned by uid 101000 and you cannot delete it | Rootless podman maps *your* uid to container uid 0, so passing a real `--user 1000` lands on an unwritable subuid. | The build scripts pass `0:0` under rootless podman automatically. For an already-broken directory: `podman unshare rm -rf dist`. |
+| An agent bundle in `dist/` is owned by uid 101000 and you cannot delete it | Rootless podman maps *your* uid to container uid 0, so passing a real `--user 1000` lands on an unwritable subuid. | The build scripts pass `0:0` under rootless podman automatically. For an already-broken directory: `podman unshare rm -rf dist`. |
 | `rootless netns: kill network process: permission denied` on container teardown | A podman rootless cleanup quirk. Cosmetic — it is printed after the container has already exited, and the exit status is still propagated correctly. | Ignore it. |
 
 `host.docker.internal` works under podman: the `extra_hosts: host-gateway` entry in `docker-compose.yml`
@@ -530,7 +530,7 @@ the **Select Scopes** dropdown on **HelpDesk** → **Add Ticket**, and **Create 
 that dialog has a **Skip** button — take Skip, and you are left with a scope that exists, looks
 correct on every listing, and cannot be selected anywhere.
 
-**Fix** — re-open the scope and attach it to **extension-dev** from the same dialog. The sidebar's
+**Fix** — re-open the scope and attach it to **agent-dev** from the same dialog. The sidebar's
 **Scopes** page lists what the current workspace can already use, so a scope missing from that list is
 one that was never attached.
 
@@ -546,9 +546,9 @@ hit — with the verbatim error string.
 
 ---
 
-## Extensions
+## Agents
 
-### The extension build cannot reach the host SDK
+### The agent build cannot reach the host SDK
 
 **Symptom** — `./scripts/build-extension.sh` fails early:
 
@@ -561,7 +561,7 @@ ERROR: could not read the host SDK version from http://localhost:60031/v1/aiserv
        DUPLO_ADMIN_TOKEN is missing or expired.
 ```
 
-**Why** — extensions compile against the SDK published by the *running* platform, so the studio has to be
+**Why** — agents compile against the SDK published by the *running* platform, so the studio has to be
 up and reachable at the resolved base URL before a build can start. With `DUPLO_TARGET=local` that URL is
 `http://localhost:$STUDIO_PORT`; with `remote` it is `DUPLO_HOST`.
 
@@ -628,9 +628,9 @@ error or `000` is the real failure. Do not read the 401 as the problem.
 stack share a compose project. The builder image is cached per runtime, so the first build after switching
 pays a one-time pull.
 
-### The extension's page never loads in the portal
+### The agent's page never loads in the portal
 
-The portal loads extension remotes with Native Federation and reads a `remoteEntry.json`. Check, in
+The portal loads agent remotes with Native Federation and reads a `remoteEntry.json`. Check, in
 order:
 
 1. `manifest.json`'s `frontend.remote.remoteEntry` ends in `remoteEntry.json` — not the Webpack-era
@@ -638,7 +638,7 @@ order:
 2. `frontend/dist/remoteEntry.json` exists after `npm run build`. If you see `frontend/dist/browser/`
    instead, `angular.json`'s `outputPath` is missing `"browser": ""`.
 3. `manifest.json`'s `frontend.remote.remoteName` equals the `name` in `frontend/dist/remoteEntry.json`.
-4. No other installed extension uses the same `remoteName` — duplicates alias to whichever loaded first.
+4. No other installed agent uses the same `remoteName` — duplicates alias to whichever loaded first.
 
 All four are checked at once by:
 
@@ -652,18 +652,18 @@ A package with `forRoot()` providers or DI tokens is being bundled privately by 
 shared with the host. Check your `frontend/federation.config.js` `shared` block against the host's
 `duplo-ui/portal/federation.shared.js`: agreement is per entry — every package you share must use the
 host's version — but your list stays a **subset** of the host's, never a copy (the host also shares
-packages your extension doesn't depend on, e.g. `yaml`, and `lookupVersion()` throws if you copy those in).
+packages your agent doesn't depend on, e.g. `yaml`, and `lookupVersion()` throws if you copy those in).
 
-There is no standalone dev server. Extension frontends are remotes loaded into the portal, so use the
+There is no standalone dev server. Agent frontends are remotes loaded into the portal, so use the
 build and hot-load loop. The installer service loads each build in `extensions/<name>/dist/` by itself:
 
 ```bash
 ./scripts/build-extension.sh  extensions/<name>
 ```
 
-On a remote target or a stack without the installer, load it with `./scripts/deploy-extension.sh extensions/<name>/dist/extension.zip`.
+On a remote target or a stack without the installer, load it with `./scripts/deploy-extension.sh extensions/<name>/dist/agent.zip`.
 
-See [Build your first extension](getting-started/build-your-first-extension.md).
+See [Build your first agent](getting-started/build-your-first-extension.md).
 
 ### A build in extensions/ never loads
 
@@ -695,24 +695,24 @@ A build with no line of its own never reached the installer's decision, and the 
 |---|---|
 | `already` for a build you changed | A load the installer did not make holds this id at this version, such as `deploy-extension.sh` with the installer stopped. Bump `manifest.version`, or run `./scripts/remove-extension.sh <id>` and build again. |
 | `skipped` `held-after-failure` | This exact build failed its install or its check, and the detail says how. Fix it and rebuild. Any change to the zip releases the hold. |
-| `skipped` `disabled-by-admin` | The extension is disabled in the UI. Enable it there. |
+| `skipped` `disabled-by-admin` | The agent is disabled in the UI. Enable it there. |
 | `skipped` `excluded-by-customer-file` | Its id is in `EXTENSIONS_EXCLUDE` in `.env`. Remove it there, or let `deploy-extension.sh` load the build itself. |
-| `skipped` `install-not-requested` | The build was in `dist/` before the installer started, is the one installed before you removed the extension, or is older than the installed version, which the detail then names. Rebuild it, or let `deploy-extension.sh` load it. |
+| `skipped` `install-not-requested` | The build was in `dist/` before the installer started, is the one installed before you removed the agent, or is older than the installed version, which the detail then names. Rebuild it, or let `deploy-extension.sh` load it. |
 | `skipped` `no-build-for-host-sdk` | The build targets an SDK the running studio does not host, and the detail names both. Rebuild against the running studio. |
 | `error` `bundle-manifest-invalid` or `load-bundle-failed` | The zip's manifest, or the studio's load, refused the build. The detail carries the message. |
 
-The README's [Installing an extension](../README.md#installing-an-extension) covers which builds the installer leaves alone.
+The README's [Installing an agent](../README.md#installing-an-agent) covers which builds the installer leaves alone.
 
 ### More entries belong here
 
 Per-language build failures, a deploy that succeeds without the resource type appearing, provisioning
-tickets that fire but fail, extensions gone after `stop.sh --wipe`, and a required scope that is not
+tickets that fire but fail, agents gone after `stop.sh --wipe`, and a required scope that is not
 configured.
 
 Two failures the scripts already explain well when they happen:
 
 - **Naming validation** — `build-extension.sh` prints a `✗` line per violation, then
-  `ERROR: extension naming validation failed — fix the ✗ items above (reference/00-naming.md).`
+  `ERROR: agent naming validation failed — fix the ✗ items above (reference/00-naming.md).`
   REST segments must start with `extensions/`, Mongo collections must be prefixed `extension_`, and
   template `Hello`/`hw-` identifiers must be renamed.
 - **No credentials resolved** — `No token resolved — set DUPLO_ADMIN_TOKEN (local) or DUPLO_TOKEN (remote)
@@ -746,7 +746,7 @@ from `.env.example` after the database was already created — the database keep
 ./run.sh --reset
 ```
 
-> `--reset` destroys the database, every loaded extension, and the file store, and blanks your configured
+> `--reset` destroys the database, every loaded agent, and the file store, and blanks your configured
 > `.env` values. Reach for it only when you do not need the current state.
 
 **Confirm** — `run.sh` reaches:

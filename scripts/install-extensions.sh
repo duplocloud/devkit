@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install extensions from the studio's extension registry by manifest id (e.g. com.duplocloud.cloud-setup).
+# Install agents from the studio's agent registry by manifest id (e.g. com.duplocloud.cloud-setup).
 #
 # WHY: a fresh dev kit should come up with the agents people start from (DUPLOAI-4813: Cloud Setup, the agent the
 # ticket calls the Cloud Deployment Agent, first) already installed, rather than leaving every developer to find them
@@ -25,7 +25,7 @@
 #        - the version is the one the installer's mark offers: without a pin it accepts no other (409
 #          version-not-offered). No offered version → skipped, since the license most likely doesn't list it —
 #          unless the installer never completed a good pass within EXT_CATALOG_WAIT: then it is an error (re-run).
-#        - the row's installedVersion already is that version → nothing to do. That is the extension's current
+#        - the row's installedVersion already is that version → nothing to do. That is the agent's current
 #          loaded version, so a separate GET …/extensions/{id}/versions would only repeat it.
 #   3. POST …/extension-registry/install {"extensionId","version","pin":false}. The installer works in the
 #      background: 202 (accepted) or 200 (a request was already pending) both carry a requestId and state.
@@ -86,7 +86,7 @@ print(msg or raw.strip() or "<empty body>")'
 FAILED=0; IDS=()
 for arg in "$@"; do
   if [[ "$arg" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then IDS+=("$arg")
-  else echo "    ✗ '$arg' — invalid extension id" >&2; FAILED=1
+  else echo "    ✗ '$arg' — invalid agent id" >&2; FAILED=1
   fi
 done
 [ ${#IDS[@]} -gt 0 ] || exit 1
@@ -96,7 +96,7 @@ done
 # the catalog. Only a failed refresh falls back to a GET of the cached one.
 REPLY_="$(api POST "$ADMIN/extension-registry/catalog/refresh")"; CODE="$(status_of "$REPLY_")"
 if [[ "$CODE" != 2* ]]; then
-  echo "    ! could not refresh the extension catalog: HTTP $CODE: $(err_msg "$(body_of "$REPLY_")") — using the cached one" >&2
+  echo "    ! could not refresh the agent catalog: HTTP $CODE: $(err_msg "$(body_of "$REPLY_")") — using the cached one" >&2
   REPLY_="$(api GET "$ADMIN/extension-registry/catalog")"; CODE="$(status_of "$REPLY_")"
 fi
 CATALOG="$(body_of "$REPLY_")"
@@ -112,15 +112,15 @@ if not isinstance(d, dict) or not isinstance(d.get("extensions"), list): print("
 else: print(d.get("libraryState") or "ok")' 2>/dev/null)" || STATE="bad"
 case "$STATE" in
   ok) ;;
-  bad) echo "    ✗ could not read the extension catalog: HTTP $CODE: $(err_msg "$CATALOG")" >&2; exit 1 ;;
+  bad) echo "    ✗ could not read the agent catalog: HTTP $CODE: $(err_msg "$CATALOG")" >&2; exit 1 ;;
   *)
     case "$STATE" in
       missing)     why="no license is configured" ;;
       invalid)     why="the license server refused this install's license" ;;
       unavailable) why="the license server could not be reached" ;;
-      *)           why="see the Extension Library page" ;;
+      *)           why="see the Marketplace" ;;
     esac
-    echo "    ✗ could not read the extension catalog: library state \"$STATE\" ($why)" >&2; exit 1 ;;
+    echo "    ✗ could not read the agent catalog: library state \"$STATE\" ($why)" >&2; exit 1 ;;
 esac
 
 # ── wait for the installer's first good pass ────────────────────────────────────────────────────
@@ -227,7 +227,7 @@ wait_for_install() {
       esac
     fi
     if [ "$SECONDS" -ge "$deadline" ]; then
-      echo "    ✗ $id $ver — still $last after ${TIMEOUT}s (EXT_INSTALL_TIMEOUT); check the Extension Library page" >&2
+      echo "    ✗ $id $ver — still $last after ${TIMEOUT}s (EXT_INSTALL_TIMEOUT); check the Marketplace" >&2
       return 1
     fi
     sleep "$POLL"
@@ -240,7 +240,7 @@ for id in "${IDS[@]}"; do
   case "$pick" in
     "ok "?*)     ver="${pick#ok }" ;;
     "current "*) echo "    ✔ $id ${pick#current } — already installed"; continue ;;
-    missing)     echo "    ↷ $id — not in the extension catalog, skipped"; continue ;;
+    missing)     echo "    ↷ $id — not in the agent catalog, skipped"; continue ;;
     unlicensed)  echo "    ↷ $id — not licensed for this install, skipped"; continue ;;
     nooffer)
       if [ "$INSTALLER" != settled ]; then   # not the license: the installer hasn't made any offers yet

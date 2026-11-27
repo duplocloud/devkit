@@ -255,7 +255,7 @@ credential says *how to authenticate to it*.
 The last step of the wizard is **Scope**.
 
 A **scope** is the boundary of what the agent may touch: a credential, and the resources that
-credential may be used against. Both tickets and extensions target a scope.
+credential may be used against. Both tickets and agents target a scope.
 
 When a ticket runs, the platform expands the scope into its provider and credential and hands them to
 the agent, which writes them into the ticket's working directory — for Kubernetes, as a context in a
@@ -308,7 +308,7 @@ the workspace it is filed in. The wizard offers it straight away, exactly as it 
 
    ![The Attach Scope to Workspaces dialog that opens as soon as the scope is created](../images/k8s-attach-scope.png)
 
-2. Open the **Workspaces** control and pick **extension-dev**.
+2. Open the **Workspaces** control and pick **agent-dev**.
 
 3. Click **Attach** — not **Skip**. A scope that is not attached is created but invisible to every
    ticket, which looks exactly like the scope having failed to save.
@@ -404,4 +404,4 @@ means the agent reached nothing. See
 > credential of type **IAM Role**, and the scope above is unchanged. Nothing in this guide needs to be
 > redone.
 
-**Next:** [4. Build your first extension](build-your-first-extension.md)
+**Next:** [4. Build your first agent](build-your-first-extension.md)

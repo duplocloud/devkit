@@ -291,7 +291,7 @@ runtime_label() {
 # ── podman machine sizing ─────────────────────────────────────────────────────
 # On macOS and Windows podman runs containers inside a VM whose memory is fixed at machine-create time
 # and is NOT elastic the way Docker Desktop's is. That one ceiling is shared by the whole stack (six
-# containers) AND by every extension build — and the Angular Native-Federation build is the hungriest
+# containers) AND by every agent build — and the Angular Native-Federation build is the hungriest
 # thing the kit runs: esbuild bundling the federation artifacts is what hits the wall first.
 #
 # It fails badly enough to be worth pre-empting. The OOM kill surfaces as a bare `Killed`, then ~100
@@ -403,7 +403,7 @@ The podman machine is too small to build in.
   memory:    $((mib / 1024)) GiB ($mib MiB)
   required:  $((min_mem / 1024)) GiB ($min_mem MiB) minimum, $((rec_mem / 1024)) GiB recommended
 
-That ceiling is shared by this stack's containers and by every extension build. The Angular
+That ceiling is shared by this stack's containers and by every agent build. The Angular
 frontend build is what runs out first, and when it does the only clue is 'exit status 137' at the
 end of a Go stack trace — so this stops here instead.
 

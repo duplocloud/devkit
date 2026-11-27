@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Change the git owner of THIS dev-kit clone to YOUR own repo, so the checkout becomes yours.
 # Use it the first time you adopt the dev-kit (you cloned duplocloud/devkit and now want it
-# under your own remote). Your extensions live in ./extensions/<name>/; the dev-kit framework rides along and is
+# under your own remote). Your agents live in ./extensions/<name>/; the dev-kit framework rides along and is
 # upgradable later with ./scripts/upgrade_dev_kit.sh.
 #
 # Usage:
 #   ./scripts/change_git_owner.sh <your-git-remote-url> [--keep-history]
-#     <your-git-remote-url>   git remote to own this repo (e.g. git@github.com:me/my-extensions.git)
+#     <your-git-remote-url>   git remote to own this repo (e.g. git@github.com:me/my-agents.git)
 #     --keep-history          keep the dev-kit's git history; just re-point 'origin' (default: FRESH history)
 set -euo pipefail
 cd "$(dirname "$0")/.."   # repo root
@@ -40,7 +40,7 @@ else
 fi
 
 echo "==> Done. This repo is now yours."
-echo "    • author extensions under extensions/<name>/  (or run /duplo-extension in Claude Code)"
+echo "    • author agents under extensions/<name>/  (or run /duplo-extension in Claude Code)"
 echo "    • build:   ./scripts/build-extension.sh extensions/<name>   (or ./scripts/build-all.sh)"
 echo "    • upgrade the framework later: ./scripts/upgrade_dev_kit.sh --version <branch|tag|commit>"
 echo "    • push:    git push -u origin main"

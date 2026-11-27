@@ -34,5 +34,5 @@ then the worker hard-deletes the row itself. See `reference/11-deprovisioning.md
 ```bash
 # The scripts read the target platform from .env (scripts/_target.sh).
 ./scripts/build-extension.sh  samples/worker-appstack
-./scripts/deploy-extension.sh samples/worker-appstack/dist/extension.zip
+./scripts/deploy-extension.sh samples/worker-appstack/dist/agent.zip
 ```

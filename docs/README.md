@@ -6,7 +6,7 @@ reader takes.
 | Page | What it covers |
 | --- | --- |
 | [quickstart.md](quickstart.md) | The fast path: a running platform with AWS connected |
-| [getting-started/](getting-started/README.md) | The full guided path — prerequisites, install, AWS, Kubernetes, and your first extension |
+| [getting-started/](getting-started/README.md) | The full guided path — prerequisites, install, AWS, Kubernetes, and your first agent |
 | [architecture.md](architecture.md) | How the studio, agent, UI, xterm, and Mongo fit together, and how the hot-load loop works |
 | [configuration.md](configuration.md) | Every `.env` variable — default, effect, and which are managed for you |
 | [cli-reference.md](cli-reference.md) | `run.sh`, `stop.sh`, `logs.sh`, and every script in `scripts/` — flags and behavior |
@@ -15,9 +15,9 @@ reader takes.
 | [troubleshooting.md](troubleshooting.md) | Symptoms, causes, fixes |
 | [faq.md](faq.md) | Licensing, data, platform support, and what happens on upgrade |
 | [UPGRADING-ng-common-lib.md](UPGRADING-ng-common-lib.md) | Refreshing the vendored `@duplocloud-internal/ng-common-lib` tarball |
-| [theming.md](theming.md) | How extensions follow the portal's Light / Dark switch, and migrating an older extension |
+| [theming.md](theming.md) | How agents follow the portal's Light / Dark switch, and migrating an older agent |
 
-## Writing extensions
+## Writing agents
 
 The authoring manual is the 21 numbered guides in
 [`.claude/skills/duplo-extension-dev/reference/`](../.claude/skills/duplo-extension-dev/reference) —
@@ -25,7 +25,7 @@ naming, architecture, the authoring path, base classes, hooks, custom actions, r
 credentials, parent/child and menus, the SDK API, deprovisioning, enrichment and live state, current user,
 forms and wizards, error handling, opt-in Ask AI sessions, the hand-written result content, access control,
 the detail-page shell, the UI library and theming. They are the source of truth, and the `/duplo-extension`
-authoring command reads them directly. To bring an older extension to the Light / Dark theme, use the
+authoring command reads them directly. To bring an older agent to the Light / Dark theme, use the
 [`duplo-extension-theme-migration`](../.claude/skills/duplo-extension-theme-migration/SKILL.md) skill.
 
 Worked examples live in [`samples/`](../samples) — start with
@@ -40,6 +40,6 @@ Worked examples live in [`samples/`](../samples) — start with
 | [TERMS.md](../TERMS.md) | The proprietary container images and vendored library |
 | [SECURITY.md](../SECURITY.md) | Reporting a vulnerability |
 | [PRIVACY.md](../PRIVACY.md) | The usage metrics the UI sends if you opt in, and what is collected |
-| [CONTRIBUTING.md](../CONTRIBUTING.md) | Framework PRs welcome; your extensions stay in your repo |
+| [CONTRIBUTING.md](../CONTRIBUTING.md) | Framework PRs welcome; your agents stay in your repo |
 | [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md) | Contributor Covenant 2.1 — expected behaviour in issues and PRs |
 | [SUPPORT.md](../SUPPORT.md) | Where to get help and what to expect: GitHub Issues, best effort, no SLA |

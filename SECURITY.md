@@ -22,7 +22,7 @@ before anything is published.
 
 - `run.sh`, `stop.sh`, `logs.sh`, and everything under `scripts/`
 - `docker-compose.yml` and the `nginx/` configuration
-- The reference extensions under `samples/`
+- The reference agents under `samples/`
 - The authoring skill and reference docs under `.claude/`
 - The GitHub Actions workflows under `.github/workflows/`
 
@@ -32,7 +32,7 @@ before anything is published.
   DuploCloud product, not from this repo. Report them through your normal DuploCloud support channel.
 - **Third-party dependency advisories in the sample frontends.** The samples pin Angular-era dependency
   trees for reference purposes and are tracked separately; a plain issue is fine for those.
-- Issues that only occur in a deployment of your *own* extension code rather than in dev-kit framework code.
+- Issues that only occur in a deployment of your *own* agent code rather than in dev-kit framework code.
 
 ## Supported versions
 
@@ -57,11 +57,11 @@ A few things worth knowing:
 - **`DUPLO_TARGET=remote` points the build at a real platform** using `DUPLO_HOST` + `DUPLO_TOKEN`. In CI those
   come from repository secrets — keep them as secrets, never inline them into a workflow file.
 - **The agent sends your prompts and skill content to your configured LLM provider.** Don't paste production
-  secrets, customer names, or ticket contents into extension prompts, provisioning skills, or `PROMPT.md` files.
-- **Extensions run with platform privileges.** A provisioning skill is executable logic, not documentation —
+  secrets, customer names, or ticket contents into agent prompts, provisioning skills, or `PROMPT.md` files.
+- **Agents run with platform privileges.** A provisioning skill is executable logic, not documentation —
   review a skill from an untrusted source before you load it, exactly as you would review code.
 
 ## Not hardened for production
 
-This kit exists for local extension development. The stack binds development ports on your machine and is not
+This kit exists for local agent development. The stack binds development ports on your machine and is not
 configured, patched, or reviewed for use as a production control plane. Don't expose it to the public internet.

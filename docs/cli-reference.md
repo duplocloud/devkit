@@ -80,22 +80,22 @@ On an EC2 host the provider prompt first probes whether the instance role can ac
    happens before the admin token exists.
 10. Mints a permanent admin API token into `DUPLO_ADMIN_TOKEN`, revoking its own prior `dev-kit-admin`
     tokens first (the server caps active tokens per user at 10).
-11. Creates the `extension-dev` workspace if absent.
-12. Creates the `extension-dev-access` permission set and `extension-dev-group`, granting your admin user
+11. Creates the `agent-dev` workspace if absent.
+12. Creates the `agent-dev-access` permission set and `agent-dev-group`, granting your admin user
     UI access to that workspace.
 13. Registers and attaches the agent (`scripts/register-agent.sh`).
-14. Vendors the Terraform extension's source into `extensions/terraform/` if it is not already there
+14. Vendors the Terraform agent's source into `extensions/terraform/` if it is not already there
     (`scripts/fetch-terraform-extension.sh`). Never fatal — an unreachable source repo does not stop
     the platform coming up.
 15. On an Anthropic setup, registers the local model as the System default (`scripts/register-llm.sh`).
 16. Configures the Knowledge Base (`scripts/register-qdrant.sh`): registers the local Qdrant as a provider,
-    makes it selectable from the `extension-dev` workspace, and creates the empty `devkit-docs` collection.
+    makes it selectable from the `agent-dev` workspace, and creates the empty `devkit-docs` collection.
     Never fatal — a Knowledge Base that did not configure does not stop the platform coming up.
-17. Installs the default extensions listed by manifest id in `run.sh`'s `DEVKIT_EXTENSIONS` from the extension
+17. Installs the default agents listed by manifest id in `run.sh`'s `DEVKIT_EXTENSIONS` from the agent
     registry (`scripts/install-extensions.sh`), today Cloud Setup (`com.duplocloud.cloud-setup`): refreshes the registry catalog,
     installs the version the installer offers, and waits for the installer to finish (up to
-    `EXT_INSTALL_TIMEOUT`, default 300 seconds, per extension). An id the catalog doesn't list, or offers no
-    version of, is skipped. Never fatal — an extension that did not install does not stop the platform coming up.
+    `EXT_INSTALL_TIMEOUT`, default 300 seconds, per agent). An id the catalog doesn't list, or offers no
+    version of, is skipped. Never fatal — an agent that did not install does not stop the platform coming up.
 
 Steps 10–17 are each idempotent and skipped when already satisfied. So is step 5: a license already in
 `.env` is used as-is, and a run that was interrupted mid-verification resumes from the request id it saved.
@@ -107,8 +107,8 @@ Steps 10–17 are each idempotent and skipped when already satisfied. So is step
 ./stop.sh --wipe     # docker compose down -v  — volumes removed
 ```
 
-Without `--wipe`, loaded extensions and all data survive and replay on the next `./run.sh`. With `--wipe`,
-extensions, Mongo, the file store, and the Knowledge Base vectors are lost.
+Without `--wipe`, loaded agents and all data survive and replay on the next `./run.sh`. With `--wipe`,
+agents, Mongo, the file store, and the Knowledge Base vectors are lost.
 
 ## `logs.sh`
 
@@ -123,7 +123,7 @@ A thin wrapper around `docker compose logs -f`; every argument is passed straigh
 
 ## What each command destroys
 
-| | Containers | Volumes (extensions, Mongo, file store, vectors) | Configured `.env` values | License |
+| | Containers | Volumes (agents, Mongo, file store, vectors) | Configured `.env` values | License |
 | --- | --- | --- | --- | --- |
 | `./stop.sh` | stopped | **kept** | kept | kept |
 | `./stop.sh --wipe` | stopped | **destroyed** | kept | kept |
@@ -163,33 +163,33 @@ Your `extensions/` directory is **never** touched by any of these — it is only
 
 | Script | What it does |
 | --- | --- |
-| `init-project.sh <remote-url> [--keep-history] [--no-sample] [--name <slug>]` | Adopt this clone as your own repo **and** seed a first extension under `extensions/<name>/` (default `helloworld`). Starts a fresh git history unless `--keep-history`. |
+| `init-project.sh <remote-url> [--keep-history] [--no-sample] [--name <slug>]` | Adopt this clone as your own repo **and** seed a first agent under `extensions/<name>/` (default `helloworld`). Starts a fresh git history unless `--keep-history`. |
 | `change_git_owner.sh <remote-url> [--keep-history]` | Re-point `origin` at your remote without seeding anything. |
 | `upgrade_dev_kit.sh [--version <ref>] [--yes]` | Refresh the framework to a branch, tag, or commit (default `main`). See [upgrading.md](upgrading.md). |
-| `fetch-terraform-extension.sh [--force]` | Vendor the real Terraform extension's source into `extensions/terraform/`. Fetches **only** that subdirectory — a blobless partial fetch with a sparse path — and what lands is plain source with no `.git`, no remote and no upstream. Skips if the directory exists, so your edits survive; `--force` moves the old copy to `.bak` first. Override with `TF_EXT_REPO` / `TF_EXT_REF`. |
+| `fetch-terraform-extension.sh [--force]` | Vendor the real Terraform agent's source into `extensions/terraform/`. Fetches **only** that subdirectory — a blobless partial fetch with a sparse path — and what lands is plain source with no `.git`, no remote and no upstream. Skips if the directory exists, so your edits survive; `--force` moves the old copy to `.bak` first. Override with `TF_EXT_REPO` / `TF_EXT_REF`. |
 
 ### Building and deploying
 
 | Script | What it does |
 | --- | --- |
-| `build-extension.sh <extension-dir>` | Validate naming, fetch the host SDK, `dotnet publish`, `npm build`, and zip to `<dir>/dist/extension.zip`. With `DUPLO_SDK_VERSIONS` set to a list of versions, one per line, it restores each of those SDK versions from the package feed instead, with no host, and writes one `<dir>/dist/sdk-<v>/extension.zip` per version. |
+| `build-extension.sh <extension-dir>` | Validate naming, fetch the host SDK, `dotnet publish`, `npm build`, and zip to `<dir>/dist/agent.zip`. With `DUPLO_SDK_VERSIONS` set to a list of versions, one per line, it restores each of those SDK versions from the package feed instead, with no host, and writes one `<dir>/dist/sdk-<v>/agent.zip` per version. |
 | `build-all.sh` | Build every `extensions/<name>/manifest.json` in the repo. What CI runs. |
-| `deploy-extension.sh <path-to-extension.zip>` | Hot-load one bundle onto the platform — no restart. |
-| `deploy-all.sh` | Hot-load every built bundle. Run after `build-all.sh`. For an extension built with `DUPLO_SDK_VERSIONS`, it reads the host's SDK version and loads the one `dist/sdk-<v>/extension.zip` stamped with it, since the host loads only a bundle whose `sdkVersion` equals its own, and fails the run when no built version matches. |
-| `remove-extension.sh <extension-id>` | Unload and delete a loaded extension by its manifest id, e.g. `com.duplocloud.helloworld`. |
-| `install-extensions.sh <manifest-id> [...]` | Install extensions from the extension registry by manifest id, e.g. `com.duplocloud.cloud-setup` — never an agent UUID or the catalog's display id. Refreshes the registry catalog and uses that reply as the catalog (a failed refresh only warns, then reads the cached one), and matches on the manifest id: an id it doesn't list, this license doesn't cover, or the installer offers no version of is skipped, as is one an admin pinned or the installer is still installing. Otherwise it installs the build the installer's mark offers, with `pin: false` — the installer takes no other version without a pin, so there is no `@<version>`. An extension whose catalog row already shows the offered version as its `installedVersion` is left alone, so no per-extension `/versions` call is needed. The installer works in the background — 202, or 200 when a request was already pending — so the script then polls the catalog's `requests[]` until that request is `done`, or reports `failed` / `backed-out` with the installer's reason (e.g. `not-entitled`, when the license doesn't list the extension). Right after startup the installer's first pass can fail (the studio isn't answering yet) and it offers nothing until it retries about a minute later, so while the catalog's `installer` block shows no good pass yet, the script re-reads the catalog for up to `EXT_CATALOG_WAIT` seconds (default 120) before deciding; an id still without an offer after that is an error to re-run, not a license skip. `EXT_INSTALL_TIMEOUT` (default 300) bounds the wait per extension and `EXT_INSTALL_POLL` (default 5) sets the interval, both in seconds. A catalog whose license state isn't `ok` is an error. Exits 1 if any id failed or timed out; the others are still processed. `run.sh` calls it with `DEVKIT_EXTENSIONS`. |
+| `deploy-extension.sh <path-to-agent.zip>` | Hot-load one bundle onto the platform — no restart. |
+| `deploy-all.sh` | Hot-load every built bundle. Run after `build-all.sh`. For an agent built with `DUPLO_SDK_VERSIONS`, it reads the host's SDK version and loads the one `dist/sdk-<v>/agent.zip` stamped with it, since the host loads only a bundle whose `sdkVersion` equals its own, and fails the run when no built version matches. |
+| `remove-extension.sh <extension-id>` | Unload and delete a loaded agent by its manifest id, e.g. `com.duplocloud.helloworld`. |
+| `install-extensions.sh <manifest-id> [...]` | Install agents from the agent registry by manifest id, e.g. `com.duplocloud.cloud-setup` — never an agent UUID or the catalog's display id. Refreshes the registry catalog and uses that reply as the catalog (a failed refresh only warns, then reads the cached one), and matches on the manifest id: an id it doesn't list, this license doesn't cover, or the installer offers no version of is skipped, as is one an admin pinned or the installer is still installing. Otherwise it installs the build the installer's mark offers, with `pin: false` — the installer takes no other version without a pin, so there is no `@<version>`. An agent whose catalog row already shows the offered version as its `installedVersion` is left alone, so no per-agent `/versions` call is needed. The installer works in the background — 202, or 200 when a request was already pending — so the script then polls the catalog's `requests[]` until that request is `done`, or reports `failed` / `backed-out` with the installer's reason (e.g. `not-entitled`, when the license doesn't list the agent). Right after startup the installer's first pass can fail (the studio isn't answering yet) and it offers nothing until it retries about a minute later, so while the catalog's `installer` block shows no good pass yet, the script re-reads the catalog for up to `EXT_CATALOG_WAIT` seconds (default 120) before deciding; an id still without an offer after that is an error to re-run, not a license skip. `EXT_INSTALL_TIMEOUT` (default 300) bounds the wait per agent and `EXT_INSTALL_POLL` (default 5) sets the interval, both in seconds. A catalog whose license state isn't `ok` is an error. Exits 1 if any id failed or timed out; the others are still processed. `run.sh` calls it with `DEVKIT_EXTENSIONS`. |
 
-`build-extension.sh` refuses to build an extension whose naming is wrong — REST segments must start with
+`build-extension.sh` refuses to build an agent whose naming is wrong — REST segments must start with
 `extensions/`, Mongo collections must be prefixed `extension_`, and template `Hello`/`hw-` identifiers must
 be renamed. Each violation prints a `✗` line, then:
 
 ```
-ERROR: extension naming validation failed — fix the ✗ items above (reference/00-naming.md).
+ERROR: agent naming validation failed — fix the ✗ items above (reference/00-naming.md).
 ```
 
 With `ARMDOT_LICENSE_FILE_PATH` set to an ArmDot license file and `DUPLO_ARMDOT_DIR` naming a checkout of the
 ArmDot build files from the private `duplocloud-internal/.github`, `build-extension.sh` also obfuscates the
-extension's own assembly and stamps the bundle's manifest with `obfuscation`. See "Obfuscating a build" in
+agent's own assembly and stamps the bundle's manifest with `obfuscation`. See "Obfuscating a build" in
 [releasing-extensions.md](releasing-extensions.md).
 
 ### Platform registration
@@ -214,14 +214,14 @@ dev-kit URL used by upgrades. Both are sourced, not run.
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
 | `.github/workflows/extension-ci.yml` | push | Builds `extensions/`. Can hot-load on a manual run. |
-| `.github/workflows/release.yml` | push to `main`, `dev` or `rc`, or manual | Releases every extension through `duplocloud/actions/release-extension`: builds each one, cuts a GitHub Release per build tagged `<name>-v<version>-sdk-<sdkVersion>`, uploads it and registers it with the console as an unpublished version. `main` releases to the prod console; `dev` and `rc` release to the dev console under a channel tag (`<name>-dev-v…`). Bumping `manifest.version` is how you release a new version. It does not hot-load. |
+| `.github/workflows/release.yml` | push to `main`, `dev` or `rc`, or manual | Releases every agent through `duplocloud/actions/release-extension`: builds each one, cuts a GitHub Release per build tagged `<name>-v<version>-sdk-<sdkVersion>`, uploads it and registers it with the console as an unpublished version. `main` releases to the prod console; `dev` and `rc` release to the dev console under a channel tag (`<name>-dev-v…`). Bumping `manifest.version` is how you release a new version. It does not hot-load. |
 
 Both need repo secrets `DUPLO_HOST` and `DUPLO_TOKEN`. By default the build fetches the host SDK feed from
 `DUPLO_HOST`, so it must be reachable from CI — a real platform, not `localhost`. With the repository variable
 `DUPLO_SDK_VERSIONS` set, `extension-ci.yml` builds one bundle per listed SDK version from the package feed
 and needs the host only to deploy. `release.yml` still needs the host, plus `CONSOLE_API_KEY`, the `CONSOLE_TEAM`
 variable outside DuploCloud's organizations, and the signing, license and role values inside them.
-[Releasing extensions](releasing-extensions.md) has the full list.
+[Releasing agents](releasing-extensions.md) has the full list.
 
 It is your repo: commit `extensions/` and push. `dist/`, `node_modules/`, and `backend/sdk-packages/` are
 gitignored, and `.env` is never committed.

@@ -73,7 +73,7 @@ You have six hours on the day. Spend them on the ambitious version of your idea,
 ## Beyond this folder
 
 The full dev kit documentation lives in [`../docs/`](../docs/README.md) — architecture, every `.env`
-variable, the CLI reference, and the extension-authoring guides. These Hack Day pages are the short
+variable, the CLI reference, and the agent-authoring guides. These Hack Day pages are the short
 path; that's the complete one.
 
 **Questions?** hackday@duplocloud.net · [Slack](https://join.slack.com/t/hackday-brv1895/shared_invite/zt-4ar74ve28-YSK96VM1ERprQXoTIbTGBA) · sponsor desk on the day

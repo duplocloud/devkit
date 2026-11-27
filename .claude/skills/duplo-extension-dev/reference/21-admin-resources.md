@@ -6,7 +6,7 @@ that administrators manage: it has no workspace in its route, every row belongs 
 Workspace**, access follows that workspace's permission-set grants, and it renders in AI Admin. Worked example:
 [`samples/admin-settings`](../../../../samples/admin-settings).
 
-> "Scope" means two things on this platform. **Extension scope** (this guide) is *workspace* or *admin*: where a
+> "Scope" means two things on this platform. **Agent scope** (this guide) is *workspace* or *admin*: where a
 > resource lives and who manages it; the manifest key for it is `scope`. **Provider scopes** are credentials
 > (AWS, Kubernetes, GitHub…) a workspace holds and a resource names in `spec.scopeIds`
 > ([07-scope-credentials](07-scope-credentials.md)). Always say which one you mean.

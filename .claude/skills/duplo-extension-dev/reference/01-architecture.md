@@ -55,7 +55,7 @@ hello-world example is agent-based: a skill (`provision-helloworld`) reads the s
    - resolves the skill(s) from `originType/subType`,
    - writes the expanded spec to the ticket at `shared/<subtype>.json`,
    - mints a **resource-scoped JWT** (48 h) good for `…/{id}/status`, `…/{id}/results` and the agent-callback
-     path (and for Extension resources, additionally `…/{id}/load-bundle` — `{id}/load` stays admin-only) — on the workspace route, or on the admin route
+     path (and for Agent resources, additionally `…/{id}/load-bundle` — `{id}/load` stays admin-only) — on the workspace route, or on the admin route
      (`…/admin/data/environment/*/{id}/…`) for a resource owned by the Admin Workspace,
    - streams an initial message carrying only `duplo_base_url` + `duplo_token`; the backend then stamps
      `platform_context` (scopes, skills, secrets, user email) onto **every** message — it is wire-only,
@@ -98,8 +98,8 @@ lifecycle, fault reconciliation, and a menu entry.
 templated or buildable from this kit. Always build typed; never ask the user to choose an archetype.
 
 ## Two distinct entities (don't confuse them)
-- **The Extension resource** — what a user creates in *Extension Studio*; its provisioning *produces* an extension.
-- **The resource your extension adds** (e.g. `HelloWorld`) — the new resource type users then create.
+- **The Agent resource** — what a user creates in *Agent Studio*; its provisioning *produces* an agent.
+- **The resource your agent adds** (e.g. `HelloWorld`) — the new resource type users then create.
 
 ## Two ticket kinds on a resource (don't confuse these either)
 A resource can carry **two ticket kinds**: the **provisioning ticket** (≤1, platform-created, Agent mode only,

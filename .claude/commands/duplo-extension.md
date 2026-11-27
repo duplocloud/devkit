@@ -1,11 +1,16 @@
 ---
-description: Start authoring a DuploCloud extension — gather name + detailed requirements, list the platform's available scopes and pick which to test with, ask clarifying questions, then scaffold + build via the duplo-extension-dev skill.
+description: Start authoring a DuploCloud agent — gather name + detailed requirements, list the platform's available scopes and pick which to test with, ask clarifying questions, then scaffold + build via the duplo-extension-dev skill.
 ---
 
-You are kicking off authoring a new **DuploCloud platform extension** in this dev-kit repo.
+> **Naming note:** Agents were previously called Extensions. Paths (`extensions/<name>/`), REST routes,
+> Mongo collections, env vars, and script names (including this command's own file name) still say
+> `extension` on purpose — that is a deliberate backward-compatibility boundary, not an incomplete rename.
+> Leave them as they are.
+
+You are kicking off authoring a new **DuploCloud platform agent** in this dev-kit repo.
 
 ## Run plan-first, approve once
-Building an extension runs many commands (SDK fetch, `dotnet publish`, `npm` build, deploy curl, resource
+Building an agent runs many commands (SDK fetch, `dotnet publish`, `npm` build, deploy curl, resource
 creation) and writes many files — approving each one is tedious. To avoid a stream of permission prompts:
 
 1. **Immediately enter plan mode** (`EnterPlanMode`) as your first action. Do all of **Steps 1–4 inside plan
@@ -28,8 +33,8 @@ creation) and writes many files — approving each one is tedious. To avoid a st
    `ExitPlanMode` call, declare the Bash permissions the build needs via `allowedPrompts` so the user approves the
    whole implementation **in a single step**, e.g.:
    - "run the dev-kit `scripts/` (build-extension, deploy-extension, register-agent)"
-   - "run `dotnet publish` / `dotnet` for the extension backend"
-   - "run `npm install` / `npm run build` for the extension frontend"
+   - "run `dotnet publish` / `dotnet` for the agent backend"
+   - "run `npm install` / `npm run build` for the agent frontend"
    - "curl the studio API (scope/provider/resource calls)"
 3. **Only after the plan is approved**, execute Step 5 (scaffold → build → deploy → test). Stay within the
    approved plan; if the build needs something outside the declared permissions, ask.
@@ -95,16 +100,16 @@ Lead with the requirement and **listen** — do not interrogate with a checklist
 - **Enumerate what already exists.** Before proposing anything, `ls extensions/*/manifest.json`. If extensions
   already live here (a shared repo — other developers' work), let the requirement decide: MODIFY an existing
   `extensions/<name>/` or scaffold a NEW `extensions/<name2>/`; ask when it's ambiguous. Before scaffolding new,
-  read a sibling extension to match its conventions.
+  read a sibling agent to match its conventions.
 - **Then derive a name**: one plain name, which Step 4's batch asks the user to keep or change (the Name row of the
-  skill's [Talking to the user](../skills/duplo-extension-dev/SKILL.md#talking-to-the-user)). Derive the extension id,
+  skill's [Talking to the user](../skills/duplo-extension-dev/SKILL.md#talking-to-the-user)). Derive the agent id,
   the resource type(s) and the federation remote name from it yourself. In a shared repo the name — and the frontend's federation remote
-  `name` — must collide with no sibling extension.
+  `name` — must collide with no sibling agent.
 
 ## Step 3 — Where it lives, then the connections to test with
-First settle, per resource, whether it is managed in a workspace or by platform admins: the **extension scope**
+First settle, per resource, whether it is managed in a workspace or by platform admins: the **agent scope**
 (workspace / admin / both) in the skill's Phase 1 checklist, which also holds the admin rules. Derive it from the
-requirement; ask the Extension scope row's plain question only when the requirement points two ways. It decides
+requirement; ask the Agent scope row's plain question only when the requirement points two ways. It decides
 where the connections below are listed.
 
 Then settle the **Provider scopes** — the credentials the agent uses during provisioning — for each resource. The
@@ -149,7 +154,7 @@ try:
     provs={p.get("id"):(p.get("type"),p.get("name")) for p in (get('/admin/data/providers') or [])}
     if not scopes:
         print("No scopes registered. Register a provider + scope (admin providers/scopes API) and attach it to "
-              "the workspace, or proceed with none if the extension needs no external creds.")
+              "the workspace, or proceed with none if the agent needs no external creds.")
     for s in scopes:
         t,pn=provs.get(s.get("providerId"),("?","?"))
         print(f"- {s.get('name')}  ·  provider: {t} ({pn})  ·  scopeId: {s.get('id')}")
@@ -183,23 +188,23 @@ resource's `spec.scopeIds` and provisioning runs with no credentials.
 
 Now follow the `duplo-extension-dev` skill — read `.claude/skills/duplo-extension-dev/SKILL.md` and its
 `reference/` docs, then:
-- scaffold into **`extensions/<name>/`** (one dir per extension under `extensions/` — copy the skill's
+- scaffold into **`extensions/<name>/`** (one dir per agent under `extensions/` — copy the skill's
   `templates/helloworld`, or adapt what `scripts/init-project.sh` already seeded there). Reference examples live in `samples/`.
 - set a **unique** `REMOTE_NAME` in `frontend/federation.config.js` (used as the federation `name` and it must
-  match `manifest.json`'s `frontend.remote.remoteName` — two extensions sharing it collide),
+  match `manifest.json`'s `frontend.remote.remoteName` — two agents sharing it collide),
 - author backend + frontend + provision skill(s) + `manifest.json` to match the agreed requirements. **Rename every
   `HelloWorld`/`HelloService`/`hw-` identifier (backend AND frontend) to your resource, and set the FE service's
   `REST_SEGMENT` to the full `extensions/<…>` path — the build fails otherwise.**
-- style with the `$g-*` theme names only (no hex, no `var(--white)` backgrounds) so the extension follows the portal's
+- style with the `$g-*` theme names only (no hex, no `var(--white)` backgrounds) so the agent follows the portal's
   Light/Dark switch — `.claude/skills/duplo-extension-dev/reference/21-theming.md`,
 - build + deploy (the scripts resolve the target from `.env`/env via `scripts/_target.sh`):
   ```bash
   ./scripts/build-extension.sh  extensions/<name>
-  ./scripts/deploy-extension.sh extensions/<name>/dist/extension.zip
+  ./scripts/deploy-extension.sh extensions/<name>/dist/agent.zip
   ```
 
 ## Step 6 — Verify provisioning (ask the user which way)
-Once the extension is deployed and the new resource type is live, ask the user *"Do you want to add one yourself in
+Once the agent is deployed and the new resource type is live, ask the user *"Do you want to add one yourself in
 the portal while I watch, or should I add a test one for you?"* and proceed with their choice (A or B):
 
 - **A) User creates it in the UI; the agent watches.** The user opens the UI, navigates to the new resource type,

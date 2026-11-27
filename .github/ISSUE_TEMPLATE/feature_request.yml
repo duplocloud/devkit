@@ -8,7 +8,7 @@ body:
         This is for the **framework** — `run.sh`, `scripts/`, `docker-compose.yml`, `nginx/`,
         `samples/`, `.claude/`, the workflows, and the docs.
 
-        Extensions you build are not framework. They live in your own copy of this repo under
+        Agents you build are not framework. They live in your own copy of this repo under
         `extensions/`, and they don't belong upstream — see
         [CONTRIBUTING.md](https://github.com/duplocloud/devkit/blob/main/CONTRIBUTING.md).
 

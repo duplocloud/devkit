@@ -38,5 +38,5 @@ Worker path: status → `DeprovisionInitiated`; the worker's `DeleteSubResources
 ```bash
 # The scripts read the target platform from .env (scripts/_target.sh).
 ./scripts/build-extension.sh  samples/worker-compute
-./scripts/deploy-extension.sh samples/worker-compute/dist/extension.zip
+./scripts/deploy-extension.sh samples/worker-compute/dist/agent.zip
 ```

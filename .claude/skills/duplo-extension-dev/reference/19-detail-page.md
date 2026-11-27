@@ -1,7 +1,7 @@
 # The detail page — the shell every resource view is built on
 
 An extension's detail view must be indistinguishable from the platform's own resource pages. The
-platform's resource pages follow one shell (**Template G**), and the Extension Studio details page
+platform's resource pages follow one shell (**Template G**), and the Agent Studio details page
 (`portal/ai-studio/src/app/environment/extensions/view-extension/` in duplo-ui) is its reference
 implementation. This doc is that page's anatomy, ported for a remote, plus the one thing the platform page
 can't give you: how to derive **your** resource's provisioning phases.
@@ -95,7 +95,7 @@ extension renders somewhere with different padding, **delete the block** rather 
 
 ## Deriving phases — the part that is yours
 
-The Studio page hardcodes four phases for the Extension resource (Created → Authoring code → Needs
+The Studio page hardcodes four phases for the Agent resource (Created → Authoring code → Needs
 your input → Deployed) and computes their state from `ResourceStatus` plus its own result fields
 (`loadState`, `version`). **Do the same for your resource**: name the real stages it goes through,
 then map status + result onto them. A generic New→Processing→Complete ladder is not a timeline; it's

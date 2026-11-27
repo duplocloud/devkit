@@ -3,14 +3,14 @@
 An extension bundle (`{manifest.json, backend/, fe/, skills/}` zip) is registered by **loading** it into a
 running studio. There are two ways in, and they differ only in the endpoint + token.
 
-## Mode A — In-platform (Extension resource provisioning ticket)
+## Mode A — In-platform (Agent resource provisioning ticket)
 
-A user creates a **Extension resource** in Extension Studio; the standard provisioning lifecycle runs this
+A user creates an **Agent resource** in Agent Studio; the standard provisioning lifecycle runs this
 skill in a ticket. The platform (`ResourceProvisioningManager`,
 `Duplo.Ai.DataManagement/.../Services/ResourceProvisioningManager.cs`) hands the agent everything:
 
 - **Inputs:** the spec is written to `shared/<subtype>.json` in the ticket workdir
-  (`extension.json` for the Extension resource). The skill template is seeded into
+  (`extension.json` for the Agent resource). The skill template is seeded into
   `.claude/skills/duplo-extension-dev/` (templates + reference included).
 - **`platform_context`:** `duplo_base_url` and a **resource-scoped JWT** (`duplo_token`), plus any
   selected scope's **cloud credentials** under `platform_context.scopes`.
@@ -20,14 +20,14 @@ skill in a ticket. The platform (`ResourceProvisioningManager`,
 - **Env the platform sets:** `DUPLO_HOST` and `DUPLO_TOKEN` (a skill must NEVER overwrite either).
   `DUPLO_BASE` is a local-only override — scripts read `${DUPLO_BASE:-$DUPLO_HOST}`.
 
-Load endpoint (resource-scoped, on the Extension resource):
+Load endpoint (resource-scoped, on the Agent resource):
 ```
 POST {DUPLO_HOST}/v1/aiservicedesk/user/data/workspaces/{ws}/environment/extension-studio/{id}/load-bundle
 Authorization: Bearer {DUPLO_TOKEN}        # the scoped token
 Content-Type: application/zip
 <bundle.zip>
 ```
-Then mark the Extension resource done with `POST …/environment/extension-studio/{id}/status {"status":"Complete"}`.
+Then mark the Agent resource done with `POST …/environment/extension-studio/{id}/status {"status":"Complete"}`.
 
 ## Mode B — Local developer (Claude on your machine)
 
@@ -101,9 +101,9 @@ DUPLO_SDK_VERSIONS=1.0.6,1.0.7 ./scripts/build-extension.sh extensions/<name>
   `DUPLO_TOKEN` is needed to build.
 - The frontend is built once; the backend is published once per version, with `-p:DuploSdkVersion=<v>`, and
   obfuscated when `ARMDOT_LICENSE_FILE_PATH` is set, as in a host build.
-- Output is `dist/sdk-<v>/extension.zip` per version, each stamped `sdkVersion: <v>` and no `sdkDigest` (there
-  is no host bundle to fingerprint). `dist/extension.zip` is not written, and a bundle for a version no longer
-  listed is removed by the next build. Unset, the variable keeps the single host build at `dist/extension.zip`.
+- Output is `dist/sdk-<v>/agent.zip` per version, each stamped `sdkVersion: <v>` and no `sdkDigest` (there
+  is no host bundle to fingerprint). `dist/agent.zip` is not written, and a bundle for a version no longer
+  listed is removed by the next build. Unset, the variable keeps the single host build at `dist/agent.zip`.
 - The host credentials are for deploying only. `scripts/deploy-all.sh` reads the host's `sdk-version` and loads
   the one bundle stamped with it, failing when none matches; `scripts/deploy-extension.sh <zip>` loads the bundle
   you name, which the host rejects unless its `sdkVersion` is the host's.

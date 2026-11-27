@@ -1,6 +1,6 @@
-# Parent / Child extension sample
+# Parent / Child agent sample
 
-A worked **two-resource** extension: a `HelloParent` that owns many `HelloChild` resources — the generic
+A worked **two-resource** agent: a `HelloParent` that owns many `HelloChild` resources — the generic
 shape behind real parent/child pairs (a Job with its Builds, an Environment with its States). It mirrors
 `samples/helloworld` but demonstrates the multi-resource wiring in `reference/08-parent-child-and-menus.md`,
 and uses the platform UI library `@duplocloud-internal/ng-common-lib` for every view.

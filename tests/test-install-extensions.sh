@@ -162,7 +162,7 @@ then ok; else bad "$(calls)"; fi
 
 reset; echo 500 > "$STUB/refresh.code"; run com.example.x
 t "refresh_failure_warns: a failed refresh is a warning; the cached catalog is read with a GET instead"
-if [ "$RC" = 0 ] && has "$ERR" "could not refresh the extension catalog: HTTP 500" && [ "$(installed_versions)" = 1.10.0 ] \
+if [ "$RC" = 0 ] && has "$ERR" "could not refresh the agent catalog: HTTP 500" && [ "$(installed_versions)" = 1.10.0 ] \
    && [ "$(sed -n '1,/\/install /p' "$STUB/curl.log" | grep -c 'GET .*/extension-registry/catalog $')" = 1 ]
 then ok; else bad "rc=$RC out=$OUT err=$ERR log=$(calls)"; fi
 
@@ -180,7 +180,7 @@ if [ "$RC" = 0 ] && [ "$(installed_versions)" = 1.10.0 ]; then ok; else bad "rc=
 
 reset; run com.example.y com.example.x
 t "unknown_id_skipped: an id not in the catalog is skipped, the next id still installs, exit 0"
-if [ "$RC" = 0 ] && has "$OUT" "    ↷ com.example.y — not in the extension catalog, skipped" \
+if [ "$RC" = 0 ] && has "$OUT" "    ↷ com.example.y — not in the agent catalog, skipped" \
    && [ "$(installed_versions)" = 1.10.0 ] && ! grep -q com.example.y "$STUB/curl.log"; then ok
 else bad "rc=$RC out=$OUT err=$ERR log=$(calls)"; fi
 
@@ -191,7 +191,7 @@ if [ "$RC" = 0 ] && has "$OUT" "    ↷ com.example.x — the installer offers n
 
 reset; rm -f "$STUB/catalog.json"; run com.example.x
 t "catalog_unreachable: exit 1 with the server's reason, nothing after the catalog GET"
-if [ "$RC" = 1 ] && has "$ERR" "    ✗ could not read the extension catalog: HTTP 500: oops" \
+if [ "$RC" = 1 ] && has "$ERR" "    ✗ could not read the agent catalog: HTTP 500: oops" \
    && [ "$(calls | grep -vc refresh)" = 1 ]; then ok; else bad "rc=$RC err=$ERR log=$(calls)"; fi
 
 reset; echo 400 > "$STUB/install.code"
@@ -207,8 +207,8 @@ then ok; else bad "rc=$RC err=$ERR"; fi
 
 reset; run '../etc' '..' com.example.x@1.10.0 com.example.x
 t "invalid_id_rejected: path-escaping ids and id@version are refused and never sent"
-if [ "$RC" = 1 ] && has "$ERR" "    ✗ '../etc' — invalid extension id" && has "$ERR" "    ✗ '..' — invalid extension id" \
-   && has "$ERR" "    ✗ 'com.example.x@1.10.0' — invalid extension id" \
+if [ "$RC" = 1 ] && has "$ERR" "    ✗ '../etc' — invalid agent id" && has "$ERR" "    ✗ '..' — invalid agent id" \
+   && has "$ERR" "    ✗ 'com.example.x@1.10.0' — invalid agent id" \
    && ! grep -qE 'etc|/extensions/\.\./|@' "$STUB/curl.log" && [ "$(installed_versions)" = 1.10.0 ]; then ok
 else bad "rc=$RC err=$ERR log=$(calls)"; fi
 
@@ -227,7 +227,7 @@ else bad "rc=$RC out=$OUT err=$ERR"; fi
 # A missing/invalid/unreachable license answers 200 with libraryState set and no extensions at all.
 reset; echo '{"libraryState":"missing","extensions":[],"marks":[],"requests":[]}' > "$STUB/catalog.json"; run com.example.x
 t "library_state_not_ok: an unusable catalog is an error, not a quiet skip"
-if [ "$RC" = 1 ] && has "$ERR" '    ✗ could not read the extension catalog: library state "missing" (no license is configured)' \
+if [ "$RC" = 1 ] && has "$ERR" '    ✗ could not read the agent catalog: library state "missing" (no license is configured)' \
    && [ "$(calls | grep -vc refresh)" = 0 ]; then ok; else bad "rc=$RC out=$OUT err=$ERR log=$(calls)"; fi
 
 reset; patch_catalog 'c["extensions"][0].update(licensed=False, versions=[]); c["marks"] = []'; run com.example.x
@@ -242,7 +242,7 @@ if [ "$RC" = 1 ] && has "$ERR" "    ✗ com.example.x — the installer can't in
 
 # An unpinned install clears a pin, and a rollback always pins — so a re-run must not undo either.
 reset; patch_catalog 'c["marks"] = [{"id": "com.example.x", "version": "1.10.0", "pinnedVersion": "1.9.3"}]'; run com.example.x
-t "pinned_left_alone: an extension an admin pinned or rolled back is not re-installed"
+t "pinned_left_alone: an agent an admin pinned or rolled back is not re-installed"
 if [ "$RC" = 0 ] && has "$OUT" "    ↷ com.example.x — pinned at 1.9.3, left alone" && ! grep -q /install "$STUB/curl.log"
 then ok; else bad "rc=$RC out=$OUT err=$ERR log=$(calls)"; fi
 
@@ -322,7 +322,7 @@ if [ "$RC" = 1 ] && has "$ERR" "    ✗ com.example.x 1.10.0 — install failed:
 
 reset; echo downloading > "$STUB/states"; TIMEOUT=0 run com.example.x
 t "install_timeout: still running when the wait ends → error naming the last state and the timeout"
-if [ "$RC" = 1 ] && has "$ERR" "    ✗ com.example.x 1.10.0 — still downloading after 0s (EXT_INSTALL_TIMEOUT); check the Extension Library page"
+if [ "$RC" = 1 ] && has "$ERR" "    ✗ com.example.x 1.10.0 — still downloading after 0s (EXT_INSTALL_TIMEOUT); check the Marketplace"
 then ok; else bad "rc=$RC out=$OUT err=$ERR"; fi
 
 # Without a requestId in the reply, the request is found by id and version.

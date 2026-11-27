@@ -62,7 +62,7 @@ IP address.
 - **Credential values, API keys, or tokens.** Credential events carry the credential's *name* and
   a *count* of its custom fields, never the values.
 - **Your files, or the contents of files you attach.** Only `has_files`.
-- **Anything from your extensions' code, or from the agent's output.** Skill events carry only the
+- **Anything from the code you write, or from the agent's output.** Skill events carry only the
   skill's type and format — not its name, source, or body. Agent prompts are reduced to a
   `has_prompt` flag, and free-text feedback to a `has_text` flag.
 - **Anything from the studio backend.** These metrics come from the UI only; the studio has no

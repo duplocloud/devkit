@@ -60,7 +60,7 @@ validate_header_actions() {
   out=$(jq -r "$_HA_JQ"'
     (if (.frontend | type) == "object" and (.frontend | has("headerActions")) then .frontend.headerActions else null end) as $h
     | if $h == null then empty
-      elif ($h != []) and (.id | isnb | not) then "frontend.headerActions: the extension needs a non-blank string id (the portal ignores its actions otherwise)"
+      elif ($h != []) and (.id | isnb | not) then "frontend.headerActions: the agent needs a non-blank string id (the portal ignores its actions otherwise)"
       elif ($h | type) != "array" then "frontend.headerActions: must be an array"
       elif ($h | length) > 0 and (.frontend.remote | if type == "object" then .remoteEntry | isnb else false end | not)
         then "frontend.headerActions: needs a non-blank frontend.remote.remoteEntry (the portal drops them all without it)"

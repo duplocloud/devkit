@@ -1,10 +1,10 @@
-# Signs one built extension.zip into extension.zip.sig with a publisher key the DuploCloud console certifies.
+# Signs one built agent.zip into agent.zip.sig with a publisher key the DuploCloud console certifies.
 # For pipelines outside devkit's release job, which calls scripts/extension-sign.py directly.
 name: extension-sign
-description: Sign an extension bundle for DuploCloud portals that require signed extensions
+description: Sign an agent bundle for DuploCloud portals that require signed agents
 inputs:
   bundle:
-    description: Path to the built extension.zip
+    description: Path to the built agent.zip
     required: true
   signing-key:
     description: Publisher private key PEM, from a secret

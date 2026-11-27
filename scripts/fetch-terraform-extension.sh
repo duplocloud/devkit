@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Vendor the DuploCloud Terraform extension's SOURCE into extensions/terraform.
+# Vendor the DuploCloud Terraform agent's SOURCE into extensions/terraform.
 #
-# The Terraform extension is a real, shipping DuploCloud extension, open-sourced at
+# The Terraform agent is a real, shipping DuploCloud agent, open-sourced at
 # $TF_EXT_REPO. That repository is itself a full copy of this dev kit; the only part we want is its
 # extensions/terraform subdirectory. So we do a blobless partial fetch with a sparse path — nothing
 # outside that subdirectory is ever downloaded — then move the subdirectory into place and delete the
@@ -9,7 +9,7 @@
 #
 # What lands in extensions/terraform is PLAIN SOURCE: no .git, no remote, no upstream, no submodule.
 # You never pull it and it never updates itself. It is yours to read and to change, exactly like an
-# extension you wrote — which is the point.
+# agent you wrote — which is the point.
 #
 #   ./scripts/fetch-terraform-extension.sh            # fetch if absent; keep what's there otherwise
 #   ./scripts/fetch-terraform-extension.sh --force    # re-fetch, moving any existing copy to .bak
@@ -95,4 +95,4 @@ mkdir -p "$(dirname "$TF_EXT_DEST")"
 mv "$TMP/src/$TF_EXT_PATH" "$TF_EXT_DEST"
 
 echo "    $TF_EXT_DEST — $(find "$TF_EXT_DEST" -type f | wc -l | tr -d ' ') files, not a git repo. Yours to edit."
-echo "    Build + load it:  ./scripts/build-extension.sh $TF_EXT_DEST && ./scripts/deploy-extension.sh $TF_EXT_DEST/dist/extension.zip"
+echo "    Build + load it:  ./scripts/build-extension.sh $TF_EXT_DEST && ./scripts/deploy-extension.sh $TF_EXT_DEST/dist/agent.zip"

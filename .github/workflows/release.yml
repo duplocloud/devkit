@@ -1,10 +1,10 @@
-# Releases each extension in this repo on push to main, dev or rc, through duplocloud/actions/release-extension.
+# Releases each agent in this repo on push to main, dev or rc, through duplocloud/actions/release-extension.
 #
 # For every extensions/<name>/ the action builds the bundle with scripts/build-all.sh, then signs it, cuts one GitHub
 # Release per build tagged <name>-v<version>-sdk-<sdkVersion> at the built commit, uploads it, and registers it with
 # the console as an unpublished version. The action's README has the rules: a build already released is resumed, not
-# rebuilt, and an extension whose content changed at a version that already has a release fails the job, so bumping
-# manifest.version is how you publish a new version to the extension library.
+# rebuilt, and an agent whose content changed at a version that already has a release fails the job, so bumping
+# manifest.version is how you publish a new version to the agent library.
 #
 # main releases to the prod console and the prod bucket. In Duplo's own organizations, dev and rc release to the dev
 # console and the non-prod bucket, with the release tagged <name>-dev-v<version>-sdk-<sdkVersion> (or -rc-) and marked a
@@ -14,7 +14,7 @@
 # organizations a push to dev or rc runs nothing here, since the console it would reach is Duplo's.
 #
 # This file ships with the dev-kit. After scripts/init-project.sh makes the repo yours, set these repo secrets
-# (same as Extension CI): DUPLO_HOST + DUPLO_TOKEN, and CONSOLE_API_KEY, the console key the action registers versions
+# (same as Agent CI): DUPLO_HOST + DUPLO_TOKEN, and CONSOLE_API_KEY, the console key the action registers versions
 # with. Outside Duplo's organizations that key belongs to your console team, so set the repo variable CONSOLE_TEAM to
 # the team's slug as well; the action then uses the team's own routes. By default the build fetches the host SDK feed
 # from DUPLO_HOST, which must be reachable from CI (a public DuploCloud, not localhost), and releases the one bundle
@@ -39,7 +39,7 @@
 # install-from-registry flow stays testable end to end. Add a step running ./scripts/deploy-all.sh after the action to
 # hot-load the built bundles on merge.
 
-name: Extension Release
+name: Agent Release
 
 on:
   push:
@@ -53,7 +53,7 @@ on:
 
 permissions:
   contents: write        # create GitHub Releases
-  id-token: write        # assume the extension-publisher role through GitHub OIDC
+  id-token: write        # assume the agent-publisher role through GitHub OIDC
 
 concurrency:
   # One release run per side at a time, never canceled between its writes.
@@ -82,10 +82,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # Every tag and the history it points at: the action compares each released version's commit with this one
-          # to tell an unchanged extension from one that changed without a version bump.
+          # to tell an unchanged agent from one that changed without a version bump.
           fetch-depth: 0
 
-      - name: Discover extensions
+      - name: Discover agents
         id: guard
         run: |
           # extension/manifest.json has no wildcard, so nullglob would keep it as a literal and the list would never

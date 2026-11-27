@@ -199,7 +199,7 @@ Use the plain string to join an **existing** (built-in) section, and the object 
 - **Admin override** — an admin can change an extension's section and position from the Marketplace (the placement
   picker). The override **wins over the manifest** and **survives upgrades**, so the manifest value is only the default.
 
-Ask the author in one question, naming the section and its position (the skill's Agent row has the wording):
+Ask the author in one question, naming the section and its position (the skill's Nav section row has the wording):
 
 > Your agent gets a section in the left menu in the DuploCloud AI platform. Should it join an existing section, like
 > **Infrastructure**, or start a new one: **Compliance**, **Release Management**, or a name of your own? A new section

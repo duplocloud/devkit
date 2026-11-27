@@ -6,7 +6,7 @@ LLM access, a verified email address, and four free ports.
 **What you need first:** Nothing. This is the first page.
 
 The dev kit runs the whole platform from published images. There is no *language* toolchain to install —
-no .NET, no Node: every container it starts, and every extension you later build, is built and run inside
+no .NET, no Node: every container it starts, and every agent you later build, is built and run inside
 a container. The two things that must exist on the host are a container runtime and `python3`, which the
 setup scripts use as their JSON and `.env` editor.
 
@@ -53,7 +53,7 @@ What matters is that the runtime is reachable and that its `compose` subcommand 
 > delegates to), or `brew install podman-compose`. Either satisfies the `podman compose version` check
 > `run.sh` runs — so if that already answers, there is nothing to install. Rootless
 > podman needs nothing else; the build scripts handle the user-namespace uid mapping for you, so
-> extension bundles come out owned by you rather than by root.
+> agent bundles come out owned by you rather than by root.
 >
 > **podman on Apple Silicon** needs three more things before the studio will start, because the studio
 > image is amd64 on some tags and runs emulated:
@@ -73,7 +73,7 @@ What matters is that the runtime is reachable and that its `compose` subcommand 
 >    file already exists, edit its `[machine]` section — never append a second `[machine]` table, which
 >    is a TOML duplicate-key error that stops podman running at all.**
 > 3. **Size the machine.** `podman machine init` defaults to 2048 MiB; `run.sh` hard-fails below
->    6144 MiB, because an undersized VM does not stop the stack coming up — it poisons later extension
+>    6144 MiB, because an undersized VM does not stop the stack coming up — it poisons later agent
 >    builds with an OOM kill that reports itself as `exit status 137`.
 >
 > Which makes the whole first-time sequence:

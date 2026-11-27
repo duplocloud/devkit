@@ -5,6 +5,10 @@
 
 Run the DuploCloud Agentic Platform on your laptop in containers, then build your own Agent against it. Each Agent you write ships a backend, a UI, and its own provisioning, and hot-loads into the running platform with no restart.
 
+> **Naming note:** Agents were previously called Extensions. Paths (`extensions/<name>/`), REST routes,
+> Mongo collections, env vars, and script names still say `extension` on purpose — that is a deliberate
+> backward-compatibility boundary, not an incomplete rename.
+
 ![The DuploCloud platform running locally, with the New Extension form filled in](docs/images/devkit-new-extension.png)
 
 ## Why you'd want it
@@ -53,12 +57,12 @@ region against six security rules, charts the violations over time, and fixes th
 | `scripts/` | Build, deploy, register, and upgrade |
 | `samples/` | Worked reference Agents |
 | `.claude/` | The `/duplo-extension` authoring command, its skill, and 20 reference guides |
-| `extensions/terraform/` | The real, shipping **Terraform extension** — source, fetched once by `run.sh`, disconnected from git and yours to modify |
+| `extensions/terraform/` | The real, shipping **Terraform agent** — source, fetched once by `run.sh`, disconnected from git and yours to modify |
 | `extensions/<name>/` | **Yours** (subject to our and any third party's rights in the underlying software and technology upon which they are built). The one thing an upgrade never touches |
 
-## Installing an extension
+## Installing an agent
 
-The `installer` service installs extensions into the running studio and keeps them current.
+The `installer` service installs agents into the running studio and keeps them current.
 
 **Your own build.** Build it into `extensions/[name]/dist/`:
 
@@ -71,19 +75,19 @@ including a rebuild at the same version. The studio may keep running the previou
 reload, as `deploy-extension.sh` warns, so bump the version for backend changes.
 
 A build already in `dist/` when the installer starts, as after `./run.sh --reset`, waits for its next rebuild, and so
-does an extension you remove. The installer also leaves alone a build older than the installed version, unless that
+does an agent you remove. The installer also leaves alone a build older than the installed version, unless that
 version failed to load.
 
-`./scripts/deploy-extension.sh extensions/[name]/dist/extension.zip` hands that build to the installer while it runs,
+`./scripts/deploy-extension.sh extensions/[name]/dist/agent.zip` hands that build to the installer while it runs,
 waits for the installer to report it, and exits non-zero with the installer's reason when it does not install it. For
 a build the installer leaves alone, with the installer stopped or `EXTENSIONS_ENABLED=false`, for an id in
 `EXTENSIONS_EXCLUDE`, or for a zip outside `extensions/`, it loads the zip itself.
 
 The installer reinstalls a same-version rebuild only over a build it installed itself. After a load it did not make,
-such as `deploy-extension.sh` with the installer stopped or Extension Studio's in-platform flow, bump the version or
+such as `deploy-extension.sh` with the installer stopped or Agent Studio's in-platform flow, bump the version or
 run `./scripts/remove-extension.sh [id]` before relying on the installer for a rebuild.
 
-**From the catalog.** The Available tab lists the extensions your license entitles you to, a trial included, and
+**From the catalog.** The Available tab lists the agents your license entitles you to, a trial included, and
 Install there hands the click to this installer. Unset, the installer uses this prod catalog. A value in `.env`
 replaces that default.
 
@@ -96,15 +100,15 @@ CHANNELS_BUCKET=duplo-helpdesk-channels
 
 Set `LICENSE_SERVER_URL` empty to leave the catalog off and run on your own builds alone. Re-run `./run.sh` after
 changing them. `EXTENSIONS_ENABLED=false` in `.env` stops the installer installing anything,
-and `EXTENSIONS_EXCLUDE` takes a JSON array of extension ids it leaves alone. `docker-compose.yml` lists the other
+and `EXTENSIONS_EXCLUDE` takes a JSON array of agent ids it leaves alone. `docker-compose.yml` lists the other
 `EXTENSIONS_` keys it passes through.
 
-**How it checks an install.** The installer judges an install by the studio's `/healthz` and the extension's row. It
+**How it checks an install.** The installer judges an install by the studio's `/healthz` and the agent's row. It
 sees a studio restart only as missed `/healthz` reads spanning at least 5 seconds followed by an answer. A quicker
 restart goes unseen, and the row alone then judges the install.
 
 **A load that hangs the studio.** Under compose the installer backs out only through the studio's API, so it cannot
-back out a build that hangs the studio when it starts. Stop the studio, disable the extension's row by hand, with
+back out a build that hangs the studio when it starts. Stop the studio, disable the agent's row by hand, with
 `[id]` its manifest id, and start the studio again:
 
 ```bash
@@ -123,23 +127,23 @@ for each `docker compose` above.
 ## Building for more than one SDK version
 
 A host loads only a bundle built against its own SDK version: the loader rejects a bundle whose `manifest.json`
-`sdkVersion` differs from the SDK the host runs, so an extension that has to run on hosts at different versions
+`sdkVersion` differs from the SDK the host runs, so an agent that has to run on hosts at different versions
 ships one bundle per version
 ([why exactness matters](.claude/skills/duplo-extension-dev/reference/06-registration.md#sdk-version-pinning--why-exactness-matters)).
 By default `build-extension.sh` takes the SDK from the running host and builds the one bundle that host loads,
-at `dist/extension.zip`. To build for several versions, name them and the build takes each SDK from the package
+at `dist/agent.zip`. To build for several versions, name them and the build takes each SDK from the package
 feed instead, with no host at all:
 
 ```bash
 DUPLO_SDK_VERSIONS=1.0.6,1.0.7 ./scripts/build-extension.sh samples/helloworld
-ls samples/helloworld/dist/sdk-*/extension.zip
+ls samples/helloworld/dist/sdk-*/agent.zip
 ```
 
 `DUPLO_SDK_VERSIONS` lists the versions, comma-separated or one per line. Each one is restored as the
 `Duplocloud.AiHelpdesk.Sdk` package at exactly that version from the `nuget.org` source in `backend/nuget.config`,
 so it has to be a version the feed publishes. The frontend is built once and the backend once per version, and
-each bundle lands at `dist/sdk-[version]/extension.zip` with that version stamped as its `sdkVersion`. Nothing is
-written to `dist/extension.zip`, and a bundle for a version no longer listed is removed by the next build. Leave
+each bundle lands at `dist/sdk-[version]/agent.zip` with that version stamped as its `sdkVersion`. Nothing is
+written to `dist/agent.zip`, and a bundle for a version no longer listed is removed by the next build. Leave
 `DUPLO_SDK_VERSIONS` unset for the single host build. The build runs in the builder container as usual; pass
 `--native` to use a .NET 8 SDK and Node 22 you installed yourself.
 
@@ -153,16 +157,16 @@ variable `DUPLO_SDK_VERSIONS`; see [CLI reference](docs/cli-reference.md#ci-work
 
 | Page | What it covers |
 | --- | --- |
-| [Getting started](docs/getting-started/README.md) | Prerequisites, adopting the repo, and your first extension |
+| [Getting started](docs/getting-started/README.md) | Prerequisites, adopting the repo, and your first agent |
 | [Architecture](docs/architecture.md) | How the services fit together and how hot-loading works |
 | [Configuration](docs/configuration.md) | Every `.env` variable, its default, and its effect |
 | [CLI reference](docs/cli-reference.md) | `run.sh`, `stop.sh`, `logs.sh`, and every script — flags and behavior |
-| [Releasing extensions](docs/releasing-extensions.md) | What a push to `main` releases, signs and registers through the release-extension action, who publishes, and how to release to your own portal |
+| [Releasing agents](docs/releasing-extensions.md) | What a push to `main` releases, signs and registers through the release-extension action, who publishes, and how to release to your own portal |
 | [Upgrading](docs/upgrading.md) | Taking framework updates without losing your work |
 | [Troubleshooting](docs/troubleshooting.md) | Symptoms, causes, and fixes |
 | [FAQ](docs/faq.md) | Licensing, data, and platform support |
 
-The full [documentation index](docs/README.md) has everything, including the extension-authoring reference
+The full [documentation index](docs/README.md) has everything, including the agent-authoring reference
 guides.
 
 ## License and use
@@ -191,10 +195,10 @@ guides.
 | --- | --- |
 | [LICENSE](LICENSE) | **Apache-2.0** — the dev-kit source DuploCloud authored (`run.sh`, `scripts/`, `samples/`, `docker-compose.yml`, `nginx/`, `.claude/`). Use, modify, and redistribute freely. Does **not** cover the vendored library tarballs under `packages/` or `**/frontend/vendor/`. |
 | [NOTICE](NOTICE) | The boundary: what Apache-2.0 covers, what it doesn't (the container images and the vendored UI library), and the third-party images. Apache-2.0 §4(d) requires you to keep it in any redistribution. |
-| [TERMS.md](TERMS.md) | The proprietary pieces that are *not* Apache-licensed: the **`quay.io/duplocloud/*` container images** (**no modification**, no redistribution) and the **vendored `@duplocloud-internal/ng-common-lib` tarball** (build against it and ship what your build bundles — nothing else). Links the DuploCloud Terms of Service, which also confirm you own your extensions. |
+| [TERMS.md](TERMS.md) | The proprietary pieces that are *not* Apache-licensed: the **`quay.io/duplocloud/*` container images** (**no modification**, no redistribution) and the **vendored `@duplocloud-internal/ng-common-lib` tarball** (build against it and ship what your build bundles — nothing else). Links the DuploCloud Terms of Service, which also confirm you own your agents. |
 | [SECURITY.md](SECURITY.md) | Reporting a vulnerability. **Email `ai-reporting@duplocloud.net` — don't open a public issue.** |
 | [PRIVACY.md](PRIVACY.md) | The usage metrics the UI sends if you opt in, tied to your sign-in email — what is collected and what is not. |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | PRs improving the *framework* are welcome. Your own extensions stay in your repo and don't belong upstream. |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | PRs improving the *framework* are welcome. Your own agents stay in your repo and don't belong upstream. |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Contributor Covenant 2.1 — the behaviour expected in issues and pull requests here, and what happens when it isn't met. Report a problem to `ai-reporting@duplocloud.net`. |
 | [SUPPORT.md](SUPPORT.md) | Where to get help and what to expect: **GitHub Issues, best effort, no SLA.** Also what belongs somewhere else. |
 

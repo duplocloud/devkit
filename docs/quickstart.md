@@ -5,7 +5,7 @@ real question about it.
 
 This is the quickstart, so it sticks to the commands and click-paths you need to get running. If you
 would rather have the reasoning behind each step, the output to expect along the way, and the
-Kubernetes and extension-authoring pages, the full
+Kubernetes and agent-authoring pages, the full
 [getting started guide](getting-started/README.md) covers the same ground in more depth.
 
 ---
@@ -28,7 +28,7 @@ docker --version && docker compose version
    cd my-agent
    ```
 
-2. Adopt the clone and seed your first extension.
+2. Adopt the clone and seed your first agent.
 
    ```bash
    ./scripts/init-project.sh git@github.com:<your-github-user>/<your-repo>.git
@@ -51,7 +51,7 @@ docker --version && docker compose version
 
 4. `./run.sh` prints a `✔ Platform ready` summary when the stack is up, and ends with
    `==> Open the portal in your browser:` and the URL. Sign in there (by default
-   <http://localhost:4210>) with that email and password. You land with the `extension-dev` workspace
+   <http://localhost:4210>) with that email and password. You land with the `agent-dev` workspace
    selected.
 
 You cannot file a ticket yet — a ticket requires a scope, which step 4 creates.
@@ -116,7 +116,7 @@ alone and select your default region → **Create**.
 Creating the scope pops up **Attach Scope to Workspaces**. **Do not press Skip** — a scope that is not
 attached to a workspace never appears on a ticket.
 
-Pick **extension-dev** under **Workspaces** → **Attach**.
+Pick **agent-dev** under **Workspaces** → **Attach**.
 
 ![The Attach Scope to Workspaces dialog with extension-dev selected](images/devkit-attach-scope-to-workspaces.png)
 
@@ -202,12 +202,12 @@ one, what do they fill in?"), so the command goes almost straight to its plan. T
 you'll get**, a plain summary for you to approve:
 
 ```text
-Build an extension called whois: a domain lookup resource. You give it a domain name, it
+Build an agent called whois: a domain lookup resource. You give it a domain name, it
 looks the domain up on the public internet, and it returns the registration facts as
 structured, first-class result fields instead of raw WHOIS text.
 
 Naming — use exactly these, do not ask me to confirm them:
-  - extension name: whois
+  - agent name: whois
   - resource type: DomainLookup  (ticketOriginType DomainLookup)
   - restSegment / frontend route / menu relativeUrl: extensions/whois-lookups
   - Mongo collection: extension_domainlookup
@@ -250,7 +250,7 @@ is the EPP status list; secureDNS.delegationSigned is the DNSSEC flag; entities[
 roles ["registrar"] with a vcardArray whose "fn" is the registrar name, and a nested
 abuse entity whose vcard "email" is the abuse contact.
 
-RESULT (the first-class fields — this is the point of the extension). Make each of these
+RESULT (the first-class fields — this is the point of the agent). Make each of these
 a real typed field on the result model, not a blob:
 
   - Domain — the canonical name the registry returned
@@ -298,7 +298,7 @@ the spec and result fields, the provisioning mode, the left-menu section and its
 **one plan** covering the fields, the UI, the files, and the build commands. Approve it once and it
 runs unattended.
 
-When it finishes, it will have packaged your extension and pushed it into your dev-kit platform. The
+When it finishes, it will have packaged your agent and pushed it into your dev-kit platform. The
 platform hot-loads it — there is nothing to restart.
 
 ### d. See it in the portal
@@ -333,10 +333,10 @@ its own form, its own views, its own provisioning, live without a restart.
 
 - [getting-started/README.md](getting-started/README.md) — the full path, with Kubernetes and the
   reasoning behind each step
-- [Build your first extension](getting-started/build-your-first-extension.md) — the same loop against
+- [Build your first agent](getting-started/build-your-first-extension.md) — the same loop against
   something real: an S3 security posture dashboard that scans your account and reports what is
   misconfigured
 - [`.claude/skills/duplo-extension-dev/reference/`](../.claude/skills/duplo-extension-dev/reference) —
   the authoring manual, 20 guides, and the source of truth `/duplo-extension` reads
-- [`samples/`](../samples) — six worked extensions to copy patterns from
+- [`samples/`](../samples) — six worked agents to copy patterns from
 - [troubleshooting.md](troubleshooting.md) — when something breaks

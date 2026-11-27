@@ -1,22 +1,22 @@
-# Upgrading an extension's UI library: the vendored `@duplocloud-internal/ng-common-lib` tarball
+# Upgrading an agent's UI library: the vendored `@duplocloud-internal/ng-common-lib` tarball
 
-For extensions built from this dev-kit (or from the `duplo-extension-dev` skill template) that vendor the UI
+For agents built from this dev-kit (or from the `duplo-extension-dev` skill template) that vendor the UI
 library as a tarball. The current line is 0.8.0 (Angular 22); [What changed in 0.5.1](#what-changed-in-051) covers
 the dark theme, and the notes after it contrast the 0.2.x line with 0.1.x.
 
 > **This is not a drop-in upgrade.** 0.2.0 is compiled against **Angular 22** and ships as ESM
 > (`fesm2022`, `"type": "module"`); its peer range is `@angular/core@^22.1.0`. It is meant to be consumed by
-> a **Native Federation** remote that emits `remoteEntry.json`. An extension still on Angular-15 + Webpack
+> a **Native Federation** remote that emits `remoteEntry.json`. An agent still on Angular-15 + Webpack
 > Module Federation cannot use it by swapping the tarball — the install will not resolve, and even if forced
 > it would still emit the Webpack-era `.js` remote entry, which the Angular 22 portal never loads.
 >
-> **Migrate the extension first**, then the tarball swap below is the last step of that migration:
+> **Migrate the agent first**, then the tarball swap below is the last step of that migration:
 > [`.claude/skills/duplo-extension-ng22-migration/`](../.claude/skills/duplo-extension-ng22-migration/).
-> That skill converts one extension in place — deletes the Webpack layer and the dev shell, writes
+> That skill converts one agent in place — deletes the Webpack layer and the dev shell, writes
 > `federation.config.js` and the `@angular-architects/native-federation:build` target, bumps every
 > dependency, and finishes with the gate `scripts/verify-remote-federation.js`.
 
-If your extension is already an Angular 22 Native-Federation remote (it has `frontend/federation.config.js`
+If your agent is already an Angular 22 Native-Federation remote (it has `frontend/federation.config.js`
 and no `frontend/webpack.config.js`), the steps below are all you need.
 
 ---
@@ -38,11 +38,11 @@ and no `frontend/webpack.config.js`), the steps below are all you need.
 - `<duplo-connection-field>` takes `alsoTypes` (default none): connections of those provider types are listed beside
   the main type, for providers admins made by hand
   ([07](../.claude/skills/duplo-extension-dev/reference/07-scope-credentials.md#connections-made-by-hand)).
-- Nothing was removed. Nothing to change in an existing extension; add a setup page when you next touch it.
+- Nothing was removed. Nothing to change in an existing agent; add a setup page when you next touch it.
 
 ## What changed in 0.7.x
 
-- No change an extension needs to act on. Nothing was removed.
+- No change an agent needs to act on. Nothing was removed.
 
 ## What changed in 0.6.x
 
@@ -53,7 +53,7 @@ and no `frontend/webpack.config.js`), the steps below are all you need.
 - Smaller additions: the `SILENT_403` request-context token (the error interceptor skips its "Access denied" toast
   for that request), `StringUtils.pluralize`, `minRows` and `fill` inputs on `<app-xterm-socket>`, and
   `scss/_dots-loader.scss`.
-- Nothing was removed. Nothing to change in an existing extension.
+- Nothing was removed. Nothing to change in an existing agent.
 
 ## What changed in 0.5.3
 
@@ -61,12 +61,12 @@ and no `frontend/webpack.config.js`), the steps below are all you need.
   both modes, matching the portal's chat command blocks), so they now cover 22 tokens. Use them through
   `$g-terminal-bg` / `$g-terminal-fg`, or `commandBlockTheme()` for an xterm.
 - The dark `--success-text`, `--danger-text` and `--warning-text` defaults now match the portal's values.
-- Nothing to change in an existing extension.
+- Nothing to change in an existing agent.
 
 ## What changed in 0.5.2
 
 - `"sideEffects"` now names the library file, so a bundler cannot drop the token-defaults call even when
-  an extension imports nothing from the library. Nothing to change in the extension.
+  an agent imports nothing from the library. Nothing to change in the agent.
 
 ## What changed in 0.5.1
 
@@ -76,10 +76,10 @@ and no `frontend/webpack.config.js`), the steps below are all you need.
 - **Token defaults.** When the library loads it adds one `<style id="duplo-theme-defaults">` with
   zero-specificity defaults (`:where(:root)` and `:where(:root[data-theme='dark'])`) for the 20 tokens the dark
   theme added. The portal's own values always win; on a portal that predates the dark theme the defaults keep the
-  extension's look unchanged. Check a build with `grep -rl duplo-theme-defaults dist`.
-- **Why upgrade:** an older bundled copy repaints the portal's tables white in dark mode while the extension's page
+  agent's look unchanged. Check a build with `grep -rl duplo-theme-defaults dist`.
+- **Why upgrade:** an older bundled copy repaints the portal's tables white in dark mode while the agent's page
   is open, because its datatable styles are global.
-- Extension styles move to the `$g-*` theme names — see [theming.md](theming.md) and the
+- Agent styles move to the `$g-*` theme names — see [theming.md](theming.md) and the
   `duplo-extension-theme-migration` skill. Steps 1–5 below apply unchanged with the 0.5.3 tarball.
 
 ## What changed in 0.4.x
@@ -90,7 +90,7 @@ and no `frontend/webpack.config.js`), the steps below are all you need.
 - `AI_SUITE_LABEL_CONFIG` is marked deprecated; labels now come from the portal's `config.json` through `resolveLabel()`.
 - Behaviour change: the help-tooltip URL comes from `links.helpTextJson` in the portal's `config.json`. The library
   default is the public help JSON; set it to `null` to skip the fetch (tooltips stay empty).
-- Nothing was removed. Nothing to change in an existing extension.
+- Nothing was removed. Nothing to change in an existing agent.
 
 ## What changed in 0.2.0
 
@@ -245,14 +245,14 @@ second argument to also check every shared package against the host at the same 
 - **The vendoring model.** The library is consumed as a committed `file:` tarball, so no `.npmrc` and no
   auth token are needed for a fresh clone to install.
 - **The detail shell.** The shared `_g-structure.scss` / `detail-page.scss` / lifecycle rail are copied per
-  extension (the lib does not export them), so a tarball bump never touches them.
+  agent (the lib does not export them), so a tarball bump never touches them.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | `EINTEGRITY` / `checksum mismatch` on install | lockfile still holds the 0.1.5 hash | redo step 3 |
-| `ERESOLVE` naming `@angular/core@15` peers | the extension has not been migrated to Angular 22 | run the [migration skill](../.claude/skills/duplo-extension-ng22-migration/) first — do **not** reach for `--legacy-peer-deps` |
+| `ERESOLVE` naming `@angular/core@15` peers | the agent has not been migrated to Angular 22 | run the [migration skill](../.claude/skills/duplo-extension-ng22-migration/) first — do **not** reach for `--legacy-peer-deps` |
 | `ERESOLVE` naming `ngx-toastr` | the `overrides` block is missing from `package.json` | add it (step 4) |
 | Build resolves the old version | stale unpacked copy in `node_modules` | `rm -rf node_modules/@duplocloud-internal` and reinstall |
 | Build emits `dist/browser/` instead of `dist/remoteEntry.json` at the top level | `angular.json`'s esbuild `outputPath` is missing `"browser": ""` | set `"outputPath": { "base": "dist", "browser": "" }` — `build-extension.sh` copies `frontend/dist/.` straight into the bundle's `fe/` |

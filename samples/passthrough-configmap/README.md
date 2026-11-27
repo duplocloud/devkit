@@ -29,5 +29,5 @@ Deliberately **no Track-Provisioning UI and no `ticketName()`** — passthrough 
 ```bash
 # The scripts read the target platform from .env (scripts/_target.sh).
 ./scripts/build-extension.sh  samples/passthrough-configmap
-./scripts/deploy-extension.sh samples/passthrough-configmap/dist/extension.zip
+./scripts/deploy-extension.sh samples/passthrough-configmap/dist/agent.zip
 ```

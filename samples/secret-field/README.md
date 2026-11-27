@@ -9,10 +9,10 @@ Built from `templates/helloworld`; every change beyond the rename is secrets-rel
 ## Host prerequisite
 
 This sample's hooks require `IMongoEncryptionProvider` and `ISecretRedactionService` to be resolvable
-inside the extension's own DI container — only true on a host build that includes duplo-ai-helpdesk #734
+inside the agent's own DI container — only true on a host build that includes duplo-ai-helpdesk #734
 (`HostServiceBridge.HostSingletons`). Devkit's own default `STUDIO_TAG` (`.env.example`) now points to a
 host build that includes it, so a fresh local stack works out of the box. If you're pointed at a different
-or older host build (`main`, or anything that predates #734), loading this extension fails with:
+or older host build (`main`, or anything that predates #734), loading this agent fails with:
 
     Unable to resolve service for type 'Duplo.Ai.DataManagement.Encryption.IMongoEncryptionProvider' while
     attempting to activate 'Duplo.Extension.SecretField.SecretFieldServiceAccountHooks'.
@@ -37,14 +37,14 @@ If you hit that error, the fix is a host build that includes #734 — not a devk
 Agent mode (same as `samples/helloworld`) — deliberately, because the agent-visibility problem
 (`[AgentSecretValue]` / the sibling `.secrets.json`) only exists for agent-provisioned resources. The
 skill simulates creating the account (no real external system) and derives a fake `accountId` from the
-username; a real extension would call its target system's API here, authenticating with the password
+username; a real agent would call its target system's API here, authenticating with the password
 read from the secrets file.
 
 ## Build
 ```bash
 # The scripts read the target platform from .env (scripts/_target.sh).
 ./scripts/build-extension.sh  samples/secret-field
-./scripts/deploy-extension.sh samples/secret-field/dist/extension.zip
+./scripts/deploy-extension.sh samples/secret-field/dist/agent.zip
 ```
 
 ## Try it

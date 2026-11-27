@@ -113,7 +113,7 @@ builder_probe_runtime() {
   # the server, so it proves exactly as much, and it is ~25x cheaper (measured 0.042s vs 1.074s).
   # builder_dispatch evaluates all four probes as *arguments* to builder_mode, so bash runs this one
   # even when --native has already decided the answer — and build-all.sh --native pays it once per
-  # extension. Podman is daemonless, but it implements the same query (reporting its own version as
+  # agent. Podman is daemonless, but it implements the same query (reporting its own version as
   # the server), so one probe covers every supported runtime.
   #
   # `{{json .Server}}` and NOT `{{.Server.Version}}`: the server struct is not the same shape across
@@ -246,10 +246,10 @@ builder_keep_local_copy() { # builder_keep_local_copy <pull-error-text>
 }
 
 # The toolchain image a build uses when neither BUILDER_IMAGE nor BUILDER_TAG is set, pinned by digest so two
-# builds of one extension version compile with the same toolchain. `:latest` moves on every toolchain publish,
+# builds of one agent version compile with the same toolchain. `:latest` moves on every toolchain publish,
 # which would let two builds of one version differ. The digest is the multi-arch index, so it resolves on amd64
 # and arm64 alike. .github/workflows/builder-image.yml prints the new digest after each publish. Moving this pin
-# (and docker-compose.yml's matching default) is a reviewed change, since it changes what every extension builds with.
+# (and docker-compose.yml's matching default) is a reviewed change, since it changes what every agent builds with.
 _BUILDER_PINNED_IMAGE="quay.io/duplocloud/duplo-extension-builder@sha256:c53105d199f6f9c1106a48becc8fb031124b34cc74069eee4ed8ff06d28b5dc0"
 
 builder_resolve_image() {
@@ -563,7 +563,7 @@ builder_dispatch() {
   # Only /work (this checkout) is mounted, so a path that resolves outside it does not exist in the
   # container and the build dies with a confusing "No manifest.json in /Users/you/elsewhere". Say the
   # real thing here. Checked only on the container path — natively those paths work fine, and the
-  # arguments are the caller's extension directory, never the script path, which is ours.
+  # arguments are the caller's agent directory, never the script path, which is ours.
   local a
   for a in "$@"; do
     case "$a" in

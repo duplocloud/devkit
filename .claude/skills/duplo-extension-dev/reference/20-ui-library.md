@@ -123,7 +123,7 @@ export class ResultPanelComponent {}
 | `view-with-sidecards` · `view-header-card` · `sidecard` · `mini-card` | `CommonLibComponentsModule` | The older detail layout; the portal is migrating off it |
 
 > **The detail-page shell is ruled by [19-detail-page](19-detail-page.md), not by this table.** Extension
-> detail pages use the Template-G shell so they match the Extension Studio page they sit next to. The
+> detail pages use the Template-G shell so they match the Agent Studio page they sit next to. The
 > `app-detail-*` family is listed so you know it exists; don't switch the shell to it.
 
 ## Forms & validation

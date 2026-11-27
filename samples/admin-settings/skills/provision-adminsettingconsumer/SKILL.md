@@ -24,7 +24,7 @@ read spec + adminSetting  ->  POST status Processing  ->  apply the setting to t
   - `id`, `ownerWorkspaceId` — for the write-back URL.
   - `spec.adminSettingId` — the admin row it references.
   - `adminSetting` — **the admin row's details** (`id`, `name`, `status`, `settingKey`, `settingValue`). The
-    platform writes only this resource's own spec to the file; the extension's
+    platform writes only this resource's own spec to the file; the agent's
     `GetExpandedSpecForAgentAsync` embeds `adminSetting`. **You cannot GET the admin route** — the token does not
     cover it — so this is your only source. `null` means the row is gone: fail with a clear fault.
 - **Provider-scope credentials:** the usual ones for this workspace and `spec.scopeIds`. This sample needs none.

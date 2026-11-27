@@ -1,4 +1,4 @@
-# Toolchain image for building dev-kit extensions: .NET SDK 10 + the .NET 8 runtime + Node 22 plus the shell tools
+# Toolchain image for building dev-kit agents: .NET SDK 10 + the .NET 8 runtime + Node 22 plus the shell tools
 # scripts/build-extension.sh needs. The SDK builds net8.0 as well as net10.0, and the script picks the target
 # framework from the host SDK version, so one toolchain serves hosts on either runtime. The .NET 8 shared runtime
 # is there for the ArmDot step, which runs on the built assembly and needs the runtime that assembly targets: without
@@ -33,7 +33,7 @@ RUN ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
  # jq/zip/unzip/file/curl are used directly by build-extension.sh. `file` appears only in the error path
  # that reports what a bad SDK download actually was (an HTML login page, a JSON error), so omitting it
  # silently degrades that diagnostic to "got .". git is NOT used by the build scripts; it is here because
- # a user extension may declare a git:/git+https npm dependency. curl, ca-certificates and git already
+ # a user agent may declare a git:/git+https npm dependency. curl, ca-certificates and git already
  # ship in the SDK base image and are listed anyway so a base-image change cannot silently remove them.
  && apt-get install -y --no-install-recommends jq zip unzip file curl ca-certificates git \
  && rm -rf /var/lib/apt/lists/* \
@@ -70,7 +70,7 @@ ENV DOTNET_NOLOGO=1 \
     npm_config_cache=/cache/npm \
     HOME=/tmp/build-home
 
-# The extension source is bind-mounted here. NOTE: a *named volume* mounted at any path this image does
+# The agent source is bind-mounted here. NOTE: a *named volume* mounted at any path this image does
 # not pre-create world-writable comes up 755 root:root and the caller's uid cannot write it — so the
 # tempting /work/**/node_modules volume (to dodge slow virtiofs on macOS) needs a matching mkdir+chmod
 # above before it will work.

@@ -3,15 +3,15 @@
 **What you'll do:** pick your next destination — there are four, and this page says when you'd want
 each one rather than just what it is.
 
-**What you need first:** [4. Build your first extension](build-your-first-extension.md) — a running
-platform with an extension loaded into it. If you skipped ahead from an earlier page, everything below
+**What you need first:** [4. Build your first agent](build-your-first-extension.md) — a running
+platform with an agent loaded into it. If you skipped ahead from an earlier page, everything below
 still applies.
 
 ---
 
 ## 6.1 The authoring manual — when you need to know how something actually works
 
-The guide you have just finished gets one extension running. It does not teach the extension model.
+The guide you have just finished gets one agent running. It does not teach the agent model.
 That is the 20 numbered guides in
 [`.claude/skills/duplo-extension-dev/reference/`](../../.claude/skills/duplo-extension-dev/reference),
 and **they are the source of truth** — the `/duplo-extension` authoring command reads them directly,
@@ -42,12 +42,12 @@ so what they say is what gets built.
 
 ## 6.2 The samples — when you want to see a pattern already working
 
-[`samples/`](../../samples) holds six extensions — a few big samples covering multiple use cases each,
+[`samples/`](../../samples) holds six agents — a few big samples covering multiple use cases each,
 plus focused mode references. Pick by the problem you have:
 
 | Sample | What it demonstrates |
 | --- | --- |
-| [`helloworld`](../../samples/helloworld) | **Start here.** The canonical typed extension — C# `ResourcesController` + service + entity, an Angular Native-Federation remote (list/add/view on the platform detail shell), and a provisioning skill. Takes `firstName` + `lastName`, produces `fullName` |
+| [`helloworld`](../../samples/helloworld) | **Start here.** The canonical typed agent — C# `ResourcesController` + service + entity, an Angular Native-Federation remote (list/add/view on the platform detail shell), and a provisioning skill. Takes `firstName` + `lastName`, produces `fullName` |
 | [`network-stack`](../../samples/network-stack) | **The big worked sample.** Long-running provisioning (background terraform watched by the agent with progressive module status), on-demand Plan/Apply actions after provisioning, execution logs with run history, a custom tabbed results view (Overview \| Network \| Logs \| Ask AI), C# enrichment for live state, and a multi-step create wizard |
 | [`parent-child`](../../samples/parent-child) | Two typed resources in one DLL — a `HelloParent` owning many `HelloChild`, with the child mounted at a nested route and listed from the parent's view |
 | [`passthrough-configmap`](../../samples/passthrough-configmap) | Passthrough mode: a Kubernetes ConfigMap created, updated, and deleted synchronously on CRUD — no agent, no worker |
@@ -55,7 +55,7 @@ plus focused mode references. Pick by the problem you have:
 | [`worker-compute`](../../samples/worker-compute) | Worker mode for work that is not a cloud object at all — two numbers in, sum and product out, no scope required |
 
 Every sample builds with a plain `npm install` + `npm run build`. There is no `ng serve` dev shell: an
-extension frontend is a remote loaded into the portal, not a standalone app, so the loop is
+agent frontend is a remote loaded into the portal, not a standalone app, so the loop is
 build → deploy → hot-load.
 
 ## 6.3 The rest of the docs — when you need the reference, not the tour
@@ -67,7 +67,7 @@ The full index is [docs/README.md](../README.md). The pages you are most likely 
 | [architecture.md](../architecture.md) | You want to know what you have actually been running — how the studio, agent, UI, xterm, and Mongo fit together, and how the hot-load loop works |
 | [configuration.md](../configuration.md) | You need to change something in `.env` and want to know the default, the effect, and whether it is managed for you |
 | [cli-reference.md](../cli-reference.md) | You want a flag you did not use in this guide — every entry point in `run.sh`, `stop.sh`, `logs.sh`, and `scripts/`, including which commands destroy what |
-| [upgrading.md](../upgrading.md) | A newer dev-kit version is out and you want it without losing your extensions or your configuration |
+| [upgrading.md](../upgrading.md) | A newer dev-kit version is out and you want it without losing your agents or your configuration |
 | [faq.md](../faq.md) | You have a question before something breaks — licensing, data, platform support, what happens on upgrade |
 
 ## 6.4 Going to production, and contributing back
@@ -84,7 +84,7 @@ users and Agents):
 
 Contributing:
 
-- [CONTRIBUTING.md](../../CONTRIBUTING.md) — **your own extensions stay in your repo.** The dev kit is
+- [CONTRIBUTING.md](../../CONTRIBUTING.md) — **your own agents stay in your repo.** The dev kit is
   clone-and-own, `extensions/` is yours, and nothing in it belongs upstream. Improvements to the
   *framework* — the scripts, the samples, the authoring skill, these docs — are what we take as PRs.
 - [SUPPORT.md](../../SUPPORT.md) — where to ask and what to expect. GitHub Issues, best effort, no

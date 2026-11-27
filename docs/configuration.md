@@ -107,10 +107,10 @@ Pin the published images the stack runs.
 | Variable | Default in `.env.example` | Effect |
 | --- | --- | --- |
 | `STUDIO_TAG` | `branch-refs-pull-548-merge-663a7586` | The DuploCloud AI studio image (the platform API). Format is `branch-<sanitized-branch>-<short-sha>`. Pinned to a build that enforces `Licensing:Token` — do not roll it back to a pre-licensing tag. |
-| `AGENT_TAG` | `main-d27e511` | The `claude-code-agent` image that executes provisioning tickets. A `main` build — it carries no extension-specific changes. |
+| `AGENT_TAG` | `main-d27e511` | The `claude-code-agent` image that executes provisioning tickets. A `main` build — it carries no agent-specific changes. |
 | `UI_TAG` | `2a949c536be71efd4501dd60ca6fdda4f7b4676a` | The Angular portal image. A `duplo-ui` git SHA, pinned to a build that renders the license state. |
 | `XTERM_TAG` | `main-d323e0b` | The in-browser terminal image. |
-| `INSTALLER_TAG` | `main-52db2327` | The extension installer image. Its own keys are under [Installing an extension](../README.md#installing-an-extension). |
+| `INSTALLER_TAG` | `main-52db2327` | The agent installer image. Its own keys are under [Installing an agent](../README.md#installing-an-agent). |
 | `STUDIO_PLATFORM` | `linux/amd64` | Docker platform for the studio image. On Apple Silicon the studio image is amd64-only and runs emulated. Leave as-is unless you have an arm64 image. |
 
 `STUDIO_TAG` and `UI_TAG` are required — `run.sh` exits if either is empty:
@@ -206,7 +206,7 @@ Managed by `./run.sh` — leave them blank in a fresh `.env` and let it prompt.
 | `MONGO_ROOT_PASSWORD` | Mongo's root password, generated once (`openssl rand -hex 32`) and regenerated only on `--reset`. Mongo applies it only when it initialises an empty data volume, so over a volume from before the key existed `run.sh` rotates the root password in place first, holding the new value in `MONGO_ROOT_PASSWORD_PENDING` until the database has taken it. |
 | `Agent__ApiAuthToken` | Generated once (`openssl rand -hex 32`). Regenerated only on `--reset`. The studio sends it as a bearer on every call to `claude-code-agent`, which receives it as `CCA_API_AUTH_TOKEN` and returns 401 to any call without it. |
 | `AIStudio__IsMasterDisabled` | `true`. Required for standalone operation with no DuploCloud master. |
-| `AIStudio__DevKitMode` | `true`. Dev-kit only: exposes the per-extension **Clean Database** admin action, which drops one extension's data collections. |
+| `AIStudio__DevKitMode` | `true`. Dev-kit only: exposes the per-agent **Clean Database** admin action, which drops one agent's data collections. |
 
 ## LLM provider
 
@@ -284,9 +284,9 @@ Written on first run. You should not need to set these by hand.
 | Variable | Effect |
 | --- | --- |
 | `DUPLO_ADMIN_TOKEN` | A never-expiring admin API token, minted by logging in as the admin user. Every script uses it when `DUPLO_TARGET=local`. |
-| `EXTENSION_DEV_WORKSPACE_ID` | The auto-created `extension-dev` workspace. |
-| `EXTENSION_DEV_PERMSET_ID` | The `extension-dev-access` permission set granting that workspace. |
-| `EXTENSION_DEV_PERMSETGROUP_ID` | The `extension-dev-group` assigning your admin user to that permission set. |
+| `EXTENSION_DEV_WORKSPACE_ID` | The auto-created `agent-dev` workspace. |
+| `EXTENSION_DEV_PERMSET_ID` | The `agent-dev-access` permission set granting that workspace. |
+| `EXTENSION_DEV_PERMSETGROUP_ID` | The `agent-dev-group` assigning your admin user to that permission set. |
 | `QDRANT_PROVIDER_ID`, `QDRANT_SCOPE_ID`, `QDRANT_COLLECTION_ID` | The `local-qdrant` provider, the `qdrant` scope over it, and the `devkit-docs` collection, all written by `scripts/register-qdrant.sh`. Cleared by `--reset` with the rest of the stack state, because the records they name go with the database. |
 
 The permission set and group exist because the UI's accessible-workspace list is permission-set based with

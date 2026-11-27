@@ -115,7 +115,7 @@ entity `OnPreDeleteAsync` (status/Import gate via `ResourceHooksBase`) → DB de
 
 ### Status / Result write-back (the agent's two APIs)
 - `POST {id}/status` → `UpdateStatusAsync` → persists → `OnAfterStatusUpdateAsync` (react to transitions;
-  e.g. an Extension resource unloads its DLL on `DeProvisioned`).
+  e.g. an Agent resource unloads its DLL on `DeProvisioned`).
 - `POST {id}/results` → `UpdateResultAsync` → persists → `OnAfterResultUpdateAsync` (e.g. auto-create a
   dependent resource).
 - **Status and results are separate APIs — never fold the result into a status payload.**
